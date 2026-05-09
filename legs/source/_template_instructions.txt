@@ -1,0 +1,44 @@
+TEMPLATE BLEND FILE INSTRUCTIONS
+=================================
+
+The file _template.blend in this directory is the starting point for all leg
+source files. It must be created once by a human in Blender.
+
+To create _template.blend:
+
+1. Open Blender. Use version 4.2 LTS or newer.
+
+2. Delete the default cube, camera, and light. The render script adds its
+   own camera and lights — including them in the .blend causes duplicates.
+
+3. World settings:
+   - Surface: Background node, color set to #7F7F7F (18% grey, but this is
+     only the viewport preview — the render script overrides this).
+   - No HDRI.
+
+4. Add an empty object at the world origin (0, 0, 0) as a placement guide.
+   Name it LEG_REPLACE_ME.
+
+5. Scene units:
+   - Unit system: Metric
+   - Unit scale: 0.01 (so 1 Blender unit = 1 cm)
+   - This makes the N-panel dimensions read in centimetres.
+
+6. Save as legs/source/_template.blend.
+
+When adding a new leg style:
+- Open _template.blend
+- Import or build the leg geometry
+- Rename the mesh object to LEG_<style>
+- Place the leg base at world origin (0, 0, 0)
+- Scale to 12 cm height (or the specified height for non-standard variants)
+- Apply all transforms: Object > Apply > All Transforms
+- Delete the LEG_REPLACE_ME placeholder
+- Save As legs/source/<style>.blend
+
+The render script (legs/render-blender.py) expects:
+- One mesh object named LEG_<style>, or the only non-background mesh in scene
+- Pivot at world origin
+- No lights
+- No background plane
+- At least one material slot on the leg object (the script overwrites the material)

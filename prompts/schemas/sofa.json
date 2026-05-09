@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nano-sofa/schemas/sofa.json",
+  "title": "Furniture variant generation request (sofa, bed)",
+  "version": "0.3.0",
+  "type": "object",
+  "required": ["task", "model", "product", "variant", "camera", "output"],
+  "properties": {
+    "task": {
+      "const": "generate_product_variant"
+    },
+
+    "model": {
+      "type": "string",
+      "enum": [
+        "gemini-2.5-flash-image",
+        "gemini-3.1-flash-image-preview",
+        "gemini-3-pro-image-preview"
+      ],
+      "description": "Active Nano Banana model ID. Must be one of the three currently live IDs as of 2026-05-08. gemini-2.5-flash-image-preview is SHUT DOWN (Jan 15 2026) — do not use. gemini-2.5-flash-image is GA but scheduled for deprecation Oct 2 2026. gemini-3.1-flash-image-preview and gemini-3-pro-image-preview are preview-tier; both carry thinking-token billing overhead and ~30-45% peak-hour failure rates."
+    },
+
+    "model_constraints": {
+      "type": "object",
+      "description": "Read-only summary of per-model limits. The Gradio app reads this to enforce ref-slot rules and resolution options at form-render time. Do not override these values in generation requests.",
+      "properties": {
+        "gemini-2.5-flash-image": {
+          "type": "object",
+          "properties": {
+            "max_reference_images": { "const": 3 },
+            "max_output_resolution": { "const": "1K" },
+            "supports_resolution_param": { "const": false },
+            "deprecation_date": { "const": "2026-10-02" }
+          }
+        },
+        "gemini-3.1-flash-image-preview": {
+          "type": "object",
+          "properties": {
+            "max_reference_images": { "const": 14 },
+            "max_output_resolution": { "const": "4K" },
+            "supports_resolution_param": { "const": true },
+            "thinking_on_by_default": { "const": true },
+            "deprecation_date": { "const": null }
+          }
+        },
+        "gemini-3-pro-image-preview": {
+          "type": "object",
+          "properties": {
+            "max_reference_images": { "const": 14 },
+            "max_output_resolution": { "const": "4K" },
+            "supports_resolution_param": { "const": true },
+            "thinking_on_by_default": { "const": true },
+            "thinking_cannot_be_disabled": { "const": true },
+            "deprecation_date": { "const": null }
+          }
+        }
+      }
+    },
+
+    "reference_slots": {
+      "type": "object",
+      "description": "Declares which reference images are included in this request and their send-order. Order matters: slot 1 is always the base product; the model uses positional context to know which image is which. The Gradio app assembles the contents list in slot-number order. On gemini-2.5-flash-image the hard cap is 3 slots total. Attempting to fill base + legs + scene + swatch on Flash will fail or silently drop slot 4. Use a preview-tier model if more than 3 reference slots are needed.",
+      "required": ["slot_1_base_product"],
+      "properties": {
+        "slot_1_base_product": {
+          "type": "string",
+          "description": "Stable ID of the base product photo. Always slot 1. Must resolve to a JPEG or PNG with a solid background — do not pass alpha-channel (transparent-background) PNGs here. If the source photo has alpha, flatten to 18% neutral grey before passing (mitigates background-bleed failure mode)."
+        },
+        "slot_2_leg_reference": {
+          "type": "string",
+          "description": "ID from legs/manifest.json. Always slot 2 when legs are being swapped. The app resolves this to the angle-matched render PNG for the camera angle in use."
+        },
+        "slot_3_scene_or_swatch": {
+          "type": "string",
+          "description": "Optional. If provided on gemini-2.5-flash-image, this exhausts the 3-ref cap — no slot 4 is available. Use for either a scene reference OR a fabric swatch, not both, on Flash. On preview-tier models, use slot_4_swatch for the swatch and keep this slot for the scene."
+        },
+        "slot_4_swatch": {
+          "type": "string",
+          "description": "Optional fabric swatch reference. Only reachable on gemini-3.1-flash-image-preview or gemini-3-pro-image-preview (14-ref cap). Leave absent on gemini-2.5-flash-image."
+        }
+      }
+    },
+
+    "system_instruction": {
+      "type": "string",
+      "description": "Text sent as the system instruction in GenerateContentConfig. Supported on all three active models (confirmed via Vertex AI capability tables, treat as best-effort until independently verified). Use this field to establish a standing product-photography persona. The stronger the system instruction, the lower the implicit-redesign rate. Example: 'You are a product photography assistant. Always preserve the camera angle, perspective, and product identity from the reference image. Never redesign, add accessories to, or alter the proportions of the product.'",
+      "default": "You are a product photography assistant. Your only job is to produce clean e-commerce imagery of the exact product shown in the reference photo. Preserve camera angle, frame geometry, cushion count, stitching pattern, leg count, leg positions, seat depth, arm height, and all visible joinery exactly. Never add throw pillows, decorative objects, or accessories that are not in the reference. Never change proportions to look more editorial. Never hallucinate text, brand names, or price labels."
+    },
+
+    "product": {
+      "type": "object",
+      "required": ["type", "configuration", "base_reference", "preserve"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["sofa", "bed"],
+          "description": "Product family. Drives prompt assembly: anatomy nouns, default preserve list, and whether leg-count emphasis is included. Adding a new family (chair, lounger, etc.) requires extending this enum and updating the prompt-builder branches in generator.py."
+        },
+        "configuration": {
+          "type": "string",
+          "description": "Sofa configurations or bed sizes. Validated per product.type at the application layer (the JSON schema's enum union accepts any of these values).",
+          "enum": [
+            "1-seater", "2-seater", "3-seater", "4-seater", "corner-left", "corner-right", "modular",
+            "twin", "full", "queen", "king", "california-king",
+            "european-single", "european-double", "european-king",
+            "super-king"
+          ]
+        },
+        "frame_style": {
+          "type": "string",
+          "description": "Bed-only field. Frame silhouette / construction style. Ignored when product.type is 'sofa'. Drives the prompt's frame-anatomy block and is the primary signal for the model to render the correct bed silhouette without inventing legs or footboards.",
+          "enum": [
+            "platform",
+            "low-profile-platform",
+            "panel",
+            "sleigh",
+            "four-poster",
+            "canopy",
+            "divan",
+            "ottoman-storage",
+            "captain",
+            "upholstered-platform",
+            "upholstered-headboard-only"
+          ]
+        },
+        "base_reference": {
+          "type": "string",
+          "description": "Stable ID resolving to the base product photo. Also populate reference_slots.slot_1_base_product with the same ID. Keeping both ensures downstream systems that read either field see a consistent value."
+        },
+        "leg_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12,
+          "description": "Number of visible legs. For sofas: usually 4. For beds: 0 on platform/divan/ottoman frames where legs are hidden or absent; 4 on most panel/sleigh/four-poster frames; 4-post variants count posts as legs. When leg_count is 0, the prompt OMITS leg-count emphasis entirely — critical to prevent the model from adding legs to platform beds."
+        },
+        "preserve": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Attributes that MUST NOT change from the base reference. This is the most load-bearing field in the schema. It is serialized into the prompt as an explicit do-not-change list. Omitting any item here is the primary cause of implicit-redesign failures. The enum is the union of attributes valid for every supported product type; the application layer should only suggest type-relevant items by default.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "frame_geometry",
+              "cushion_count_and_arrangement",
+              "stitching_pattern",
+              "piping_and_seam_geometry",
+              "armrest_silhouette",
+              "seat_height",
+              "back_height",
+              "seat_depth",
+              "overall_proportions",
+              "camera_angle",
+              "perspective",
+              "leg_count_and_positions",
+              "headboard_silhouette",
+              "headboard_height",
+              "footboard_geometry",
+              "footboard_presence",
+              "frame_silhouette",
+              "post_geometry",
+              "mattress_height",
+              "slat_visibility"
+            ]
+          }
+        }
+      }
+    },
+
+    "variant": {
+      "type": "object",
+      "required": ["upholstery"],
+      "properties": {
+        "upholstery": {
+          "type": "object",
+          "required": ["color", "material"],
+          "properties": {
+            "color": { "type": "string" },
+            "material": {
+              "type": "string",
+              "enum": ["bouclé", "linen", "cotton-velvet", "performance-velvet", "wool-blend", "leather-aniline", "leather-pigmented", "chenille", "tweed"]
+            },
+            "texture_notes": {
+              "type": "string",
+              "description": "Free-form texture descriptors that survive into the prompt verbatim. For bouclé: describe loop density. For velvet: state pile direction relative to camera. For leather: specify grain scale."
+            },
+            "base_image_has_alpha": {
+              "type": "boolean",
+              "default": false,
+              "description": "Set true if the base product image was delivered as a transparent-background PNG. The Gradio app uses this flag to pre-process the image: flattening alpha to 18% neutral grey before passing to the model. If true and the app does not pre-process, the background-bleed failure mode is likely — the model reconstructs a random studio background from training priors instead of treating alpha as 'no background'."
+            }
+          }
+        },
+        "legs": {
+          "type": "object",
+          "description": "Leg swap is OPTIONAL. Omit this object entirely to preserve the existing legs from the base reference. When present and reference is set, the model swaps legs to the referenced style.",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "description": "Optional. ID matching an entry in legs/manifest.json. Resolved by the app to the angle-matched leg render PNG for the active camera angle. Leg renders in the manifest are on 18% neutral grey backgrounds to avoid background-bleed when composited. Leave absent to preserve the existing legs from the base photo."
+            },
+            "explicit_descriptor": {
+              "type": "string",
+              "description": "Short text description of the leg style (e.g. 'four tapered cylindrical legs, no braces, no brackets, solid walnut, satin finish'). Included in the prompt alongside the reference image. The dual text+image signal is the primary mitigation for leg-geometry-morphing — the model sometimes blends leg styles when only a reference image is provided."
+            },
+            "instruction": {
+              "type": "string",
+              "default": "Replace ONLY the legs with the leg style shown in the reference image. The sofa has exactly [leg_count] legs. Do not add braces, brackets, or structural elements not present in the leg reference. Match the sofa's perspective and scale. Keep contact shadow consistent with the scene lighting direction. Do not modify the sofa frame, cushions, upholstery, or stitching."
+            }
+          }
+        },
+        "scene": {
+          "type": "object",
+          "properties": {
+            "reference": {
+              "type": "string",
+              "description": "Optional scene reference ID. If absent, the sofa renders against a neutral studio backdrop. If present on gemini-2.5-flash-image and both slot_2_leg_reference and slot_3_scene_or_swatch are already filled, the 3-ref cap is exhausted — the scene reference IS slot_3_scene_or_swatch in that case."
+            },
+            "instruction": {
+              "type": "string",
+              "default": "Place the sofa naturally within this scene. Match lighting direction, color temperature, and floor material from the scene reference. The shadow beneath the sofa must fall in the same direction as all other shadows in the scene."
+            }
+          }
+        }
+      }
+    },
+
+    "camera": {
+      "type": "object",
+      "required": ["angle"],
+      "description": "Camera contract. Stated explicitly in every prompt even when the base reference image is attached — long batch runs drift camera angle by a few degrees across variants even when re-anchored to the same reference. Belt-and-suspenders approach confirmed necessary by research.",
+      "properties": {
+        "angle": {
+          "type": "string",
+          "enum": ["front-0", "front-34-left", "front-34-right", "side-90", "low-34"]
+        },
+        "angle_degrees_from_left": {
+          "type": "integer",
+          "description": "Numeric equivalent of the angle enum, used for explicit prompt text (e.g. 'three-quarter front view, approximately 35 degrees from the left'). Values: front-0=0, front-34-left=35, front-34-right=325, side-90=90, low-34=35 (low). Include this in long-batch runs where camera drift is observed.",
+          "enum": [0, 35, 90, 325]
+        },
+        "shadow_direction": {
+          "type": "string",
+          "description": "Clock-position of the shadow cast by the sofa, stated from the sofa's perspective (e.g. '4 o-clock'). Included verbatim in the prompt. Required to mitigate shadow-direction-inconsistency failure mode — the model does not automatically match shadow angle for swapped elements (legs, backgrounds) unless explicitly instructed. Required when variant.legs or variant.scene are present.",
+          "examples": ["4 o-clock", "8 o-clock", "directly behind (12 o-clock)", "6 o-clock"]
+        },
+        "focal_length_mm": { "type": "integer", "default": 50 },
+        "aperture": { "type": "string", "default": "f/4.5" },
+        "framing": {
+          "type": "string",
+          "default": "full product visible with breathing room above and below"
+        }
+      }
+    },
+
+    "output": {
+      "type": "object",
+      "required": ["aspect_ratio"],
+      "properties": {
+        "aspect_ratio": {
+          "type": "string",
+          "enum": ["1:1", "4:3", "3:2", "16:9"],
+          "description": "All four values are supported on all three active models. Do not add 1:4, 4:1, 1:8, 8:1 — those are only available on gemini-3.1-flash-image-preview and are not needed for sofa product photography."
+        },
+        "resolution": {
+          "type": "string",
+          "enum": ["1K", "2K", "4K"],
+          "default": "1K",
+          "description": "Target output resolution. IMPORTANT: gemini-2.5-flash-image is capped at 1K (1024px max) — do not request 2K or 4K on that model. 2K and 4K are only available on gemini-3.1-flash-image-preview and gemini-3-pro-image-preview via the resolution parameter in ImageConfig. The Gradio app must enforce this per-model cap. Previous default of 2K was incorrect for the Flash stable model."
+        },
+        "style": {
+          "type": "string",
+          "default": "e-commerce hero photography, photorealistic, neutral color grading"
+        }
+      }
+    },
+
+    "negative": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [
+        "text",
+        "watermarks",
+        "brand labels",
+        "price tags",
+        "hallucinated text of any kind",
+        "distorted proportions",
+        "duplicate legs",
+        "missing legs",
+        "warped fabric",
+        "warped seams",
+        "asymmetric stitching where reference is symmetric",
+        "extra cushions",
+        "missing cushions",
+        "throw pillows not present in reference",
+        "decorative accessories not present in reference",
+        "alpha channel artefacts",
+        "incorrect background reconstruction",
+        "shadow direction inconsistent with scene lighting"
+      ]
+    },
+
+    "multi_turn": {
+      "type": "object",
+      "description": "Controls thought-signature passthrough for multi-turn edit sessions. Fine features (stitching, leg joinery, small details) drift between edit turns even when the original reference is re-attached. Mitigation: pass thought_signatures from the prior turn back with the next request. Also: do not run chains longer than 2-3 turns from a single original reference — save intermediate good outputs and re-feed them as the new base_reference.",
+      "properties": {
+        "prior_thought_signatures": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "thought_signature values extracted from the prior generation response. Include these in the next turn's contents list to maintain model context. Reduces identity drift in multi-turn sessions. Extract from response.candidates[0].content.parts where part.thought_signature is non-empty."
+        },
+        "turn_number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Which turn in the edit chain this request represents. Turn 1 has no prior_thought_signatures. If turn_number exceeds 3, the Gradio app should warn the user to save the current output and start a new chain with it as the base reference."
+        },
+        "chain_reset_recommended": {
+          "type": "boolean",
+          "description": "Set true by the app when turn_number > 3 to prompt the user to save and restart. The schema records this flag so pipeline tooling can log chain-reset events."
+        }
+      }
+    },
+
+    "notes": {
+      "type": "string",
+      "description": "Free-form human-readable note included verbatim in the prompt for the model to consider. Use this for one-off instructions that do not fit other fields."
+    }
+  }
+}
