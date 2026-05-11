@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# App runtime artifacts
+app/outputs/
+app/state/
+outputs/
+state/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code worktrees (kept locally only)
+.claude/worktrees/
+
+# Local secrets / env
+.env
+.env.*
+!.env.example
