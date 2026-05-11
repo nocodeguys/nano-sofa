@@ -44,9 +44,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # :latest on every push to app-v2-design
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/app-v2-design' }}
-            # :sha-<short> on every push
+            # :latest on every push to the default branch (main)
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # :edge on every push to the active dev branch
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/app-v2-design' }}
+            # :sha-<short> on every push (for pinning to an exact commit)
             type=sha,prefix=sha-,format=short
             # :<semver-tag> when a v*.*.* tag is pushed
             type=semver,pattern={{version}}
