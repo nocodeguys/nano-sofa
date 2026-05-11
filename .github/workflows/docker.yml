@@ -1,4 +1,4 @@
-name: Build and push Docker image
+name: Build, push, and release
 
 on:
   push:
@@ -68,10 +68,84 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
-  # ── Make image public note ──────────────────────────────────────────────────
-  # After the first push, the package is private by default in GHCR.
-  # To make it public:
-  #   1. Go to https://github.com/orgs/nocodeguys/packages/container/nano-sofa/settings
-  #   2. Scroll to "Danger Zone" → "Change visibility" → Public.
-  # The docker run / compose commands in INSTALL.md work without authentication
-  # only after this step.
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Release bundle — runs only on tag pushes, after the image is built + pushed.
+  # Produces nano-sofa-vX.Y.Z.zip containing the docker-compose.yml (pinned to
+  # the released tag, build: block stripped), the double-click installers, and
+  # INSTALL.md. Uploads it as a GitHub Release.
+  # ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release with install bundle
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assemble release bundle
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          BUNDLE_NAME="nano-sofa-${TAG}"
+          DEST="/tmp/${BUNDLE_NAME}"
+          mkdir -p "${DEST}/install" "${DEST}/outputs"
+
+          # Produce an end-user docker-compose.yml:
+          #   1. Pin the image to the released semver tag (not :latest), so an
+          #      older bundle never accidentally pulls a newer image with
+          #      breaking changes.
+          #   2. Strip the build: ... block — end-users pull, never build.
+          python3 - <<PY
+          import re, os, pathlib
+          version = os.environ["VERSION"]
+          dest = os.environ["DEST"]
+          src = pathlib.Path("docker-compose.yml").read_text()
+          src = src.replace(
+              "ghcr.io/nocodeguys/nano-sofa:latest",
+              f"ghcr.io/nocodeguys/nano-sofa:{version}",
+          )
+          # Match the build: key plus its indented children (and the trailing blank line)
+          src = re.sub(r"\n    build:\n(?:      .*\n)+", "\n", src)
+          pathlib.Path(f"{dest}/docker-compose.yml").write_text(src)
+          PY
+
+          cp install/start-mac.command "${DEST}/install/"
+          chmod +x "${DEST}/install/start-mac.command"
+          cp install/start-windows.bat "${DEST}/install/"
+          cp INSTALL.md "${DEST}/"
+          touch "${DEST}/outputs/.gitkeep"
+
+          (cd /tmp && zip -r "${BUNDLE_NAME}.zip" "${BUNDLE_NAME}")
+          ls -la "/tmp/${BUNDLE_NAME}.zip"
+          echo "BUNDLE_PATH=/tmp/${BUNDLE_NAME}.zip" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.BUNDLE_PATH }}
+          generate_release_notes: true
+          body: |
+            ## Quick start
+
+            **One-click (Mac / Windows):**
+            1. Download `nano-sofa-${{ github.ref_name }}.zip` below
+            2. Unzip
+            3. Double-click `install/start-mac.command` (Mac) or `install/start-windows.bat` (Windows)
+            4. Browser opens at http://localhost:7861 — paste your Gemini API key and click **Generuj wariant**
+
+            **CLI:**
+            ```bash
+            docker run --rm -p 7861:7861 -v "$PWD/outputs:/app/outputs" \
+              ghcr.io/nocodeguys/nano-sofa:${{ github.ref_name }}
+            ```
+
+            Get a Gemini API key at <https://aistudio.google.com/app/apikey>. The key stays in your browser (`localStorage`) — never sent anywhere except Google.
+
+            See `INSTALL.md` in the zip for troubleshooting (Docker not installed, port 7861 occupied, etc.).
+
+            ---
