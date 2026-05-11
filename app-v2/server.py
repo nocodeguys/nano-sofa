@@ -2,12 +2,21 @@
 server.py — FastAPI backend for Nano Sofa Studio v2.
 
 Serves the static React/HTML/CSS prototype from ./static and exposes:
-  GET  /                   → Nano Sofa Studio.html
-  GET  /<asset>            → other prototype assets (jsx, css)
+  GET  /                   → Nano Sofa Studio v2.html (current design)
+  GET  /v1                 → Nano Sofa Studio.html   (earlier design, static)
+  GET  /healthz            → liveness + capability report (no API call)
+  GET  /api/config         → model enum + per-model constraints
   POST /api/generate       → run a single generation
   GET  /api/outputs/<file> → serve a generated image
 
 Wraps app/core/generator.py from the parent project (shared with v1).
+
+Environment variables:
+  PORT          listen port (default 7861)
+  HOST          listen host (default 0.0.0.0)
+  OUTPUTS_DIR   where generated images and uploads live (default <repo>/outputs)
+                Mount this as a volume in Docker to persist renders.
+
 Run with:
     cd <repo-root> && python app-v2/server.py
 """
@@ -16,6 +25,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -120,9 +130,22 @@ app = FastAPI(title="Nano Sofa Studio v2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _STATIC_DIR = _THIS  # serve prototype files from app-v2/
-_UPLOAD_DIR = _REPO_ROOT / "outputs" / "v2-uploads"
-_OUTPUT_DIR = _REPO_ROOT / "outputs"
+
+# OUTPUTS_DIR is the volume mount target in Docker. We keep generator outputs
+# and per-request uploads under it so a single bind mount captures everything.
+# Falls back to <repo>/outputs for local dev (matches the v1 layout).
+_OUTPUT_DIR = Path(os.environ.get("OUTPUTS_DIR") or (_REPO_ROOT / "outputs")).resolve()
+_UPLOAD_DIR = _OUTPUT_DIR / "v2-uploads"
+_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Override the generator's hardcoded outputs dir so it writes to the volume too.
+# generator.py reads its dir at import time, so this must run before any call.
+try:
+    from app.core import generator as _gen_mod
+    _gen_mod._OUTPUTS_DIR = _OUTPUT_DIR
+except Exception:
+    pass
 
 
 @app.get("/")
@@ -133,6 +156,20 @@ def index():
 @app.get("/v1")
 def index_v1():
     return FileResponse(_STATIC_DIR / "Nano Sofa Studio.html")
+
+
+@app.get("/healthz")
+def healthz():
+    """
+    Liveness + capability report. No external calls. Used by Docker HEALTHCHECK
+    and by the frontend on boot to confirm the server is ready.
+    """
+    return {
+        "ok": True,
+        "model_ids": list(schema.model_ids),
+        "outputs_dir": str(_OUTPUT_DIR),
+        "n_outputs": sum(1 for p in _OUTPUT_DIR.glob("*.png")),
+    }
 
 
 @app.get("/api/config")
@@ -293,10 +330,12 @@ app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static"
 
 
 def main() -> None:
-    import os
     import uvicorn
+    host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", 7861))
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    log_level = os.environ.get("LOG_LEVEL", "info")
+    logger.info("Nano Sofa v2 starting on http://%s:%d  (outputs=%s)", host, port, _OUTPUT_DIR)
+    uvicorn.run(app, host=host, port=port, log_level=log_level)
 
 
 if __name__ == "__main__":
