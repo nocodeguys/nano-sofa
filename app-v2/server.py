@@ -96,6 +96,21 @@ _LEG_TO_ID = {
     "swivel": "swivel-base",
 }
 
+# Environment id (from data.jsx ENVIRONMENTS) → scene description fed to the prompt.
+_ENV_TO_SCENE = {
+    "studio_white":  "clean white studio cyclorama, soft even lighting, e-commerce catalog",
+    "studio_grey":   "neutral grey studio cyclorama, packshot lighting",
+    "scandi":        "scandinavian living room with light oak floors, white walls, indoor plants",
+    "loft":          "industrial loft with exposed brick, concrete, and dark metal accents",
+    "japandi":       "japandi interior, warm minimalist palette, natural wood, soft light",
+    "boho":          "bohemian living room with rattan, woven textiles, warm earthy tones",
+    "dark_moody":    "moody dark interior with deep walls and warm lamp lighting",
+    "garden":        "outdoor terrace / garden setting with greenery and natural daylight",
+    "showroom":      "brand showroom with subtle product staging, neutral palette",
+    "transparent":   "transparent background, isolated product, no environment, alpha PNG output",
+    "custom":        "custom interior referenced by the user's uploaded background image",
+}
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -111,6 +126,11 @@ _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.get("/")
 def index():
+    return FileResponse(_STATIC_DIR / "Nano Sofa Studio v2.html")
+
+
+@app.get("/v1")
+def index_v1():
     return FileResponse(_STATIC_DIR / "Nano Sofa Studio.html")
 
 
@@ -136,6 +156,9 @@ async def api_generate(
     lens: str = Form("50 mm — naturalna"),
     tod: str = Form("południe — neutralne"),
     shadow: str = Form("miękkie rozproszone"),
+    env: str = Form(""),
+    env_note: str = Form(""),
+    env_mode: str = Form(""),
     model: str = Form("gemini-2.5-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K — Flash limit"),
@@ -186,6 +209,13 @@ async def api_generate(
     notes_parts = []
     if tod:
         notes_parts.append(f"time of day: {tod}")
+    env_scene = _ENV_TO_SCENE.get(env, "")
+    if env_scene:
+        notes_parts.append(f"environment: {env_scene}")
+    if env_note.strip():
+        notes_parts.append(f"environment note: {env_note.strip()}")
+    if env_mode.strip():
+        notes_parts.append(f"environment use: {env_mode.strip()}")
     if seed.strip():
         notes_parts.append(f"seed hint: {seed.strip()}")
 
