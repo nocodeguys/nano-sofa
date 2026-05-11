@@ -491,10 +491,14 @@ def generate(req: GenerationRequest) -> GenerationResult:
 
     contents = list(req.prior_history) + [user_content]
 
-    # Build ImageConfig
+    # Build ImageConfig.
+    # google-genai 2.0.0 renamed the resolution kwarg to `image_size`. The
+    # accepted vocabulary is unchanged: "1K" / "2K" / "4K". Keeping
+    # GenerationRequest.resolution as the public field name so callers don't
+    # have to learn the SDK quirk.
     image_config_kwargs: dict[str, Any] = {"aspect_ratio": req.aspect_ratio}
     if schema.supports_resolution_param(req.model_id) and req.resolution != "1K":
-        image_config_kwargs["resolution"] = req.resolution
+        image_config_kwargs["image_size"] = req.resolution
 
     config = gtypes.GenerateContentConfig(
         system_instruction=req.system_instruction or schema.system_instruction_default,
