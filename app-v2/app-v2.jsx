@@ -53,7 +53,24 @@ function App({ t }) {
   useEffect(() => {
     try { localStorage.setItem(API_KEY_STORAGE, apiKey); } catch {}
   }, [apiKey]);
-  const [showKeyEdit, setShowKeyEdit] = useState(false);
+  // Open the key field automatically on first load when no key is set.
+  const [showKeyEdit, setShowKeyEdit] = useState(() => {
+    try { return !(localStorage.getItem(API_KEY_STORAGE) || ""); } catch { return true; }
+  });
+
+  // Server-driven config: models + per-model constraints (max_refs, resolutions).
+  // Falls back to a single Flash entry if the request fails so the UI still loads.
+  const [serverConfig, setServerConfig] = useState({
+    models: [{ id: "gemini-2.5-flash-image", label: "gemini-2.5-flash-image", tier: "flash",
+               max_refs: 3, resolutions: ["1K"] }],
+    default_model: "gemini-2.5-flash-image",
+  });
+  useEffect(() => {
+    fetch("/api/config")
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg && cfg.models && cfg.models.length) setServerConfig(cfg); })
+      .catch(() => {});
+  }, []);
 
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
@@ -90,11 +107,33 @@ function App({ t }) {
   const sizeObj  = useMemo(() => sizes.find(s => s.id === st.size) || sizes[0], [sizes, st.size]);
   const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
   const envObj   = useMemo(() => ENVIRONMENTS.find(e => e.id === st.env), [st.env]);
+  const modelObj = useMemo(
+    () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
+    [serverConfig, st.model],
+  );
+
+  // If the server's catalogue doesn't include the currently-selected model
+  // (e.g. dev edited the schema), snap to the server default. Same for resolution
+  // when the chosen one isn't in the active model's allow-list.
+  useEffect(() => {
+    if (!serverConfig.models.length) return;
+    const knownIds = serverConfig.models.map(m => m.id);
+    if (!knownIds.includes(st.model)) {
+      set({ model: serverConfig.default_model });
+      return;
+    }
+    const allowedRes = modelObj?.resolutions || ["1K"];
+    const currentRes = (st.res || "").split(" ")[0];   // "1K — Flash limit" → "1K"
+    if (!allowedRes.includes(currentRes)) {
+      set({ res: allowedRes[0] });
+    }
+  }, [serverConfig, st.model]);
 
   const cost = useMemo(() => {
     const base = st.model.includes("pro") ? 0.12 : 0.03;
     const refMult = 1 + st.refs.filter(Boolean).length * 0.15;
-    const resMult = st.res.startsWith("2K") ? 1.6 : 1;
+    const r = (st.res || "").split(" ")[0];
+    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
     return (base * refMult * resMult).toFixed(3);
   }, [st.model, st.refs, st.res]);
 
@@ -313,6 +352,31 @@ function App({ t }) {
           <p>Wszystkie ustawienia widoczne na raz, żywy podgląd po lewej. Przewiń od góry, ustaw co chcesz, naciśnij Generuj.</p>
         </div>
 
+        {/* API key banner — sticks until a key is entered. Inline so it can't be missed. */}
+        {!apiKey && (
+          <div className="api-banner">
+            <div className="api-banner-head">
+              <div className="api-banner-eyebrow">krok zerowy</div>
+              <div className="api-banner-title serif">Wklej swój klucz Gemini API, żeby zacząć</div>
+              <div className="api-banner-help">
+                Klucz przechowujemy tylko w Twojej przeglądarce (localStorage). Nie wysyłamy go nigdzie poza
+                wywołaniem do Google przy każdym renderze. Pobierz klucz z {" "}
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">aistudio.google.com/app/apikey</a>.
+              </div>
+            </div>
+            <div className="api-banner-form">
+              <input
+                autoFocus
+                type="password"
+                className="input"
+                placeholder="AIza..."
+                onChange={e => setApiKey(e.target.value)}
+                style={{flex:1, fontFamily:"Geist Mono", fontSize: 13}}
+              />
+            </div>
+          </div>
+        )}
+
         {/* 01 — output (was 09) */}
         <Section num="01" title="Wyjście" summary={`${st.model.includes("pro") ? "pro" : "flash"} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help="Model, proporcje, rozdzielczość. Flash: szybki, do 1K, max 3 referencje. Pro: do 2K, droższy 4×.">
@@ -320,8 +384,11 @@ function App({ t }) {
             <div>
               <div className="field-lbl">model</div>
               <select className="select" value={st.model} onChange={e => set({ model: e.target.value })}>
-                <option value="gemini-2.5-flash-image">gemini-2.5-flash-image</option>
-                <option value="gemini-2.5-pro-image">gemini-2.5-pro-image</option>
+                {serverConfig.models.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} {m.tier === "pro" ? "· pro" : "· flash"} · do {m.max_resolution || "1K"}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -332,10 +399,15 @@ function App({ t }) {
             </div>
             <div>
               <div className="field-lbl">rozdz.</div>
-              <select className="select" value={st.res} onChange={e => set({ res: e.target.value })}>
-                <option>1K — Flash limit</option>
-                <option>2K — tylko Pro</option>
+              <select className="select" value={(st.res || "").split(" ")[0]}
+                      onChange={e => set({ res: e.target.value })}>
+                {(modelObj?.resolutions || ["1K"]).map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
               </select>
+              <div style={{fontSize:10, color:"var(--ink-3)", marginTop:4, fontFamily:"Geist Mono"}}>
+                limit modelu: {modelObj?.max_resolution || "1K"} · {modelObj?.max_refs || 3} ref.
+              </div>
             </div>
             <div>
               <div className="field-lbl">seed</div>
@@ -569,32 +641,46 @@ function App({ t }) {
         </Section>
 
         {/* 08 — references */}
-        <Section num="09" title="Referencje" summary={st.refs.filter(Boolean).length + " / 3"}
-          help="Maks. 3 obrazy — limit modelu Flash. Wybierz najtrafniejsze kadry, nie cały moodboard.">
-          <div className="refs">
-            {[0, 1, 2].map(i => (
-              <div key={i}
-                className={"ref-slot " + (st.refs[i] ? "filled" : "")}
-                onClick={() => {
-                  const next = [...st.refs];
-                  next[i] = next[i] ? null : ["nastrojowa.jpg", "tkanina-zbliz.jpg", "salon-ref.jpg"][i];
-                  set({ refs: next });
-                }}>
-                {st.refs[i] ? (
-                  <div>
-                    <div className="fname">{st.refs[i]}</div>
-                    <div className="fhint">kliknij aby usunąć</div>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: 16, marginBottom: 3 }}>+</div>
-                    <div>slot {i + 1}</div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Section>
+        {(() => {
+          // Base product image always occupies slot 1 → user can add up to max_refs - 1 extras.
+          const maxExtras = Math.max(0, (modelObj?.max_refs || 3) - 1);
+          const slotCount = Math.max(0, Math.min(maxExtras, 6));   // UI hard cap of 6 to keep layout sane
+          const filled = st.refs.filter(Boolean).length;
+          return (
+            <Section num="09" title="Referencje"
+              summary={slotCount === 0 ? "n/d" : `${filled} / ${slotCount}`}
+              help={slotCount === 0
+                ? "Wybrany model nie przyjmuje dodatkowych referencji — wystarczy samo zdjęcie bazowe."
+                : `Maks. ${slotCount} dodatkowe obrazy dla wybranego modelu. Wybierz najtrafniejsze kadry, nie cały moodboard.`}>
+              {slotCount > 0 ? (
+                <div className="refs">
+                  {Array.from({length: slotCount}).map((_, i) => (
+                    <div key={i}
+                      className={"ref-slot " + (st.refs[i] ? "filled" : "")}
+                      onClick={() => {
+                        const next = [...st.refs];
+                        while (next.length < slotCount) next.push(null);
+                        next[i] = next[i] ? null : ["nastrojowa.jpg", "tkanina-zbliz.jpg", "salon-ref.jpg", "ref-4.jpg", "ref-5.jpg", "ref-6.jpg"][i];
+                        set({ refs: next });
+                      }}>
+                      {st.refs[i] ? (
+                        <div>
+                          <div className="fname">{st.refs[i]}</div>
+                          <div className="fhint">kliknij aby usunąć</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontSize: 16, marginBottom: 3 }}>+</div>
+                          <div>slot {i + 1}</div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </Section>
+          );
+        })()}
 
         {/* end */}
         {genError && (

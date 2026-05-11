@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.core.generator import GenerationRequest, generate  # noqa: E402
+from app.core.schema_loader import schema  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nano-sofa-v2")
@@ -134,6 +135,31 @@ def index_v1():
     return FileResponse(_STATIC_DIR / "Nano Sofa Studio.html")
 
 
+@app.get("/api/config")
+def api_config():
+    """
+    Returns the model enum + per-model constraints so the frontend can render
+    the model picker and disable invalid resolution / refs combinations.
+    Source of truth: prompts/schemas/sofa.json (via app.core.schema_loader).
+    """
+    models = []
+    for mid in schema.model_ids:
+        tier = "pro" if "pro" in mid else "flash"
+        models.append({
+            "id": mid,
+            "label": mid,
+            "tier": tier,
+            "max_refs": schema.max_refs_for_model(mid),
+            "max_resolution": schema.max_resolution_for_model(mid),
+            "supports_resolution_param": schema.supports_resolution_param(mid),
+            "resolutions": schema.resolution_choices_for_model(mid),
+        })
+    return {
+        "models": models,
+        "default_model": models[0]["id"] if models else None,
+    }
+
+
 @app.get("/api/outputs/{name}")
 def get_output(name: str):
     candidate = _OUTPUT_DIR / name
@@ -201,7 +227,9 @@ async def api_generate(
     }
     shadow_direction = shadow_map.get(shadow, "soft diffuse, no strong directional shadow")
 
-    resolution = "2K" if res.startswith("2K") else "1K"
+    # Accept "1K" / "2K" / "4K" (new) or legacy "1K — Flash limit" / "2K — tylko Pro".
+    res_token = (res or "1K").split(" ")[0].strip().upper()
+    resolution = res_token if res_token in ("1K", "2K", "4K") else "1K"
 
     leg_count = 0 if is_bed and legs == "keep" else 4
     leg_id = _LEG_TO_ID.get(legs)

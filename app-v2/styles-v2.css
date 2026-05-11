@@ -1091,3 +1091,44 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
   border-radius: 4px;
   color: rgba(255,255,255,.85);
 }
+
+/* ============================================================
+   API key onboarding banner (Phase 1)
+   ============================================================ */
+.api-banner {
+  margin: 6px 0 22px;
+  padding: 18px 20px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--paper), var(--bg-2));
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 4px rgba(92,122,86,.08), 0 6px 24px -12px rgba(20,22,18,.18);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.api-banner-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  font-family: 'Geist Mono', monospace;
+}
+.api-banner-title {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-top: 2px;
+  line-height: 1.15;
+}
+.api-banner-help {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.api-banner-help a {
+  color: var(--accent-ink);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.api-banner-form { display: flex; gap: 8px; }
