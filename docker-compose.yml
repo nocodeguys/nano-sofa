@@ -1,0 +1,40 @@
+services:
+  nano-sofa:
+    # Pull the pre-built multi-arch image from GitHub Container Registry.
+    # For local dev builds, comment out `image:` and uncomment `build:`.
+    image: ghcr.io/nocodeguys/nano-sofa:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    ports:
+      - "7861:7861"
+
+    volumes:
+      # Generated images persist across container restarts.
+      # This is the only volume required for v2.
+      - ./outputs:/app/outputs
+
+      # Optional: mount prompts and legs so a non-technical user can edit a
+      # JSON schema or add a leg render without rebuilding the image.
+      # Uncomment to activate:
+      # - ./prompts:/app/prompts
+      # - ./legs:/app/legs
+
+    environment:
+      PORT: "7861"
+      HOST: "0.0.0.0"
+      LOG_LEVEL: "info"
+      OUTPUTS_DIR: "/app/outputs"
+      # GEMINI_API_KEY is intentionally absent — each user supplies their own
+      # key through the browser UI. It is never stored in the container.
+
+    # Mirror the Dockerfile healthcheck so `docker compose ps` shows healthy.
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:7861/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+    restart: unless-stopped

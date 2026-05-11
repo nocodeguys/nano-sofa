@@ -1,0 +1,60 @@
+# Nano Sofa Studio v2 — .dockerignore
+# Excludes files that must never enter the build context.
+# Keep this list explicit so accidental new directories don't slip in.
+
+# Virtual environment — never copy into image
+.venv/
+**/.venv/
+
+# Claude agent internals
+.claude/
+
+# Generated outputs — mounted as a volume at runtime
+outputs/
+app/outputs/
+app-v2/uploads/
+
+# SQLite state — v2 doesn't use one, but exclude defensively
+state/
+app/state/
+
+# Python bytecode
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Git internals
+.git/
+.gitignore
+.gitattributes
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Test artefacts
+tests/
+*_test.py
+test_*.py
+
+# Raw input data (user uploads, not baked into image)
+data/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docs (large, not needed at runtime)
+docs/
+
+# CI / local scripts not needed in image
+install/
+*.command
+*.bat
+
+# Node (shouldn't exist, but just in case)
+node_modules/
