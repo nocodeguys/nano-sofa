@@ -1,6 +1,7 @@
 /* global React, ReactDOM, Ic, NS_DATA */
 const { useState, useMemo, useRef, useEffect } = React;
-const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS } = NS_DATA;
+const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
+        LENSES, TIMES_OF_DAY, SHADOWS } = NS_DATA;
 
 /* ---------- helpers ---------- */
 function LegGlyph({ id }) {
@@ -79,14 +80,15 @@ function App({ t }) {
     mat: "boucle", matNotes: "",
     size: "3",
     legs: "keep",
-    cam: "studio", lens: "50 mm — naturalna", tod: "południe — neutralne", shadow: "miękkie rozproszone",
+    cam: "studio", lens: "50mm_natural", tod: "noon_neutral", shadow: "soft_diffuse",
     env: "scandi", envFile: null, envNote: "", envMode: "reference",
     refs: [null, null, null],
-    model: "gemini-2.5-flash-image", aspect: "4:3", res: "1K — Flash limit", seed: "",
+    model: "gemini-3.1-flash-image-preview", aspect: "4:3", res: "1K", seed: "",
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
 
   const fileRef = useRef(null);
+  const envFileRef = useRef(null);
   const onPickBase = (file) => {
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -101,12 +103,53 @@ function App({ t }) {
   const [gallery, setGallery] = useState([]); // {url, color, tag, cost}
   const [activeGallery, setActiveGallery] = useState(-1);
 
+  // Color-variant set state. variantColors is the user's multi-pick of color
+  // ids (first = anchor). variantSet is the result strip after the server
+  // returns { anchor, variants[] } from /api/generate-set.
+  const [variantColors, setVariantColors] = useState([]);   // English color ids
+  const [variantSet, setVariantSet]       = useState(null); // { anchor, variants, total_cost }
+  const [variantBusy, setVariantBusy]     = useState(false);
+  const [variantError, setVariantError]   = useState("");
+
   const colorObj = useMemo(() => COLORS.find(c => c.id === st.color), [st.color]);
   const matObj   = useMemo(() => MATERIALS.find(m => m.id === st.mat), [st.mat]);
   const sizes    = st.kind === "bed" ? SIZES_BED : SIZES_SOFA;
   const sizeObj  = useMemo(() => sizes.find(s => s.id === st.size) || sizes[0], [sizes, st.size]);
   const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
   const envObj   = useMemo(() => ENVIRONMENTS.find(e => e.id === st.env), [st.env]);
+  const lensObj   = useMemo(() => LENSES.find(l => l.id === st.lens),         [st.lens]);
+  const todObj    = useMemo(() => TIMES_OF_DAY.find(t => t.id === st.tod),    [st.tod]);
+  const shadowObj = useMemo(() => SHADOWS.find(s => s.id === st.shadow),      [st.shadow]);
+
+  // Single source of truth for the public JSON contract — the same shape is
+  // used by the JSON tab preview, the JSON-tab Copy button, and the footer
+  // "kopiuj JSON" button. Every value is an English stable id, a hex color,
+  // a measurement string, or null. No Polish strings, no UI-only state.
+  const jsonPayload = useMemo(() => ({
+    product: { type: st.kind, base: st.uploaded ? st.baseFileName || "base.jpg" : null },
+    variant: {
+      color: st.color === "custom"
+        ? { custom: st.colorCustom }
+        : { id: colorObj?.id, hex: colorObj?.hex },
+      material: { id: matObj?.id, notes: st.matNotes || null },
+      size: { id: sizeObj?.id, dim: sizeObj?.dim },
+      legs: st.kind === "bed" ? "disabled_for_bed" : st.legs,
+    },
+    scene: {
+      environment: envObj?.id,
+      camera: camObj?.id,
+      lens: lensObj?.id || st.lens,
+      time_of_day: todObj?.id || st.tod,
+      shadows: shadowObj?.id || st.shadow,
+    },
+    references: st.refs.filter(Boolean),
+    output: {
+      model: st.model,
+      aspect: st.aspect,
+      resolution: (st.res || "").split(" ")[0],
+      seed: st.seed || null,
+    },
+  }), [st, colorObj, matObj, sizeObj, envObj, camObj, lensObj, todObj, shadowObj]);
   const modelObj = useMemo(
     () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
     [serverConfig, st.model],
@@ -163,6 +206,9 @@ function App({ t }) {
     fd.append("res", st.res);
     fd.append("seed", st.seed || "");
     fd.append("base_image", st.baseFile);
+    if (st.envFile && st.envFile instanceof File) {
+      fd.append("scene_image", st.envFile);
+    }
 
     setGenerating(true);
     try {
@@ -189,6 +235,71 @@ function App({ t }) {
     if (!sizes.find(s => s.id === st.size)) set({ size: sizes[0].id });
     // eslint-disable-next-line
   }, [st.kind]);
+
+  // Toggle a color in the variant pick list. First entry is the anchor.
+  const toggleVariantColor = (cid) => {
+    setVariantColors(prev =>
+      prev.includes(cid) ? prev.filter(c => c !== cid) : [...prev, cid]
+    );
+  };
+
+  // Estimated cost for the whole set (anchor + N variants) using the same
+  // per-render multipliers as the single-render cost calc above.
+  const variantSetCost = useMemo(() => {
+    const base = st.model.includes("pro") ? 0.12 : 0.067;
+    const r = (st.res || "").split(" ")[0];
+    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
+    // Each non-anchor variant has 1 extra reference (the anchor png), so apply 1.15× ref multiplier.
+    const anchorCost = base * resMult;
+    const variantCost = base * 1.15 * resMult;
+    return (anchorCost + variantCost * Math.max(0, variantColors.length - 1)).toFixed(3);
+  }, [st.model, st.res, variantColors.length]);
+
+  const handleGenerateSet = async () => {
+    setVariantError("");
+    setVariantSet(null);
+    if (!apiKey.trim()) { setVariantError("Wklej klucz Gemini API u góry sceny."); setShowKeyEdit(true); return; }
+    if (!st.baseFile)   { setVariantError("Wgraj zdjęcie bazowe (sekcja 02)."); return; }
+    if (variantColors.length < 2) { setVariantError("Wybierz co najmniej 2 kolory."); return; }
+
+    const fd = new FormData();
+    fd.append("api_key", apiKey.trim());
+    fd.append("kind", st.kind);
+    fd.append("colors_csv", variantColors.join(","));
+    fd.append("color_custom", st.colorCustom || "");
+    fd.append("mat", st.mat);
+    fd.append("mat_notes", st.matNotes || "");
+    fd.append("size", st.size);
+    fd.append("legs", st.legs);
+    fd.append("cam", st.cam);
+    fd.append("lens", st.lens);
+    fd.append("tod", st.tod);
+    fd.append("shadow", st.shadow);
+    fd.append("env", st.env || "");
+    fd.append("env_note", st.envNote || "");
+    fd.append("env_mode", st.envMode || "");
+    fd.append("model", st.model);
+    fd.append("aspect", st.aspect);
+    fd.append("res", st.res);
+    fd.append("seed", st.seed || "");
+    fd.append("base_image", st.baseFile);
+    if (st.envFile && st.envFile instanceof File) fd.append("scene_image", st.envFile);
+
+    setVariantBusy(true);
+    try {
+      const r = await fetch("/api/generate-set", { method: "POST", body: fd });
+      const data = await r.json();
+      if (!r.ok || data.error) {
+        setVariantError(data.error || `Błąd serwera (${r.status})`);
+      } else {
+        setVariantSet(data);
+      }
+    } catch (e) {
+      setVariantError(String(e && e.message ? e.message : e));
+    } finally {
+      setVariantBusy(false);
+    }
+  };
 
   return (
     <div className="shell">
@@ -220,6 +331,7 @@ function App({ t }) {
         <div className="stage-tabs">
           <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>Mockup</button>
           <button className={stageTab === "json" ? "on" : ""} onClick={() => setStageTab("json")}>JSON</button>
+          <button className={stageTab === "variants" ? "on" : ""} onClick={() => setStageTab("variants")}>Warianty</button>
         </div>
 
         <div className="stage-canvas" style={{
@@ -227,8 +339,8 @@ function App({ t }) {
           "--stage-zoom": (t.stageZoom / 100),
           "--vignette-opacity": t.stageVignette ? 0.18 : 0,
         }}>
-          {(() => {
-            const showGen = stageTab === "mockup" && activeGallery >= 0 && gallery[activeGallery] && gallery[activeGallery].url;
+          {stageTab === "mockup" && (() => {
+            const showGen = activeGallery >= 0 && gallery[activeGallery] && gallery[activeGallery].url;
             if (showGen) {
               return <img src={gallery[activeGallery].url} alt="rendering"
                           style={{position:"absolute", inset:"6% 6% 14% 6%", width:"88%", height:"80%", objectFit:"contain"}} />;
@@ -250,7 +362,7 @@ function App({ t }) {
             );
           })()}
 
-          {t.showFloorTag && <div className="stage-summary-top">
+          {stageTab === "mockup" && t.showFloorTag && <div className="stage-summary-top">
             <div className="line"><span className="k">kolor</span><span className="v serif">{colorObj?.name || "—"}</span></div>
             <div className="line"><span className="k">tkanina</span><span className="v serif">{matObj?.name || "—"}</span></div>
             <div className="line"><span className="k">format</span><span className="v serif">{sizeObj?.name} · {sizeObj?.dim}</span></div>
@@ -272,60 +384,242 @@ function App({ t }) {
             ))}
           </div>}
 
-          {stageTab === "mockup" && <button className="gen-fab" onClick={handleGenerate} style={{
-            left: t.fabAlign === "left" ? 24 : t.fabAlign === "right" ? "auto" : "50%",
-            right: t.fabAlign === "right" ? 24 : "auto",
-            transform: t.fabAlign === "center" ? "translateX(-50%)" : "none",
-          }}>
-            <span className="ico">{Ic.sparkle}</span>
-            <span>Generuj wariant</span>
-            <span className="cost">${cost}</span>
-            <span className="kbd">⌘ ↵</span>
-          </button>}
+          {stageTab === "mockup" && (() => {
+            const activeImg = activeGallery >= 0 && gallery[activeGallery] && gallery[activeGallery].url ? gallery[activeGallery] : null;
+            let downloadName = "";
+            if (activeImg) {
+              const tag = activeImg.tag || ("v" + (activeGallery + 1));
+              const slug = [colorObj?.id, matObj?.id, envObj?.id].filter(Boolean).join("-");
+              const ext = (activeImg.url.split(".").pop() || "png").split("?")[0];
+              downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
+            }
+            return (
+              <div className="stage-actions" style={{
+                position: "absolute", bottom: 24, zIndex: 4,
+                display: "flex", alignItems: "center", gap: 10,
+                left:      t.fabAlign === "left"   ? 24    : t.fabAlign === "right" ? "auto" : "50%",
+                right:     t.fabAlign === "right"  ? 24    : "auto",
+                transform: t.fabAlign === "center" ? "translateX(-50%)" : "none",
+              }}>
+                {activeImg && (
+                  <a className="stage-download"
+                     href={activeImg.url}
+                     download={downloadName}
+                     title="Pobierz PNG"
+                     style={{
+                       display: "flex", alignItems: "center", gap: 8,
+                       padding: "11px 16px", fontSize: 13, fontFamily: "Geist",
+                       background: "rgba(255,255,255,.92)", color: "var(--ink)",
+                       borderRadius: 999, textDecoration: "none",
+                       border: "0.5px solid rgba(0,0,0,.12)",
+                       boxShadow: "var(--shadow-pop)",
+                       cursor: "pointer",
+                       letterSpacing: "-0.005em",
+                     }}>
+                    <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
+                    <span>Pobierz PNG</span>
+                  </a>
+                )}
+                <button className="gen-fab" onClick={handleGenerate} style={{
+                  position: "static", transform: "none", left: "auto", right: "auto",
+                }}>
+                  <span className="ico">{Ic.sparkle}</span>
+                  <span>Generuj wariant</span>
+                  <span className="cost">${cost}</span>
+                  <span className="kbd">⌘ ↵</span>
+                </button>
+              </div>
+            );
+          })()}
 
           {stageTab === "json" && (
             <div className="stage-json">
               <div className="stage-json-head">
                 <button className={"stage-json-copy " + (copied ? "ok" : "")} onClick={() => {
-                  const data = {
-                    product: { type: st.kind, base: st.uploaded ? "sofa-katalog-2026.jpg" : null },
-                    variant: {
-                      color: st.color === "custom" ? { custom: st.colorCustom } : { id: colorObj?.id, name: colorObj?.name, hex: colorObj?.hex },
-                      material: { id: matObj?.id, name: matObj?.name, notes: st.matNotes || null },
-                      size: { id: sizeObj?.id, label: sizeObj?.name, dim: sizeObj?.dim },
-                      legs: st.kind === "bed" ? "disabled_for_bed" : st.legs,
-                    },
-                    scene: {
-                      environment: envObj?.id,
-                      camera: camObj?.id,
-                      lens: st.lens, time_of_day: st.tod, shadows: st.shadow,
-                    },
-                    references: st.refs.filter(Boolean),
-                    output: { model: st.model, aspect: st.aspect, resolution: st.res.split(" ")[0], seed: st.seed || null },
-                  };
-                  navigator.clipboard?.writeText(JSON.stringify(data, null, 2));
+                  navigator.clipboard?.writeText(JSON.stringify(jsonPayload, null, 2));
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1400);
                 }}>
                   {copied ? <><span>{Ic.check}</span> Skopiowano</> : <><span>{Ic.copy}</span> Kopiuj</>}
                 </button>
               </div>
-              <pre><code dangerouslySetInnerHTML={{__html: highlightJson(JSON.stringify({
-                product: { type: st.kind, base: st.uploaded ? "sofa-katalog-2026.jpg" : null },
-                variant: {
-                  color: st.color === "custom" ? { custom: st.colorCustom } : { id: colorObj?.id, name: colorObj?.name, hex: colorObj?.hex },
-                  material: { id: matObj?.id, name: matObj?.name, notes: st.matNotes || null },
-                  size: { id: sizeObj?.id, label: sizeObj?.name, dim: sizeObj?.dim },
-                  legs: st.kind === "bed" ? "disabled_for_bed" : st.legs,
-                },
-                scene: {
-                  environment: envObj?.id,
-                  camera: camObj?.id,
-                  lens: st.lens, time_of_day: st.tod, shadows: st.shadow,
-                },
-                references: st.refs.filter(Boolean),
-                output: { model: st.model, aspect: st.aspect, resolution: st.res.split(" ")[0], seed: st.seed || null },
-              }, null, 2))}}/></pre>
+              <pre><code dangerouslySetInnerHTML={{__html: highlightJson(JSON.stringify(jsonPayload, null, 2))}}/></pre>
+            </div>
+          )}
+
+          {stageTab === "variants" && (
+            <div className="stage-variants" style={{
+              // Clear the stage-mark (y≈22-50) and stage-tabs (y≈56-89) which
+              // sit on top of the canvas. Start below them.
+              position:"absolute", top: 100, left: 0, right: 0, bottom: 0,
+              display:"flex", flexDirection:"column", gap: 14,
+              background:"var(--paper, #f4f0e5)",
+              padding: "8px 24px 24px",
+              overflow:"auto",
+              zIndex: 2,
+            }}>
+              {/* Locked-setup summary — keep on one line; no wrap into tabs row */}
+              <div style={{
+                display:"flex", flexWrap:"wrap", alignItems:"baseline",
+                gap: "4px 10px", fontSize: 11,
+                color:"var(--ink-3)", fontFamily:"Geist Mono",
+                lineHeight: 1.5,
+              }}>
+                <span style={{color:"var(--ink-4, #888)"}}>Zablokowane:</span>
+                <span><b style={{color:"var(--ink)"}}>{matObj?.name}</b></span>
+                <span>· {sizeObj?.name} ({sizeObj?.dim})</span>
+                <span>· {envObj?.name}</span>
+                <span>· {camObj?.name}</span>
+                <span>· {lensObj?.name?.split(" — ")[0]}</span>
+                <span>· {todObj?.name?.split(" — ")[0]}</span>
+                <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
+              </div>
+
+              <div>
+                <div style={{fontSize: 13, marginBottom: 6}}>Wybierz kolory (pierwszy = anchor, reszta dziedziczy scenę)</div>
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(72px, 1fr))", gap: 8}}>
+                  {COLORS.map((c, i) => {
+                    const picked = variantColors.includes(c.id);
+                    const idx = variantColors.indexOf(c.id);
+                    return (
+                      <button key={c.id}
+                              onClick={() => toggleVariantColor(c.id)}
+                              disabled={variantBusy}
+                              style={{
+                                position:"relative",
+                                padding: 0, border: 0, cursor: "pointer",
+                                borderRadius: 10, overflow:"hidden",
+                                aspectRatio: "1 / 1",
+                                background: c.hex,
+                                outline: picked ? "2.5px solid var(--ink)" : "0.5px solid rgba(0,0,0,.15)",
+                                outlineOffset: picked ? 1 : 0,
+                                opacity: variantBusy ? 0.5 : 1,
+                              }}
+                              title={c.name}>
+                        {picked && (
+                          <span style={{
+                            position:"absolute", top: 4, left: 4,
+                            background: "var(--ink)", color: "var(--paper)",
+                            fontSize: 10, padding: "1px 5px", borderRadius: 999,
+                            fontFamily: "Geist Mono",
+                          }}>{idx === 0 ? "anchor" : idx + 1}</span>
+                        )}
+                        <span style={{
+                          position:"absolute", bottom: 4, left: 4, right: 4,
+                          fontSize: 9, color: "rgba(255,255,255,.95)",
+                          textShadow: "0 1px 1px rgba(0,0,0,.4)",
+                          fontFamily: "Geist Mono", textAlign:"left",
+                        }}>{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{display:"flex", alignItems:"center", gap: 12, paddingTop: 4}}>
+                <button onClick={handleGenerateSet}
+                        disabled={variantBusy || variantColors.length < 2}
+                        style={{
+                          display:"flex", alignItems:"center", gap: 10,
+                          padding: "11px 18px", borderRadius: 999,
+                          background: "var(--ink)", color: "var(--paper)",
+                          border: 0, cursor: variantBusy ? "wait" : "pointer",
+                          fontSize: 13, letterSpacing: "-0.005em",
+                          opacity: (variantColors.length < 2 || variantBusy) ? 0.5 : 1,
+                        }}>
+                  <span style={{display:"inline-flex"}}>{Ic.sparkle}</span>
+                  <span>{variantBusy ? "Generuję zestaw…" : "Generuj zestaw"}</span>
+                  <span style={{
+                    fontFamily:"Geist Mono", fontSize: 11,
+                    background:"rgba(255,255,255,.10)", padding:"3px 8px",
+                    borderRadius: 999, color:"rgba(255,255,255,.75)",
+                  }}>{variantColors.length} kol · ${variantSetCost}</span>
+                </button>
+                {variantColors.length > 0 && !variantBusy && (
+                  <button onClick={() => setVariantColors([])}
+                          style={{background:"transparent", border:0, fontSize: 11,
+                                  color:"var(--ink-3)", cursor:"pointer"}}>
+                    wyczyść
+                  </button>
+                )}
+                {variantError && (
+                  <div style={{color:"var(--danger, #c0392b)", fontSize: 11}}>
+                    {variantError}
+                  </div>
+                )}
+              </div>
+
+              {variantBusy && (
+                <div style={{display:"flex", alignItems:"center", gap: 10, padding: 10,
+                              background:"rgba(0,0,0,.04)", borderRadius: 10, fontSize: 12}}>
+                  <span className="ico">{Ic.sparkle}</span>
+                  <span>Renderuję anchor (pierwszy kolor), potem warianty równolegle z dziedziczoną sceną…</span>
+                </div>
+              )}
+
+              {variantSet && (
+                <div style={{display:"flex", flexDirection:"column", gap: 10}}>
+                  <div style={{fontSize: 12, color:"var(--ink-3)"}}>
+                    Zestaw gotowy · ${variantSet.total_cost?.toFixed(3)} łącznie
+                  </div>
+                  <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap: 10}}>
+                    {[variantSet.anchor, ...variantSet.variants].map((v, i) => {
+                      const cObj = COLORS.find(c => c.id === v.color);
+                      if (v.error) {
+                        return (
+                          <div key={i} style={{
+                            padding: 12, borderRadius: 10, fontSize: 11,
+                            background: "rgba(192, 57, 43, 0.08)", color: "#c0392b",
+                          }}>
+                            <div style={{fontWeight: 600}}>{cObj?.name || v.color}</div>
+                            <div style={{marginTop: 4}}>{v.error}</div>
+                          </div>
+                        );
+                      }
+                      const slug = [v.color, matObj?.id, envObj?.id].filter(Boolean).join("-");
+                      const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
+                      const dlName = `nano-sofa-${i === 0 ? "anchor" : "v" + (i + 1)}-${slug}.${ext}`;
+                      return (
+                        <div key={i} style={{
+                          display:"flex", flexDirection:"column", gap: 6,
+                          background:"#fff", borderRadius: 10, overflow:"hidden",
+                          border: "0.5px solid rgba(0,0,0,.08)",
+                        }}>
+                          <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative"}}>
+                            <img src={v.image_url} alt={v.color}
+                                 style={{position:"absolute", inset: 0, width:"100%", height:"100%", objectFit:"cover"}} />
+                            {i === 0 && (
+                              <span style={{position:"absolute", top: 6, left: 6,
+                                            background:"var(--ink)", color:"var(--paper)",
+                                            fontSize: 9, padding: "2px 6px", borderRadius: 999,
+                                            fontFamily:"Geist Mono"}}>anchor</span>
+                            )}
+                          </div>
+                          <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", gap: 6}}>
+                            <div style={{display:"flex", alignItems:"center", gap: 6}}>
+                              <span style={{width: 12, height: 12, borderRadius: 999,
+                                            background: cObj?.hex || "#888",
+                                            border:"0.5px solid rgba(0,0,0,.18)"}}></span>
+                              <span style={{fontSize: 11, fontFamily:"Geist"}}>{cObj?.name || v.color}</span>
+                            </div>
+                            <a href={v.image_url} download={dlName} title="Pobierz PNG"
+                               style={{
+                                 display:"inline-flex", alignItems:"center", gap: 4,
+                                 fontSize: 10, fontFamily: "Geist Mono",
+                                 color:"var(--ink)", textDecoration:"none",
+                                 padding:"3px 7px", borderRadius: 999,
+                                 background:"rgba(0,0,0,.04)",
+                               }}>
+                              <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
+                              PNG
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -568,10 +862,23 @@ function App({ t }) {
               <div className="head">
                 <span className="ico">{Ic.upload}</span>
                 <div style={{ flex: 1 }}>
-                  <div className="lead">{st.envFile || "Wgraj zdjęcie tła"}</div>
+                  <div className="lead">{(st.envFile && st.envFile.name) || "Wgraj zdjęcie tła"}</div>
                   <div className="sub">{st.envFile ? "kliknij aby zmienić" : "model użyje go jako referencji oświetlenia i kolorów"}</div>
                 </div>
-                <button className="size-pill" onClick={() => set({ envFile: st.envFile ? null : "moje-wnetrze.jpg" })}>
+                <input
+                  ref={envFileRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) set({ envFile: f });
+                  }}
+                />
+                <button className="size-pill" onClick={() => {
+                  if (st.envFile) { set({ envFile: null }); return; }
+                  envFileRef.current?.click();
+                }}>
                   {st.envFile ? "usuń" : "wybierz plik"}
                 </button>
               </div>
@@ -595,7 +902,7 @@ function App({ t }) {
         </Section>
 
         {/* 07 — camera */}
-        <Section num="08" title="Kamera i światło" summary={camObj?.name + " · " + st.lens.split(" — ")[0]}
+        <Section num="08" title="Kamera i światło" summary={camObj?.name + " · " + (lensObj?.name?.split(" — ")[0] || "—")}
           help="Wybór sceny ustawia oświetlenie i ogniskową. Trzy listy poniżej dostrajają detal.">
           <div className="cam-grid">
             {CAMERAS.map(c => (
@@ -615,26 +922,19 @@ function App({ t }) {
             <div>
               <div className="field-lbl">ogniskowa</div>
               <select className="select" value={st.lens} onChange={e => set({ lens: e.target.value })}>
-                <option>35 mm — szeroki kontekst</option>
-                <option>50 mm — naturalna</option>
-                <option>85 mm — produktowa</option>
+                {LENSES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
             <div>
               <div className="field-lbl">pora dnia</div>
               <select className="select" value={st.tod} onChange={e => set({ tod: e.target.value })}>
-                <option>poranek — chłodne, miękkie</option>
-                <option>południe — neutralne</option>
-                <option>złota godzina — ciepłe</option>
-                <option>wieczór — lampy</option>
+                {TIMES_OF_DAY.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
             <div>
               <div className="field-lbl">cienie</div>
               <select className="select" value={st.shadow} onChange={e => set({ shadow: e.target.value })}>
-                <option>miękkie rozproszone</option>
-                <option>kierunkowe — okno</option>
-                <option>twarde — studio</option>
+                {SHADOWS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           </div>
@@ -707,7 +1007,7 @@ function App({ t }) {
           </div>
           <div className="foot-actions">
             <button className="copy" onClick={() => {
-              navigator.clipboard?.writeText(JSON.stringify(st, null, 2));
+              navigator.clipboard?.writeText(JSON.stringify(jsonPayload, null, 2));
             }}>
               <span>{Ic.copy}</span> kopiuj JSON
             </button>

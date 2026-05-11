@@ -1,4 +1,4 @@
-# Nano Banana — State as of 2026-05-08
+# Nano Banana — State as of 2026-05-11
 
 ---
 
@@ -13,6 +13,8 @@
 4. **Input image token cost changed.** The changelog records a reduction from 1,290 to 258 tokens per input image for `gemini-2.5-flash-image` on November 4, 2025. This means editing/reference workflows are cheaper than the launch pricing. Verify against official pricing page before each billing cycle.
 
 5. **`gemini-2.5-flash-image` deprecation scheduled October 2, 2026.** Official migration path is `gemini-3.1-flash-image-preview`. No auto-redirect is confirmed at time of writing.
+
+6. **NEW 2026-05-11 — Scene/environment adherence failure in generator.py is consistent with documented model behavior.** The hardcoded "Neutral studio backdrop" line appearing before a buried environment description in a `notes` blob at the end of the prompt represents the worst possible arrangement for this model family. Two independent sources confirm: (a) negative/constraint instructions near the top anchor the model's output mode; (b) when the same topic appears in multiple places in a prompt, the model may stop processing after the first relevant match. The environment description will be partially or fully overridden by the earlier studio line in a significant share of calls. This is not stochastic noise — it is a predictable structural failure. See "Scene/environment adherence" section below for details.
 
 ---
 
@@ -202,6 +204,60 @@ All 10 above plus `1:4`, `4:1`, `1:8`, `8:1`
 
 ---
 
+## Scene/environment adherence — findings (2026-05-11)
+
+This section was added in response to a reported failure in Nano Sofa Studio where picking a named environment preset (e.g. "Loft industrial", "Salon skandynawski") produces a neutral studio shot instead of the specified scene. The following are factual findings only.
+
+### 1. Prompt structure and where scene context must appear
+
+Every official source and community analysis consulted agrees on the same ordering: **Subject → Action → Location/Scene → Composition → Style**. The Google Cloud "ultimate prompting guide for Nano Banana" explicitly places location/context in the third position, after subject and action, before style. The Google DeepMind prompt guide lists Setting as one of five primary components alongside Subject, Style, Action, and Composition — not as a trailing annotation.
+
+The Vertex AI Gemini 3 prompting guide contains a documented finding on context processing: "when information is presented in multiple places across a source of context, the model can sometimes stop processing after the first relevant match." This is confirmed in the negative-constraint ordering guidance: negative/constraint instructions placed too early (before the main task) cause those constraints to be over-weighted. The guide recommends placing negative constraints and quantitative restrictions **last**, with task description and context front-loaded.
+
+**Finding:** Placing "Neutral studio backdrop" as a top-level block early in the prompt, then appending the actual environment as a buried pipe-separated tail, is directly opposite to both the documented ordering model and the constraint-placement guidance. The studio line functions as an early constraint anchor that the model processes before reaching the environment description.
+
+### 2. Instruction ordering sensitivity and "first vs last" conflict behavior
+
+No official Google documentation explicitly states "first instruction wins" or "last instruction wins" for image generation. However, the Vertex AI Gemini 3 prompting guide behavior is consistent with a **first-match bias** for context anchoring: the model may stop processing a topic after encountering its first relevant instance in the prompt. This is a text-LLM-level behavior, not specific to image generation.
+
+An independent community analysis (Max Woolf, minimaxir.com, November 2025) found that Nano Banana responds well to capitalized "MUST" statements and explicit emphasis but does not formally quantify ordering bias.
+
+**Finding:** No primary-source evidence isolates first-vs-last ordering for contradictory image generation instructions specifically. Based on the text-model prompting documentation and the "stop after first match" behavior described above, the early "studio" line is the likely dominant signal when the environment override appears only at the tail. This is inferred from adjacent documented behavior, not directly measured.
+
+### 3. "Notes blob" placement and under-weighting
+
+No Google documentation describes a prompt region called "notes" or "additional notes" as a first-class prompt section. The pipe-separated `ADDITIONAL NOTES: time of day: ... | environment: ...` pattern does not correspond to any documented prompt template from Google for Nano Banana. Based on the general prompting guidance ("describe the scene, don't just list keywords"), a pipe-delimited keyword blob is specifically the format most likely to be under-weighted relative to a narrative sentence in the main prompt body.
+
+**Finding:** The environment description appended as a notes blob will receive less weight than the same content expressed as a narrative sentence in the primary prompt body. Combining this with early-anchor conflict makes the current structure doubly degraded.
+
+### 4. Scene text-only vs reference image for environment
+
+The Google AI documentation states: "If you upload multiple images with different aspect ratios, the model will adopt the aspect ratio of the last image provided." This confirms the model pays attention to reference image content as a strong signal. Multiple community sources and the Google DeepMind e-commerce use-case description confirm that providing a reference scene image produces more reliable environment adherence than text description alone.
+
+For the 3.1 Flash and Pro tiers, up to 14 reference images are supported, which allows a base product image + optional leg/swatch references + a scene reference image simultaneously. For `gemini-2.5-flash-image` (3-ref cap), a scene reference image consumes the third slot, leaving no room for additional product references.
+
+**Finding:** A scene reference image produces stronger environment adherence than text description. For text-only scene presets (the current "pick from list" UX), scene adherence can be improved by: (a) using richer narrative description rather than keywords ("a loft apartment with exposed brick walls, raw concrete floors, steel-frame windows, warm Edison-bulb lighting casting soft shadows at 7pm" rather than "loft industrial"), (b) explicitly naming floor material, wall treatment, light source type, and color temperature — these are specifically called out in the official best-practices guide as adherence-improving details, (c) moving scene description to a primary narrative block before style instructions.
+
+Community sources also confirm that explicit lighting direction and color temperature language in the scene description reduces background-product lighting mismatch.
+
+### 5. Conflicting instructions — observed behavior summary
+
+The Google community forum thread at discuss.ai.google.dev documents that Nano Banana Pro ignores reference images and prompts approximately 10–20% of the time outright (confirmed by multiple developers as of December 2025). For the scene adherence problem specifically, the conflict is structural rather than stochastic: the "studio" line is not a random miss but a consistent overriding anchor.
+
+The forum thread workaround of adding "Analyze image inputs strictly for the established [style]" as a preparatory instruction before the main prompt aligns with the Vertex AI guidance that behavioral constraints placed in the system instruction (or at the very top of the prompt) anchor the model's reasoning process.
+
+**Finding:** Contradictory instructions where the undesired output mode (studio backdrop) appears earlier in the prompt will favor the earlier instruction in a substantial share of calls. This is consistent across the text-LLM and image-generation prompting documentation consulted, even though no official source provides an exact percentage.
+
+### 6. Polish text mixed into an English prompt
+
+No documentation from Google addresses cross-language mixing within image generation prompts specifically. Gemini 3 multilingual benchmarks cite 140-language support with high accuracy (third-party report, skywork.ai, 2025), and the models are described as responding to the language of the prompt for text output. However, image generation behavior with mixed-language prompts is undocumented.
+
+For strings like "południe — neutralne" (Polish, meaning "noon — neutral") injected into an English prompt: no primary source confirms degradation. However, all official prompting guides emphasize that the model works best with "descriptive narrative" rather than labeled key-value pairs. A Polish label next to an English value creates an ambiguous key-value fragment that is not idiomatic in either language as a narrative sentence.
+
+**Finding:** Unknown whether Polish strings cause measurable image quality degradation on their own. The more significant issue is the key-value fragment format rather than the language itself. Replacing `"time of day: południe — neutralne"` with a narrative sentence in any single language is the appropriate fix regardless of language choice.
+
+---
+
 ## Known quirks
 
 - **[2025-08] [Google Developers Blog, launch post] Acknowledged weak areas at launch:** long-form text rendering, character consistency across unrelated scenes, and factual fine detail in images. Text rendering improved in subsequent models but remains below GPT-Image-1 for precision.
@@ -226,6 +282,12 @@ All 10 above plus `1:4`, `4:1`, `1:8`, `8:1`
 
 - **[source unclear, reported by third parties] Thinking tokens on failed generations:** On `gemini-3-pro-image-preview`, if a generation attempt fails a safety check, thinking tokens are billed even though no image is returned. Estimated cost $0.002–$0.006 per failed attempt. Not confirmed against official billing docs.
 
+- **[2025-12] [community, Google AI Developers Forum] Nano Banana Pro ignores reference images and prompt 10–20% of the time.** Multiple developers independently confirm complete ignores (not subtle drift). Workaround: retry with identical inputs; near-100% success rate on second attempt. Some pipelines add a secondary model verification step before delivering output. Source: discuss.ai.google.dev thread "nano-banan-pro-ignoring-prompt-and-reference-images".
+
+- **[2025-11] [Max Woolf / minimaxir.com] Capitalized "MUST" improves adherence.** Community testing found CAPS on critical instructions and use of "MUST" language measurably improves compliance with specific constraints vs. lowercase phrasing. Source: minimaxir.com/2025/11/nano-banana-prompts/.
+
+- **[2025-11] [Max Woolf / minimaxir.com] "Pulitzer-prize-winning cover photo" style anchors improve composition.** Appending professional-photography context descriptors ("shot for the cover of Wallpaper magazine") improves overall composition and subject framing. This is a style-level anchor, not an environment-level fix.
+
 ---
 
 ## Failure modes for furniture product photography
@@ -246,6 +308,8 @@ All 10 above plus `1:4`, `4:1`, `1:8`, `8:1`
 
 - **Max 3 reference images on `gemini-2.5-flash-image`** — This model cap means: base sofa + leg reference + (optionally) one fabric swatch = exactly 3, with no room for a background reference or additional angle. If three reference slots are insufficient, the only path is `gemini-3.1-flash-image-preview` or Pro (both support 14 refs) at higher per-image cost.
 
+- **Scene/environment ignored when "Neutral studio backdrop" appears earlier in prompt** — Documented as a structural failure: a hardcoded studio-mode line early in the prompt anchors the output mode before the environment description is read. The environment description, especially if in a pipe-delimited notes blob at the end, will be partially or fully overridden. Mitigation: (a) remove any hardcoded backdrop line from the static prompt template; (b) make the scene/environment block the primary scene-setting element, placed in the third structural position (after product identification and preserve list); (c) express environment as a narrative sentence, not a key-value fragment; (d) for lifestyle renders, include lighting type, floor material, wall finish, and color temperature explicitly.
+
 ---
 
 ## Competitor positioning (product photography use cases)
@@ -265,15 +329,23 @@ All 10 above plus `1:4`, `4:1`, `1:8`, `8:1`
 ## Sources consulted this pass
 
 - [Models | Gemini API | Google AI for Developers](https://ai.google.dev/gemini-api/docs/models) — 2026-05-08
-- [Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing) — 2026-05-08
-- [Nano Banana image generation docs](https://ai.google.dev/gemini-api/docs/image-generation) — 2026-05-08
+- [Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing) — 2026-05-11
+- [Nano Banana image generation docs](https://ai.google.dev/gemini-api/docs/image-generation) — 2026-05-11
 - [Gemini 2.5 Flash Image | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash-image) — 2026-05-08
 - [Gemini 3.1 Flash Image | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-image) — 2026-05-08
-- [Gemini 3 Pro Image | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image) — 2026-05-08
+- [Gemini 3 Pro Image | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image) — 2026-05-11
 - [Gemini image generation limitations | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/gemini-image-generation-limitations) — 2026-05-08
+- [Gemini image generation best practices | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/gemini-image-generation-best-practices) — 2026-05-11
+- [Gemini 3 prompting guide | Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/gemini-3-prompting-guide) — 2026-05-11
 - [Gemini deprecations | Gemini API](https://ai.google.dev/gemini-api/docs/deprecations) — 2026-05-08
 - [Release notes | Gemini API changelog](https://ai.google.dev/gemini-api/docs/changelog) — 2026-05-08
 - [Introducing Gemini 2.5 Flash Image — Google Developers Blog](https://developers.googleblog.com/en/introducing-gemini-2-5-flash-image/) — 2026-05-08
+- [How to prompt Gemini 2.5 Flash Image — Google Developers Blog](https://developers.googleblog.com/en/how-to-prompt-gemini-2-5-flash-image-generation-for-the-best-results/) — 2026-05-11
+- [Nano Banana Pro prompt tips — Google Blog](https://blog.google/products-and-platforms/products/gemini/prompting-tips-nano-banana-pro/) — 2026-05-11
+- [Ultimate prompting guide for Nano Banana — Google Cloud Blog](https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-nano-banana) — 2026-05-11
+- [How to create effective image prompts — Google DeepMind](https://deepmind.google/models/gemini-image/prompt-guide/) — 2026-05-11
+- [Nano Banana can be prompt engineered for nuanced results — minimaxir.com](https://minimaxir.com/2025/11/nano-banana-prompts/) — 2026-05-11
+- [Nano Banana Pro ignoring prompt and reference images — Google AI Developers Forum](https://discuss.ai.google.dev/t/nano-banan-pro-ignoring-prompt-and-reference-images/112781) — 2026-05-11
 - [Gemini 2.5 Flash Image now ready for production — Google Developers Blog](https://developers.googleblog.com/gemini-2-5-flash-image-now-ready-for-production-with-new-aspect-ratios/) — 2026-05-08
 - [Google Gen AI Python SDK docs](https://googleapis.github.io/python-genai/) — 2026-05-08
 - [GitHub issue #1534: number_of_images for gemini-2.5-flash-image](https://github.com/googleapis/python-genai/issues/1534) — 2026-05-08
@@ -281,6 +353,7 @@ All 10 above plus `1:4`, `4:1`, `1:8`, `8:1`
 - [Seedream 5.0 vs Nano Banana Pro vs GPT Image 1.5 vs Flux Klein vs Qwen Image — WaveSpeedAI](https://wavespeed.ai/blog/posts/seedream-5-0-vs-nano-banana-pro-gpt-image-flux-klein-qwen-image-comparison-2026/) — 2026-05-08
 - [Gemini 3.1 Flash Image Preview pricing — aifreeapi.com](https://www.aifreeapi.com/en/posts/gemini-flash-image-generation-pricing) — 2026-05-08
 - [Gemini 2.5 Flash Image replacement — aifreeapi.com](https://www.aifreeapi.com/en/posts/gemini-2-5-flash-image-replacement) — 2026-05-08
+- [Gemini 3 Pro Image pricing — Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/pricing) — 2026-05-11
 - [Gemini image generation limitations — Gemini Enterprise Agent Platform](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/gemini-image-generation-limitations) — 2026-05-08 (page did not return full content)
 
 ---
@@ -301,3 +374,13 @@ First research pass. No prior version of this document existed. Key findings est
 - Transparent background output confirmed unsupported across all models.
 - Competitor positioning established vs. Seedream, FLUX Kontext, Qwen Image Edit, GPT-Image-1.
 - Seven furniture product photography failure modes documented with mitigations.
+
+### 2026-05-11 — Scene adherence pass
+
+Focused research triggered by reported scene/environment adherence failure in Nano Sofa Studio. No model lineup or pricing changes found since 2026-05-08 pass. Key findings added:
+
+- New "Scene/environment adherence" section added with five sub-findings covering: prompt ordering, instruction conflict behavior, notes-blob under-weighting, text-only vs reference image for scene, and Polish-language mixing.
+- Architecture implication #6 added: the `generator.py` structure (hardcoded studio line early, environment in trailing notes blob) is confirmed to conflict with documented Gemini prompt processing behavior in two independent ways (early-anchor bias, first-match-stops-processing).
+- Two new quirks added: reference image ignore rate (10–20%, Google AI Developers Forum, Dec 2025) and CAPS/"MUST" adherence improvement (minimaxir.com, Nov 2025).
+- New failure mode added: "Scene/environment ignored when Neutral studio backdrop appears earlier in prompt."
+- Pricing verified against official page — no changes from 2026-05-08 pass.

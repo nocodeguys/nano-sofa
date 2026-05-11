@@ -1,6 +1,7 @@
 /* global React, ReactDOM, Ic, NS_DATA, Steps */
 const { useState, useMemo, useEffect, useCallback } = React;
-const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, STEPS } = NS_DATA;
+const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, STEPS,
+        LENSES, TIMES_OF_DAY, SHADOWS } = NS_DATA;
 const { StepPhoto, StepColor, StepMaterial, StepSize, StepLegs, StepScene, StepRefs, Advanced } = Steps;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -33,9 +34,9 @@ function App() {
     mat: "boucle", matNotes: "",
     size: "3",
     legs: "keep",
-    cam: "studio", lens: "50 mm — naturalna", tod: "południe — neutralne", shadow: "miękkie rozproszone",
+    cam: "studio", lens: "50mm_natural", tod: "noon_neutral", shadow: "soft_diffuse",
     refs: [null, null, null],
-    model: "gemini-2.5-flash-image", aspect: "4:3", res: "1K — Flash limit", seed: "",
+    model: "gemini-3.1-flash-image-preview", aspect: "4:3", res: "1K", seed: "",
   });
   const set = patch => setSt(s => ({...s, ...patch}));
 
@@ -51,6 +52,7 @@ function App() {
     return list.find(s => s.id === st.size) || list[0];
   }, [st.kind, st.size]);
   const camObj = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
+  const lensObj = useMemo(() => LENSES.find(l => l.id === st.lens), [st.lens]);
 
   // est cost
   const cost = useMemo(() => {
@@ -272,7 +274,7 @@ function App() {
           <div className="preview-pill pp-dim"><span className="ico">{Ic.scale}</span>{sizeObj?.dim}</div>
           <div className="preview-pill pp-mat">{matObj?.name}</div>
           <div className="preview-pill pp-cam"><span className="ico">{Ic.camera}</span>{camObj?.name}</div>
-          <div className="preview-pill pp-lens"><span className="ico">{Ic.lens}</span>{st.lens.split(" — ")[0]}</div>
+          <div className="preview-pill pp-lens"><span className="ico">{Ic.lens}</span>{lensObj?.name?.split(" — ")[0] || "—"}</div>
 
           {generating && (
             <div className="gen-overlay">

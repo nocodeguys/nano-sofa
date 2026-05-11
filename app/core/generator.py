@@ -85,6 +85,16 @@ class GenerationRequest:
     aperture: str = "f/4.5"
     framing: str = "full product visible with breathing room above and below"
 
+    # Scene — structured fields that feed the SCENE block as a narrative
+    # paragraph instead of buried name=value notes. When env_mode is empty
+    # the SCENE block falls back to the legacy single-line behavior so
+    # callers that haven't migrated yet keep working.
+    lens_descriptor: str = ""       # e.g. "85 mm short telephoto, mild background compression"
+    tod_description: str = ""       # e.g. "midday neutral daylight, ~5500 K, overhead light"
+    shadow_description: str = ""    # full sentence describing shadow quality
+    env_mode: str = ""              # "" | "packshot" | "lifestyle"
+    env_description: str = ""       # full English scene description
+
     # Output
     aspect_ratio: str = "4:3"
     resolution: str = "1K"
@@ -168,6 +178,88 @@ def _count_active_refs(req: GenerationRequest) -> int:
     if req.swatch_reference_image is not None:
         count += 1
     return count
+
+
+def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
+    """
+    Build the SCENE section as a narrative paragraph.
+
+    Two modes are selected by req.env_mode:
+      - "packshot"  → product on a neutral/cyclorama backdrop, no room context.
+      - "lifestyle" → product placed inside a real interior; environment is
+                      the primary creative instruction.
+
+    Lens / time-of-day / shadow descriptors are woven into the paragraph as
+    natural modifiers (Google's prompting guides recommend narrative prose
+    over disconnected key:value fragments for image generation).
+
+    When env_mode is empty the function falls back to the legacy single-line
+    behavior so callers that haven't migrated to the structured fields yet
+    keep working — but without the "Neutral studio backdrop" contradiction
+    against the chosen environment (the legacy line is replaced by the
+    scene-reference branch only).
+    """
+    lens_clause = f" Lens: {req.lens_descriptor}." if req.lens_descriptor else ""
+    shadow_clause = (
+        f" {req.shadow_description[0].upper()}{req.shadow_description[1:]}."
+        if req.shadow_description else ""
+    )
+
+    # ---- Legacy / unmigrated callers --------------------------------- #
+    if not req.env_mode:
+        if req.scene_reference_image is not None:
+            return (
+                f"\nSCENE: Place the {product_noun} naturally within the scene shown in the "
+                f"reference image. Match lighting direction, color temperature, and floor "
+                f"material from the scene reference. The shadow beneath the {product_noun} "
+                f"must fall in the same direction as all other shadows in the scene."
+            )
+        return (
+            f"\nSCENE: Neutral studio backdrop. Clean, professional e-commerce "
+            f"photography background."
+        )
+
+    # ---- Packshot mode ----------------------------------------------- #
+    if req.env_mode == "packshot":
+        tod_clause = f" Lighting: {req.tod_description}." if req.tod_description else ""
+        scene_desc = req.env_description or "neutral grey studio backdrop, packshot lighting"
+        return (
+            f"\nSCENE (packshot): {scene_desc}."
+            f"{tod_clause}"
+            f"{lens_clause}"
+            f"{shadow_clause}"
+            f" No environment objects, no room context — product only on the backdrop."
+        )
+
+    # ---- Lifestyle mode ---------------------------------------------- #
+    tod_clause = (
+        f" Time of day and lighting quality: {req.tod_description}."
+        if req.tod_description else ""
+    )
+    scene_desc = req.env_description or "interior setting"
+
+    if req.scene_reference_image is not None:
+        placement = (
+            f"Place the {product_noun} naturally within the scene shown in the "
+            f"reference image. Match lighting direction, color temperature, and floor "
+            f"material from the scene reference."
+        )
+    else:
+        placement = (
+            f"Place the {product_noun} naturally within {scene_desc}. "
+            f"Render convincing room context — floor, walls, and ambient props "
+            f"consistent with that environment. The environment should look like a "
+            f"real photographed interior, not a studio backdrop."
+        )
+
+    return (
+        f"\nSCENE (lifestyle): {placement}"
+        f"{tod_clause}"
+        f"{lens_clause}"
+        f"{shadow_clause}"
+        f" The shadow beneath the {product_noun} must fall in the same direction "
+        f"as all other shadows in the scene."
+    )
 
 
 def _build_prompt_text(req: GenerationRequest) -> str:
@@ -278,9 +370,13 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     )
 
     # ------------------------------------------------------------------ #
-    # Shadow direction — required for leg swap and scene ref
+    # Shadow direction — required for leg swap and scene ref.
+    # Skipped when the structured scene path is active (env_mode set):
+    # the SCENE block already states shadow quality in narrative form,
+    # and shadow_direction is often a non-clock label like "soft diffuse"
+    # which makes the "(clock position)" sentence awkward.
     # ------------------------------------------------------------------ #
-    if req.shadow_direction:
+    if req.shadow_direction and not req.env_mode:
         shadow_text = (
             f"Shadow direction: the shadow cast by the {product_noun} falls at "
             f"{req.shadow_direction} (clock position from the {product_noun}'s perspective)."
@@ -288,21 +384,21 @@ def _build_prompt_text(req: GenerationRequest) -> str:
         if legs_visible or has_leg_swap:
             shadow_text += " All leg contact shadows must be consistent with this direction."
         lines.append(shadow_text)
+    elif req.env_mode and (legs_visible or has_leg_swap):
+        # Still pin the leg contact shadows to the scene shadow, but rely on
+        # the narrative SCENE block for the actual direction language.
+        lines.append(
+            f"All leg contact shadows must be consistent with the shadow direction "
+            f"described in the SCENE section."
+        )
 
     # ------------------------------------------------------------------ #
-    # Scene reference
+    # Scene block — two modes (packshot / lifestyle) driven by env_mode.
+    # Eliminates the prior contradiction where a hardcoded "Neutral studio
+    # backdrop" line was emitted even when the caller wanted a lifestyle
+    # render with a specific environment.
     # ------------------------------------------------------------------ #
-    if req.scene_reference_image is not None:
-        lines.append(
-            f"\nSCENE: Place the {product_noun} naturally within the scene shown in the "
-            f"reference image. Match lighting direction, color temperature, and floor "
-            f"material from the scene reference. The shadow beneath the {product_noun} "
-            f"must fall in the same direction as all other shadows in the scene."
-        )
-    else:
-        lines.append(
-            "\nSCENE: Neutral studio backdrop. Clean, professional e-commerce photography background."
-        )
+    lines.append(_build_scene_block(req, product_noun))
 
     # ------------------------------------------------------------------ #
     # Preserve list

@@ -81,9 +81,11 @@ ENV PORT=7861 \
 EXPOSE 7861
 
 # ── health check ─────────────────────────────────────────────────────────────
-# /healthz returns {"ok": true, ...} — no external API call required.
+# /healthz returns {"ok":true,...} — no external API call required.
+# FastAPI emits compact JSON (no whitespace around the colon), so the grep
+# pattern is "ok":true with no space.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -fs http://localhost:7861/healthz | grep -q '"ok": true' || exit 1
+    CMD curl -fs http://localhost:7861/healthz | grep -q '"ok":true' || exit 1
 
 # ── entry point ──────────────────────────────────────────────────────────────
 CMD ["python", "/app/app-v2/server.py"]

@@ -76,6 +76,28 @@ const LEGS = [
   { id: "swivel",  name: "obrotowa stopa" },
 ];
 
+/* Lens / time-of-day / shadow option tables.
+   Polish `name` is UI display only — the English `id` is what crosses the
+   network boundary and what the server resolves into a prompt fragment. */
+const LENSES = [
+  { id: "35mm_wide",    name: "35 mm — szeroki kontekst" },
+  { id: "50mm_natural", name: "50 mm — naturalna" },
+  { id: "85mm_product", name: "85 mm — produktowa" },
+];
+
+const TIMES_OF_DAY = [
+  { id: "morning_cool", name: "poranek — chłodne, miękkie" },
+  { id: "noon_neutral", name: "południe — neutralne" },
+  { id: "golden_hour",  name: "złota godzina — ciepłe" },
+  { id: "evening_lamp", name: "wieczór — lampy" },
+];
+
+const SHADOWS = [
+  { id: "soft_diffuse",  name: "miękkie rozproszone" },
+  { id: "directional_4", name: "kierunkowe — okno" },
+  { id: "hard_studio_5", name: "twarde — studio" },
+];
+
 /* ======================================================
    Wizard meta
    ====================================================== */
@@ -127,4 +149,5 @@ const Ic = {
 };
 
 window.Ic = Ic;
-window.NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, STEPS, ENVIRONMENTS };
+window.NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
+                   STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS };

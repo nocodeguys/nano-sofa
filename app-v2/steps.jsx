@@ -1,6 +1,7 @@
 /* global React, Ic, NS_DATA */
 const { useState, useMemo, useEffect } = React;
-const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, STEPS } = NS_DATA;
+const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, STEPS,
+        LENSES, TIMES_OF_DAY, SHADOWS } = NS_DATA;
 
 /* ====== Step 1 — Photo & type ====== */
 function StepPhoto({ st, set }) {
@@ -255,26 +256,19 @@ function StepScene({ st, set }) {
         <div>
           <div className="field-label">Ogniskowa</div>
           <select className="select" value={st.lens} onChange={e => set({lens: e.target.value})}>
-            <option>35 mm — szeroki kontekst</option>
-            <option>50 mm — naturalna</option>
-            <option>85 mm — produktowa</option>
+            {LENSES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
         <div>
           <div className="field-label">Pora dnia</div>
           <select className="select" value={st.tod} onChange={e => set({tod: e.target.value})}>
-            <option>poranek — chłodne, miękkie</option>
-            <option>południe — neutralne</option>
-            <option>złota godzina — ciepłe</option>
-            <option>wieczór — lampy</option>
+            {TIMES_OF_DAY.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
         <div>
           <div className="field-label">Cienie</div>
           <select className="select" value={st.shadow} onChange={e => set({shadow: e.target.value})}>
-            <option>miękkie rozproszone</option>
-            <option>kierunkowe — okno</option>
-            <option>twarde — studio</option>
+            {SHADOWS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
       </div>
