@@ -90,9 +90,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
-          BUNDLE_NAME="nano-sofa-${TAG}"
-          DEST="/tmp/${BUNDLE_NAME}"
+          export VERSION="${TAG#v}"
+          export BUNDLE_NAME="nano-sofa-${TAG}"
+          export DEST="/tmp/${BUNDLE_NAME}"
           mkdir -p "${DEST}/install" "${DEST}/outputs"
 
           # Produce an end-user docker-compose.yml:
