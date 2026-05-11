@@ -3,6 +3,7 @@ name: Build and push Docker image
 on:
   push:
     branches:
+      - main
       - app-v2-design
     tags:
       - "v*.*.*"
