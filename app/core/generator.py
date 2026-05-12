@@ -245,6 +245,28 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
     if req.env_mode == "packshot":
         tod_clause = f" Lighting: {req.tod_description}." if req.tod_description else ""
         scene_desc = req.env_description or "neutral grey studio backdrop, packshot lighting"
+        # When a scene reference image is attached for a packshot, it's the
+        # curated cyclorama reference (not a lifestyle scene). Tell the model
+        # to copy backdrop characteristics — tone, top-light gradient, shadow
+        # quality, floor blend — from the reference, NOT to place the product
+        # "in" the reference scene.
+        if req.scene_reference_image is not None:
+            return (
+                f"\nSCENE (packshot): {scene_desc}."
+                f"{tod_clause}"
+                f"{lens_clause}"
+                f"{shadow_clause}"
+                f" No environment objects, no room context — product only on the backdrop."
+                f"\n\nBACKDROP / CYCLORAMA REFERENCE: An additional reference image is "
+                f"attached (slot 2) that shows the canonical cyclorama look for this "
+                f"shoot. Match its backdrop tone, its visible soft top-down lighting "
+                f"gradient, its anchored contact-shadow quality (warm-grey, heavily "
+                f"blurred edges, no directional cast), and its floor-to-wall seamless "
+                f"blend exactly. Use ONLY the backdrop characteristics from this "
+                f"reference — do not copy the product, the camera angle, the framing, "
+                f"or any geometry from it. The {product_noun}'s pose and angle come "
+                f"from the base image (slot 1)."
+            )
         return (
             f"\nSCENE (packshot): {scene_desc}."
             f"{tod_clause}"

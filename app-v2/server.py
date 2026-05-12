@@ -283,6 +283,23 @@ _UPLOAD_DIR = _OUTPUT_DIR / "v2-uploads"
 _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Curated scene-reference images live alongside the app, baked into the Docker
+# image at /app/app-v2/scene-references/<env_id>.{jpg,png,jpeg}. The lookup is
+# best-effort — if no reference is found for an env_id, the prompt falls back
+# to the text-only profile.
+_SCENE_REFS_DIR = _THIS / "scene-references"
+
+
+def _scene_reference_path(env_id: str) -> Optional[Path]:
+    """Return the curated reference image path for an env id, if one exists."""
+    if not env_id:
+        return None
+    for ext in (".jpg", ".jpeg", ".png"):
+        candidate = _SCENE_REFS_DIR / f"{env_id}{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
+
 # Override the generator's hardcoded outputs dir so it writes to the volume too.
 # generator.py reads its dir at import time, so this must run before any call.
 try:
@@ -794,8 +811,13 @@ async def api_generate_photoshoot(
     packshot_anchor_path: Optional[Path] = None
 
     if packshot_sources:
-        # 1. Fabric anchor — first packshot source.
+        # 1. Fabric anchor — first packshot source. Pin the cyclorama look at
+        # pixel level by auto-attaching the curated reference image (if one
+        # exists for this backdrop preset). Variants 2..N don't re-attach the
+        # reference — they pick up the cyclorama from the anchor via the
+        # swatch reference.
         anchor_src_path, anchor_src_fn = packshot_sources[0]
+        backdrop_ref_path = _scene_reference_path(backdrop)
         anchor_req = _build_generation_request(
             api_key=api_key, kind=kind,
             color=color, color_custom=color_custom,
@@ -805,9 +827,11 @@ async def api_generate_photoshoot(
             env=backdrop, env_note=env_note, env_mode="",
             model=model, aspect=aspect, res=res, seed=seed,
             base_image_path=anchor_src_path,
-            scene_image_path=None,
+            scene_image_path=backdrop_ref_path,    # locks cyclorama look pixel-level
             preserve_camera_from_base=True,
         )
+        if backdrop_ref_path:
+            logger.info("Packshot anchor: using curated cyclorama reference %s", backdrop_ref_path.name)
         anchor_result = await asyncio.to_thread(generate, anchor_req)
 
         if not anchor_result.success or anchor_result.output_path is None:
