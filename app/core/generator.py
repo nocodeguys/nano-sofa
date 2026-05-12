@@ -320,17 +320,49 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     legs_visible = req.leg_count > 0
     has_leg_swap = bool(req.leg_id or req.leg_explicit_descriptor)
 
+    # In-place recoloring mode is active when the caller wants every aspect of
+    # slot 1 preserved except the upholstery (Fotosesja packshot pass). The
+    # lifestyle pass also sets preserve_camera_from_base but uses env_mode
+    # "lifestyle" — those renders intentionally swap the backdrop, so they
+    # should NOT use the strict in-place TASK framing.
+    in_place_recolor = req.preserve_camera_from_base and req.env_mode == "packshot"
+
     # ------------------------------------------------------------------ #
     # Primary instruction
     # ------------------------------------------------------------------ #
-    lines.append(
-        f"Edit the {product_noun} in the first reference image to produce a product "
-        f"photography variant with the following specifications."
-    )
-    lines.append(
-        f"This is a {product_noun}, not any other furniture type. "
-        f"Render anatomy and proportions consistent with a {product_noun}."
-    )
+    if in_place_recolor:
+        # Strong in-place framing — fights the model's prior toward "make a
+        # new hero product photo" which causes the failure mode where tight
+        # detail close-ups get re-framed into full hero shots. Lead with this
+        # so it sets the prior before any other instruction lands.
+        lines.append(
+            f"TASK — IMPORTANT, READ FIRST: This is an in-place RECOLORING of "
+            f"slot 1, NOT a new product photograph. The output must be a "
+            f"near-pixel-identical reproduction of slot 1 with ONLY the "
+            f"upholstery color and material updated to the spec below. "
+            f"\n\nPreserve from slot 1, identically:"
+            f"\n• The EXACT crop and framing. If slot 1 is a tight macro "
+            f"close-up of fabric, a corner, the headboard, or any partial view "
+            f"of the {product_noun}, the output must be that same tight "
+            f"close-up. Do NOT zoom out. Do NOT re-frame. Do NOT 'complete' "
+            f"the {product_noun} if slot 1 shows only part of it. If slot 1 "
+            f"shows a detail crop, the output is a detail crop."
+            f"\n• The EXACT camera angle, distance, perspective, and pose."
+            f"\n• The lighting direction and quality."
+            f"\n• The image aspect ratio and the {product_noun}'s silhouette "
+            f"within the frame."
+            f"\n\nThe output is a recolored version of slot 1's photograph, "
+            f"not a re-shoot of the {product_noun}."
+        )
+    else:
+        lines.append(
+            f"Edit the {product_noun} in the first reference image to produce a product "
+            f"photography variant with the following specifications."
+        )
+        lines.append(
+            f"This is a {product_noun}, not any other furniture type. "
+            f"Render anatomy and proportions consistent with a {product_noun}."
+        )
 
     # ------------------------------------------------------------------ #
     # Bed-specific: frame style + size context
@@ -410,12 +442,19 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # ------------------------------------------------------------------ #
     if req.use_swatch_for_fabric and req.swatch_reference_image is not None:
         lines.append(
-            f"\nFABRIC / COLOR REFERENCE: An additional reference image is attached "
-            f"as a fabric and color swatch. Copy the EXACT upholstery color, fabric "
-            f"weave, and surface texture from this swatch reference and apply it to "
-            f"the {product_noun} in the base image (slot 1). Do not copy any other "
-            f"detail from the swatch reference — only fabric and color appearance. "
-            f"Do not copy shadows, lighting, perspective, or geometry from the swatch."
+            f"\nFABRIC / COLOR REFERENCE (slot 2): Slot 2 is a wider product "
+            f"render that shows the target upholstery color, fabric weave, and "
+            f"surface texture. Copy ONLY those two properties — color and "
+            f"fabric appearance — and apply them to the upholstery surfaces of "
+            f"the {product_noun} in slot 1. "
+            f"\n\nSlot 1 is the FRAMING AUTHORITY. Slot 2 is the FABRIC AUTHORITY. "
+            f"Do NOT inherit anything from slot 2 except color and fabric: "
+            f"specifically, do NOT inherit the camera angle, the framing, the "
+            f"crop, the distance, the perspective, the {product_noun}'s pose, "
+            f"the lighting setup, or the shadow direction from slot 2. If slot 2 "
+            f"is a wide hero shot and slot 1 is a tight macro detail crop, the "
+            f"output is a tight macro detail crop with slot 2's fabric color "
+            f"painted onto slot 1's upholstery."
         )
 
     # ------------------------------------------------------------------ #
@@ -446,12 +485,15 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # ------------------------------------------------------------------ #
     if req.preserve_camera_from_base:
         lines.append(
-            f"\nCAMERA: Maintain the EXACT camera angle, framing, perspective, "
-            f"distance, and pose of the {product_noun} shown in the base image (slot 1). "
-            f"Do not change the camera position, the focal length, or the framing — "
-            f"reproduce them identically from the base image. The {product_noun}'s "
-            f"silhouette in the output must match the {product_noun}'s silhouette "
-            f"in the base image."
+            f"\nCAMERA (slot 1 is authoritative): The camera angle, framing, "
+            f"crop, distance, perspective, lens compression, and {product_noun} "
+            f"silhouette of the output MUST match slot 1 exactly. Do NOT change "
+            f"the camera position, the focal length, or the framing. Do NOT "
+            f"'complete' the {product_noun} if slot 1 shows only a portion of it "
+            f"— if slot 1 is a tight detail crop showing only fabric texture or "
+            f"only one corner of the {product_noun}, the output is that same "
+            f"tight crop. The output is a recoloring of slot 1, NOT a new "
+            f"photograph of the {product_noun}."
         )
     else:
         angle_label = req.camera_angle.replace("-", " ")
@@ -510,9 +552,18 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             )
 
     # ------------------------------------------------------------------ #
-    # Output style
+    # Output style — in in-place recolor mode, the "e-commerce hero
+    # photography" default biases the model toward hero-framing. Replace
+    # with a style instruction that matches slot 1 instead.
     # ------------------------------------------------------------------ #
-    lines.append(f"\nOUTPUT STYLE: {req.output_style}")
+    if in_place_recolor:
+        lines.append(
+            f"\nOUTPUT STYLE: Match the photographic style, sharpness, color "
+            f"grading, and framing of slot 1. The output is a recoloring of "
+            f"slot 1's photograph, not a re-shoot."
+        )
+    else:
+        lines.append(f"\nOUTPUT STYLE: {req.output_style}")
 
     # ------------------------------------------------------------------ #
     # Negative list
