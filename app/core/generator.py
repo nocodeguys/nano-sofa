@@ -108,6 +108,15 @@ class GenerationRequest:
     # batch pass to lock fabric appearance across N angle renders.
     use_swatch_for_fabric: bool = False
 
+    # When True, the CAMERA block emits "preserve angle/framing/pose from
+    # the base image" instead of the wizard-configured camera_angle. Used
+    # by the photoshoot session where every render's correct angle is
+    # already encoded in that render's individual base image (the user's
+    # source angle photo). Without this flag, every variant in a session
+    # would be forced to the wizard's single cam preset — which is the
+    # opposite of what a multi-angle photoshoot needs.
+    preserve_camera_from_base: bool = False
+
     # Output
     aspect_ratio: str = "4:3"
     resolution: str = "1K"
@@ -409,15 +418,27 @@ def _build_prompt_text(req: GenerationRequest) -> str:
         )
 
     # ------------------------------------------------------------------ #
-    # Camera angle — stated explicitly even when reference is attached
+    # Camera angle — either preserved from the base image (photoshoot
+    # session mode, where each render's correct angle is already in its
+    # own base image) or stated explicitly from the wizard's cam preset.
     # ------------------------------------------------------------------ #
-    angle_label = req.camera_angle.replace("-", " ")
-    lines.append(
-        f"\nCAMERA: {angle_label} view, approximately {req.angle_degrees_from_left} degrees "
-        f"from the left. "
-        f"Focal length equivalent {req.focal_length_mm} mm, {req.aperture} aperture. "
-        f"Framing: {req.framing}."
-    )
+    if req.preserve_camera_from_base:
+        lines.append(
+            f"\nCAMERA: Maintain the EXACT camera angle, framing, perspective, "
+            f"distance, and pose of the {product_noun} shown in the base image (slot 1). "
+            f"Do not change the camera position, the focal length, or the framing — "
+            f"reproduce them identically from the base image. The {product_noun}'s "
+            f"silhouette in the output must match the {product_noun}'s silhouette "
+            f"in the base image."
+        )
+    else:
+        angle_label = req.camera_angle.replace("-", " ")
+        lines.append(
+            f"\nCAMERA: {angle_label} view, approximately {req.angle_degrees_from_left} degrees "
+            f"from the left. "
+            f"Focal length equivalent {req.focal_length_mm} mm, {req.aperture} aperture. "
+            f"Framing: {req.framing}."
+        )
 
     # ------------------------------------------------------------------ #
     # Shadow direction — required for leg swap and scene ref.

@@ -118,44 +118,64 @@ _LEG_TO_ID = {
 # description, every packshot lands on the same look.
 _CYCLORAMA_PROFILES = {
     "cyclorama_warm": (
-        "a seamless infinity-curve studio cyclorama in warm off-white "
-        "RGB(244,240,229) hex #F4F0E5 (a catalog warm cream — the standard "
-        "for premium European furniture catalogs). The backdrop has no "
-        "visible horizon line between floor and wall — the curve is "
-        "completely seamless. Lighting is large soft-box diffuse from above, "
-        "perfectly even across the entire backdrop with no hot spots and no "
-        "vignetting toward the corners. A small, soft, diffuse contact shadow "
-        "sits directly beneath the product (no directional cast — the shadow "
-        "is anchored, not thrown). The floor under the product has a very "
-        "subtle gradient — fractionally darker right at the contact line, "
-        "fading to the full backdrop tone within roughly 30 centimeters. "
-        "Absolutely no props, no walls, no floor seams, no environment "
-        "objects, no other furniture, no plants, no rugs"
+        "a seamless infinity-curve studio cyclorama in warm off-white, base "
+        "tone RGB(244,240,229) hex #F4F0E5 (the catalog warm cream used by "
+        "premium European furniture brands). The backdrop has no visible "
+        "horizon line between floor and wall — the curve is completely "
+        "seamless. CRITICAL LIGHTING DETAIL: the cyclorama is NOT flat. "
+        "A large overhead soft-box creates a visible, soft top-down "
+        "lighting wash on the backdrop — the upper portion of the curve "
+        "is fractionally brighter (about RGB 250,247,238) than the base "
+        "tone, and the brightness fades gently toward the floor and the "
+        "edges. This subtle top-light gradient is what gives the cyclorama "
+        "dimension; without it the backdrop looks dead. SHADOW SPEC: a "
+        "small, soft, anchored contact shadow sits directly beneath the "
+        "product. Shadow color is a warm mid-grey RGB(200,195,180) — not "
+        "black. Shadow edges are heavily blurred (gaussian-soft, no harsh "
+        "silhouette). The shadow has zero directional cast — it is an "
+        "anchor shadow only, not a thrown shadow. The shadow fades to "
+        "invisibility within roughly 25 centimeters of the product's "
+        "contact line with the floor. The floor under the product has a "
+        "very subtle darkening gradient at the contact line, fading to the "
+        "full backdrop tone within 30 centimeters. Absolutely no props, "
+        "no walls, no floor seams, no environment objects, no other "
+        "furniture, no plants, no rugs, no signage"
     ),
     "cyclorama_neutral": (
-        "a seamless infinity-curve studio cyclorama in clean neutral white "
-        "RGB(250,250,250) hex #FAFAFA (pure photo-studio white, no warm "
-        "or cool tint). Otherwise identical to the warm cyclorama profile: "
-        "seamless floor-to-wall curve, no horizon line, large soft-box "
-        "even diffuse light from above with no hot spots or corner falloff, "
-        "small soft anchored contact shadow under the product only, no "
-        "directional cast, subtle floor-darkening gradient at the contact "
-        "line. No props, no walls, no environment objects of any kind"
+        "a seamless infinity-curve studio cyclorama in clean neutral white, "
+        "base tone RGB(250,250,250) hex #FAFAFA (pure photo-studio white, "
+        "no warm or cool tint). Otherwise identical to the warm cyclorama "
+        "profile: seamless floor-to-wall curve, no horizon line. CRITICAL "
+        "LIGHTING DETAIL: a large overhead soft-box creates a visible, "
+        "soft top-down lighting wash on the backdrop — the upper portion "
+        "of the curve is fractionally brighter (about RGB 255,255,255) "
+        "than the base tone, fading gently toward the floor and edges. "
+        "The gradient is subtle but visible — the cyclorama is not flat. "
+        "SHADOW SPEC: small soft anchored contact shadow in mid-grey "
+        "RGB(210,210,210), heavily blurred edges, zero directional cast, "
+        "fading to invisibility within 25 cm of the contact line. Subtle "
+        "floor darkening at the contact line, fading within 30 cm. No "
+        "props, no walls, no environment objects of any kind"
     ),
     "cyclorama_grey": (
-        "a seamless infinity-curve studio cyclorama in neutral mid-grey "
-        "RGB(220,220,220) hex #DCDCDC (packshot grey, slightly cooler than "
-        "neutral white). Otherwise identical to the cyclorama profile: "
-        "seamless floor-to-wall curve, no horizon line, soft-box even "
-        "diffuse light with no hot spots, small soft anchored contact "
-        "shadow under the product only, no directional cast. No props, "
-        "no walls, no environment objects"
+        "a seamless infinity-curve studio cyclorama in neutral mid-grey, "
+        "base tone RGB(220,220,220) hex #DCDCDC (packshot grey, slightly "
+        "cooler than neutral white). Seamless floor-to-wall curve, no "
+        "horizon line. CRITICAL LIGHTING DETAIL: visible soft top-down "
+        "lighting wash — upper portion of the curve fractionally brighter "
+        "(about RGB 235,235,235) than the base tone, fading toward floor "
+        "and edges. The cyclorama is not flat. SHADOW SPEC: small soft "
+        "anchored contact shadow in darker grey RGB(180,180,180), heavily "
+        "blurred edges, zero directional cast, fading within 25 cm. "
+        "Subtle floor darkening at the contact line. No props, no walls, "
+        "no environment objects"
     ),
     "cyclorama_transparent": (
         "transparent background output (alpha PNG) — the product is isolated "
         "with no backdrop at all. Render only the product with a small soft "
-        "contact shadow beneath it; everything else is fully transparent. "
-        "No floor, no wall, no environment"
+        "warm-grey contact shadow beneath it (RGB 200,195,180, heavily "
+        "blurred, no directional cast); everything else is fully transparent. "
+        "No floor, no wall, no environment, no other objects"
     ),
 }
 
@@ -353,6 +373,7 @@ def _build_generation_request(
     model: str, aspect: str, res: str, seed: str,
     base_image_path: Path,
     scene_image_path: Optional[Path],
+    preserve_camera_from_base: bool = False,
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
@@ -412,6 +433,7 @@ def _build_generation_request(
         shadow_description=shadow_data["desc"],
         env_mode=env_mode_label,
         env_description=env_description,
+        preserve_camera_from_base=preserve_camera_from_base,
         aspect_ratio=aspect,
         resolution=resolution,
         notes=" | ".join(notes_parts),
@@ -784,6 +806,7 @@ async def api_generate_photoshoot(
             model=model, aspect=aspect, res=res, seed=seed,
             base_image_path=anchor_src_path,
             scene_image_path=None,
+            preserve_camera_from_base=True,
         )
         anchor_result = await asyncio.to_thread(generate, anchor_req)
 
@@ -819,6 +842,7 @@ async def api_generate_photoshoot(
                     model=model, aspect=aspect, res=res, seed=seed,
                     base_image_path=src_path,
                     scene_image_path=None,
+                    preserve_camera_from_base=True,
                 )
                 # Inject swatch ref + flag.
                 req = dataclass_replace(
@@ -875,6 +899,7 @@ async def api_generate_photoshoot(
             model=model, aspect=aspect, res=res, seed=seed,
             base_image_path=anchor_src_path,
             scene_image_path=None,
+            preserve_camera_from_base=True,
         )
         ls_anchor = await asyncio.to_thread(generate, anchor_req)
 
@@ -907,6 +932,7 @@ async def api_generate_photoshoot(
                     model=model, aspect=aspect, res=res, seed=seed,
                     base_image_path=src2_path,
                     scene_image_path=ls_anchor.output_path,
+                    preserve_camera_from_base=True,
                 )
                 v2_req = dataclass_replace(
                     v2_req,

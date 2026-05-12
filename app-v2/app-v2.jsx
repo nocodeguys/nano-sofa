@@ -798,7 +798,12 @@ function App({ t }) {
 
               {/* Upload zone + thumbnails */}
               <div>
-                <div style={{fontSize: 13, marginBottom: 6}}>Zdjęcia źródłowe (kąty kamery — dodaj 6-8, pierwsze 6 = packshot, ostatnie 1-2 = lifestyle)</div>
+                <div style={{fontSize: 13, marginBottom: 4}}>Zdjęcia źródłowe (kąty kamery — dodaj 6-8, pierwsze 6 = packshot, ostatnie 1-2 = lifestyle)</div>
+                <div style={{fontSize: 10, marginBottom: 8, color:"var(--ink-3)", fontFamily:"Geist Mono"}}>
+                  <b style={{color:"var(--ink)"}}>Tło</b> = na cykloramie (packshot) ·
+                  <b style={{color:"var(--ink)"}}> Pokój</b> = wnętrze lifestyle (max 2) ·
+                  <b style={{color:"var(--ink)"}}> Pomiń</b> = nie używaj
+                </div>
                 <label style={{
                   display:"flex", alignItems:"center", justifyContent:"center",
                   padding: "16px 20px", border: "1px dashed rgba(0,0,0,.25)",
@@ -844,17 +849,22 @@ function App({ t }) {
                                        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom: 3}}
                                title={s.name}>{s.name}</div>
                           <div style={{display:"flex", gap: 2}}>
-                            {["packshot","lifestyle","skip"].map(role => (
-                              <button key={role}
-                                      onClick={() => setShootSourceRole(i, role)}
+                            {[
+                              {id:"packshot", label:"Tło",   title:"Tło — wariant na cykloramie (packshot)"},
+                              {id:"lifestyle",label:"Pokój", title:"Pokój — wariant w wnętrzu lifestyle (max 2)"},
+                              {id:"skip",     label:"Pomiń", title:"Pomiń — nie używaj tego zdjęcia"},
+                            ].map(role => (
+                              <button key={role.id}
+                                      onClick={() => setShootSourceRole(i, role.id)}
                                       disabled={shootBusy}
+                                      title={role.title}
                                       style={{
                                         flex: 1, padding: "3px 0",
-                                        fontSize: 9, fontFamily:"Geist Mono",
-                                        background: s.role === role ? "var(--ink)" : "rgba(0,0,0,.05)",
-                                        color: s.role === role ? "var(--paper)" : "var(--ink-3)",
+                                        fontSize: 10, fontFamily:"Geist Mono",
+                                        background: s.role === role.id ? "var(--ink)" : "rgba(0,0,0,.05)",
+                                        color: s.role === role.id ? "var(--paper)" : "var(--ink-3)",
                                         border: 0, borderRadius: 4, cursor: "pointer",
-                                      }}>{role === "packshot" ? "PS" : role === "lifestyle" ? "LS" : "—"}</button>
+                                      }}>{role.label}</button>
                             ))}
                           </div>
                         </div>
@@ -864,7 +874,7 @@ function App({ t }) {
                 )}
                 {shootCounts.lifestyleExtra > 0 && (
                   <div style={{fontSize: 11, color: "#c0392b", marginTop: 6}}>
-                    Uwaga: tylko 2 pierwsze zdjęcia oznaczone LS pójdą jako lifestyle; pozostałe {shootCounts.lifestyleExtra} → packshot.
+                    Uwaga: tylko 2 pierwsze zdjęcia oznaczone „Pokój" zostaną wyrenderowane jako lifestyle; pozostałe {shootCounts.lifestyleExtra} → tło.
                   </div>
                 )}
               </div>
@@ -887,7 +897,7 @@ function App({ t }) {
                     fontFamily:"Geist Mono", fontSize: 11,
                     background:"rgba(255,255,255,.10)", padding:"3px 8px",
                     borderRadius: 999, color:"rgba(255,255,255,.75)",
-                  }}>{shootCounts.packshot} PS + {shootCounts.lifestyle} LS · ${shootCost}</span>
+                  }}>{shootCounts.packshot} tło + {shootCounts.lifestyle} pokój · ${shootCost}</span>
                 </button>
                 {shootError && (
                   <div style={{color:"#c0392b", fontSize: 11}}>{shootError}</div>
@@ -914,7 +924,7 @@ function App({ t }) {
                   {shootResult.packshot?.length > 0 && (
                     <div>
                       <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
-                        PACKSHOT ({shootResult.packshot.length}) — wspólny look fabric/koloru, każdy ze swojego kąta źródłowego
+                        TŁO / CYKLORAMA ({shootResult.packshot.length}) — wspólny look fabric/koloru, każdy ze swojego kąta źródłowego
                       </div>
                       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap: 10}}>
                         {shootResult.packshot.map((r, i) => {
@@ -958,7 +968,7 @@ function App({ t }) {
                   {shootResult.lifestyle?.length > 0 && (
                     <div>
                       <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
-                        LIFESTYLE ({shootResult.lifestyle.length}) — wspólny pokój, drugi shot dziedziczy scenę z anchora
+                        POKÓJ / LIFESTYLE ({shootResult.lifestyle.length}) — wspólne wnętrze, drugi shot dziedziczy scenę z anchora
                       </div>
                       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px, 1fr))", gap: 10}}>
                         {shootResult.lifestyle.map((r, i) => {
