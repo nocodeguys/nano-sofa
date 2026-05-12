@@ -809,15 +809,15 @@ async def api_generate_photoshoot(
     packshot_results: list[dict] = []
     errors: list[dict] = []
     packshot_anchor_path: Optional[Path] = None
+    # Look up the curated cyclorama reference once — used by both the anchor
+    # and every variant so the backdrop look is locked pixel-level across
+    # the whole batch.
+    backdrop_ref_path = _scene_reference_path(backdrop)
 
     if packshot_sources:
-        # 1. Fabric anchor — first packshot source. Pin the cyclorama look at
-        # pixel level by auto-attaching the curated reference image (if one
-        # exists for this backdrop preset). Variants 2..N don't re-attach the
-        # reference — they pick up the cyclorama from the anchor via the
-        # swatch reference.
+        # 1. Anchor — first packshot source. The curated cyclorama reference
+        # (if present) locks the backdrop look at pixel level.
         anchor_src_path, anchor_src_fn = packshot_sources[0]
-        backdrop_ref_path = _scene_reference_path(backdrop)
         anchor_req = _build_generation_request(
             api_key=api_key, kind=kind,
             color=color, color_custom=color_custom,
@@ -851,8 +851,23 @@ async def api_generate_photoshoot(
                 "cost": anchor_result.actual_cost,
             })
 
-        # 2. Remaining packshot variants — fan out in parallel using the
-        # anchor as a fabric swatch reference.
+        # 2. Remaining packshot variants — fan out in parallel.
+        #
+        # Earlier design used the anchor render as a fabric swatch reference
+        # to lock cross-variant color consistency. That approach broke
+        # framing fidelity: the model treated the anchor (a wide hero shot)
+        # as a composition reference and collapsed every variant toward that
+        # framing regardless of source angle — even with "slot 1 is framing
+        # authority" repeated four times in the prompt. Visual references
+        # outweigh text instructions in the model's attention.
+        #
+        # New design: variants render solo from their own source. The
+        # backdrop is still locked via the curated cyclorama reference
+        # (same as the anchor), which provides backdrop continuity without
+        # leaking framing. Fabric/color consistency now comes from the
+        # identical text prompt across variants (Gemini's color-name
+        # interpretation is deterministic enough — drift is minimal vs.
+        # the framing collapse the swatch caused).
         if packshot_anchor_path and len(packshot_sources) > 1:
 
             def _render_packshot_variant(idx: int, src_path: Path, src_fn: str):
@@ -865,14 +880,8 @@ async def api_generate_photoshoot(
                     env=backdrop, env_note=env_note, env_mode="",
                     model=model, aspect=aspect, res=res, seed=seed,
                     base_image_path=src_path,
-                    scene_image_path=None,
+                    scene_image_path=backdrop_ref_path,  # same cyclorama lock as anchor
                     preserve_camera_from_base=True,
-                )
-                # Inject swatch ref + flag.
-                req = dataclass_replace(
-                    req,
-                    swatch_reference_image=str(packshot_anchor_path),
-                    use_swatch_for_fabric=True,
                 )
                 return idx, src_fn, generate(req)
 

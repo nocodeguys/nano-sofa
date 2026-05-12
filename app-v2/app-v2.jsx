@@ -909,7 +909,7 @@ function App({ t }) {
                               background:"rgba(0,0,0,.04)", borderRadius: 10, fontSize: 12}}>
                   <span className="ico">{Ic.sparkle}</span>
                   <span>
-                    Pass A: anchor + warianty packshot z fabric swatch · Pass B: lifestyle anchor + scene-ref dla 2. shot
+                    Pass A: każdy packshot solo z lockedym tłem (cyklorama ref) · Pass B: lifestyle anchor + scene-ref dla 2. shot
                   </span>
                 </div>
               )}
@@ -924,7 +924,7 @@ function App({ t }) {
                   {shootResult.packshot?.length > 0 && (
                     <div>
                       <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
-                        TŁO / CYKLORAMA ({shootResult.packshot.length}) — wspólny look fabric/koloru, każdy ze swojego kąta źródłowego
+                        TŁO / CYKLORAMA ({shootResult.packshot.length}) — każdy ze swojego kąta źródłowego, wspólne tło z referencji
                       </div>
                       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap: 10}}>
                         {shootResult.packshot.map((r, i) => {
