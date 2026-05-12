@@ -111,6 +111,16 @@ function App({ t }) {
   const [variantBusy, setVariantBusy]     = useState(false);
   const [variantError, setVariantError]   = useState("");
 
+  // Photoshoot session state. Sources are the user's uploaded angle photos;
+  // each has a role: "packshot" | "lifestyle" | "skip". Backdrop is the
+  // locked cyclorama profile id. Result is { packshot[], lifestyle[], errors[] }.
+  const [shootSources, setShootSources] = useState([]);  // [{file, role, previewUrl, name}]
+  const [shootBackdrop, setShootBackdrop] = useState("cyclorama_warm");
+  const [shootLifestyleEnv, setShootLifestyleEnv] = useState("scandi");
+  const [shootResult, setShootResult] = useState(null);
+  const [shootBusy, setShootBusy] = useState(false);
+  const [shootError, setShootError] = useState("");
+
   const colorObj = useMemo(() => COLORS.find(c => c.id === st.color), [st.color]);
   const matObj   = useMemo(() => MATERIALS.find(m => m.id === st.mat), [st.mat]);
   const sizes    = st.kind === "bed" ? SIZES_BED : SIZES_SOFA;
@@ -255,6 +265,117 @@ function App({ t }) {
     return (anchorCost + variantCost * Math.max(0, variantColors.length - 1)).toFixed(3);
   }, [st.model, st.res, variantColors.length]);
 
+  // -------- Fotosesja (photoshoot session) handlers --------
+  const onShootPickFiles = (files) => {
+    const arr = Array.from(files || []);
+    if (!arr.length) return;
+    setShootSources(prev => {
+      const next = [...prev];
+      arr.forEach((f, i) => {
+        // Default the first 6 to packshot, anything after to lifestyle.
+        const idx = next.length;
+        next.push({
+          file: f,
+          role: idx < 6 ? "packshot" : "lifestyle",
+          previewUrl: URL.createObjectURL(f),
+          name: f.name,
+        });
+      });
+      return next;
+    });
+  };
+
+  const setShootSourceRole = (i, role) => {
+    setShootSources(prev => prev.map((s, idx) => idx === i ? { ...s, role } : s));
+  };
+  const removeShootSource = (i) => {
+    setShootSources(prev => {
+      const removed = prev[i];
+      if (removed?.previewUrl) try { URL.revokeObjectURL(removed.previewUrl); } catch {}
+      return prev.filter((_, idx) => idx !== i);
+    });
+  };
+
+  const shootCounts = useMemo(() => {
+    const p = shootSources.filter(s => s.role === "packshot").length;
+    const l = shootSources.filter(s => s.role === "lifestyle").length;
+    return { packshot: p, lifestyle: Math.min(l, 2), skipped: shootSources.filter(s => s.role === "skip").length, lifestyleExtra: Math.max(0, l - 2) };
+  }, [shootSources]);
+
+  const shootCost = useMemo(() => {
+    const base = st.model.includes("pro") ? 0.12 : 0.067;
+    const r = (st.res || "").split(" ")[0];
+    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
+    // Packshot variants 2..N add ~15% for the swatch reference image; lifestyle variant 2 adds ~15% for scene ref.
+    const packshotAnchor = base * resMult;
+    const packshotVariant = base * 1.15 * resMult;
+    const lifestyleAnchor = base * resMult;
+    const lifestyleVariant = base * 1.15 * resMult;
+    const total = (
+      (shootCounts.packshot > 0 ? packshotAnchor : 0)
+      + packshotVariant * Math.max(0, shootCounts.packshot - 1)
+      + (shootCounts.lifestyle > 0 ? lifestyleAnchor : 0)
+      + lifestyleVariant * Math.max(0, shootCounts.lifestyle - 1)
+    );
+    return total.toFixed(3);
+  }, [st.model, st.res, shootCounts]);
+
+  const handleGenerateShoot = async () => {
+    setShootError("");
+    setShootResult(null);
+    if (!apiKey.trim()) { setShootError("Wklej klucz Gemini API u góry sceny."); setShowKeyEdit(true); return; }
+    const usable = shootSources.filter(s => s.role !== "skip");
+    if (usable.length === 0) { setShootError("Dodaj co najmniej jedno zdjęcie źródłowe."); return; }
+    if (usable.length > 10) { setShootError("Limit sesji: max 10 zdjęć źródłowych."); return; }
+
+    const fd = new FormData();
+    fd.append("api_key", apiKey.trim());
+    fd.append("kind", st.kind);
+    fd.append("color", st.color);
+    fd.append("color_custom", st.colorCustom || "");
+    fd.append("mat", st.mat);
+    fd.append("mat_notes", st.matNotes || "");
+    fd.append("size", st.size);
+    fd.append("legs", st.legs);
+    fd.append("cam", st.cam);
+    fd.append("lens", st.lens);
+    fd.append("tod", st.tod);
+    fd.append("shadow", st.shadow);
+    fd.append("backdrop", shootBackdrop);
+    fd.append("lifestyle_env", shootLifestyleEnv);
+    fd.append("env_note", st.envNote || "");
+    fd.append("model", st.model);
+    fd.append("aspect", st.aspect);
+    fd.append("res", st.res);
+    fd.append("seed", st.seed || "");
+    // Sources + roles arrays are positionally paired on the server side.
+    const roles = [];
+    for (const s of shootSources) {
+      if (s.role === "skip") continue;
+      // Cap lifestyle uses to 2 — the rest become packshot extras.
+      let r = s.role;
+      if (r === "lifestyle" && roles.filter(x => x === "lifestyle").length >= 2) r = "packshot";
+      fd.append("sources", s.file);
+      roles.push(r);
+    }
+    fd.append("source_roles_csv", roles.join(","));
+
+    setShootBusy(true);
+    try {
+      const resp = await fetch("/api/generate-photoshoot", { method: "POST", body: fd });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        setShootError(data.error || `Błąd serwera (${resp.status})`);
+      } else {
+        setShootResult(data);
+      }
+    } catch (e) {
+      setShootError(String(e && e.message ? e.message : e));
+    } finally {
+      setShootBusy(false);
+    }
+  };
+
   const handleGenerateSet = async () => {
     setVariantError("");
     setVariantSet(null);
@@ -332,6 +453,7 @@ function App({ t }) {
           <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>Mockup</button>
           <button className={stageTab === "json" ? "on" : ""} onClick={() => setStageTab("json")}>JSON</button>
           <button className={stageTab === "variants" ? "on" : ""} onClick={() => setStageTab("variants")}>Warianty</button>
+          <button className={stageTab === "photoshoot" ? "on" : ""} onClick={() => setStageTab("photoshoot")}>Fotosesja</button>
         </div>
 
         <div className="stage-canvas" style={{
@@ -618,6 +740,278 @@ function App({ t }) {
                       );
                     })}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {stageTab === "photoshoot" && (
+            <div className="stage-photoshoot" style={{
+              position:"absolute", top: 100, left: 0, right: 0, bottom: 0,
+              display:"flex", flexDirection:"column", gap: 14,
+              background:"var(--paper, #f4f0e5)",
+              padding: "8px 24px 24px",
+              overflow:"auto",
+              zIndex: 2,
+            }}>
+              {/* Locked-variant summary — show what's being applied to the whole session */}
+              <div style={{
+                display:"flex", flexWrap:"wrap", alignItems:"baseline",
+                gap: "4px 10px", fontSize: 11,
+                color:"var(--ink-3)", fontFamily:"Geist Mono",
+                lineHeight: 1.5,
+              }}>
+                <span style={{color:"var(--ink-4, #888)"}}>Wariant:</span>
+                <span><b style={{color:"var(--ink)"}}>{colorObj?.name || st.color}</b></span>
+                <span>· <b style={{color:"var(--ink)"}}>{matObj?.name || st.mat}</b></span>
+                <span>· {sizeObj?.name} ({sizeObj?.dim})</span>
+                <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
+                <span>· {st.aspect} · {(st.res || "").split(" ")[0]}</span>
+              </div>
+
+              {/* Backdrop + lifestyle env pickers */}
+              <div style={{display:"grid", gridTemplateColumns: "1fr 1fr", gap: 10}}>
+                <div>
+                  <div style={{fontSize: 11, color:"var(--ink-3)", marginBottom: 4, fontFamily:"Geist Mono"}}>tło packshot (locked cyclorama)</div>
+                  <select className="select" value={shootBackdrop}
+                          onChange={e => setShootBackdrop(e.target.value)}
+                          disabled={shootBusy}
+                          style={{width:"100%"}}>
+                    <option value="cyclorama_warm">Cyklorama ciepła #F4F0E5 (catalog)</option>
+                    <option value="cyclorama_neutral">Cyklorama neutralna #FAFAFA (clean white)</option>
+                    <option value="cyclorama_grey">Cyklorama szara #DCDCDC (packshot grey)</option>
+                    <option value="cyclorama_transparent">Bez tła (alpha PNG)</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize: 11, color:"var(--ink-3)", marginBottom: 4, fontFamily:"Geist Mono"}}>scena lifestyle (1-2 zdjęć)</div>
+                  <select className="select" value={shootLifestyleEnv}
+                          onChange={e => setShootLifestyleEnv(e.target.value)}
+                          disabled={shootBusy}
+                          style={{width:"100%"}}>
+                    {ENVIRONMENTS.filter(e => !e.id.startsWith("cyclorama") && !["studio_white","studio_grey","transparent","custom"].includes(e.id)).map(e =>
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Upload zone + thumbnails */}
+              <div>
+                <div style={{fontSize: 13, marginBottom: 6}}>Zdjęcia źródłowe (kąty kamery — dodaj 6-8, pierwsze 6 = packshot, ostatnie 1-2 = lifestyle)</div>
+                <label style={{
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  padding: "16px 20px", border: "1px dashed rgba(0,0,0,.25)",
+                  borderRadius: 10, cursor: shootBusy ? "not-allowed" : "pointer",
+                  fontSize: 12, color:"var(--ink-3)",
+                  background:"rgba(255,255,255,.5)",
+                  opacity: shootBusy ? 0.6 : 1,
+                }}>
+                  <input type="file" accept="image/*" multiple style={{display:"none"}}
+                         disabled={shootBusy}
+                         onChange={e => onShootPickFiles(e.target.files)} />
+                  <span style={{display:"inline-flex", marginRight: 8}}>{Ic.upload}</span>
+                  Wybierz wiele zdjęć albo upuść tutaj
+                </label>
+                {shootSources.length > 0 && (
+                  <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(120px, 1fr))", gap: 8, marginTop: 8}}>
+                    {shootSources.map((s, i) => (
+                      <div key={i} style={{
+                        position:"relative",
+                        background:"#fff", borderRadius: 10, overflow:"hidden",
+                        border: "0.5px solid rgba(0,0,0,.1)",
+                      }}>
+                        <div style={{aspectRatio:"1/1", background:"#f2f0e9"}}>
+                          <img src={s.previewUrl} alt={s.name}
+                               style={{width:"100%", height:"100%", objectFit:"cover"}} />
+                          <span style={{
+                            position:"absolute", top: 4, left: 4,
+                            background:"var(--ink)", color:"var(--paper)",
+                            fontSize: 9, padding: "1px 5px", borderRadius: 999,
+                            fontFamily:"Geist Mono",
+                          }}>v{i + 1}</span>
+                          <button onClick={() => removeShootSource(i)}
+                                  disabled={shootBusy}
+                                  style={{
+                                    position:"absolute", top: 4, right: 4,
+                                    width: 18, height: 18, borderRadius: 999,
+                                    background: "rgba(0,0,0,.5)", color:"#fff",
+                                    border: 0, cursor:"pointer", fontSize: 10, padding: 0, lineHeight: 1,
+                                  }} title="usuń">×</button>
+                        </div>
+                        <div style={{padding: "5px 6px"}}>
+                          <div style={{fontSize: 9, color:"var(--ink-3)", fontFamily:"Geist Mono",
+                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom: 3}}
+                               title={s.name}>{s.name}</div>
+                          <div style={{display:"flex", gap: 2}}>
+                            {["packshot","lifestyle","skip"].map(role => (
+                              <button key={role}
+                                      onClick={() => setShootSourceRole(i, role)}
+                                      disabled={shootBusy}
+                                      style={{
+                                        flex: 1, padding: "3px 0",
+                                        fontSize: 9, fontFamily:"Geist Mono",
+                                        background: s.role === role ? "var(--ink)" : "rgba(0,0,0,.05)",
+                                        color: s.role === role ? "var(--paper)" : "var(--ink-3)",
+                                        border: 0, borderRadius: 4, cursor: "pointer",
+                                      }}>{role === "packshot" ? "PS" : role === "lifestyle" ? "LS" : "—"}</button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {shootCounts.lifestyleExtra > 0 && (
+                  <div style={{fontSize: 11, color: "#c0392b", marginTop: 6}}>
+                    Uwaga: tylko 2 pierwsze zdjęcia oznaczone LS pójdą jako lifestyle; pozostałe {shootCounts.lifestyleExtra} → packshot.
+                  </div>
+                )}
+              </div>
+
+              {/* Submit row */}
+              <div style={{display:"flex", alignItems:"center", gap: 12, paddingTop: 4}}>
+                <button onClick={handleGenerateShoot}
+                        disabled={shootBusy || shootSources.length === 0}
+                        style={{
+                          display:"flex", alignItems:"center", gap: 10,
+                          padding: "11px 18px", borderRadius: 999,
+                          background: "var(--ink)", color: "var(--paper)",
+                          border: 0, cursor: shootBusy ? "wait" : "pointer",
+                          fontSize: 13, letterSpacing: "-0.005em",
+                          opacity: (shootSources.length === 0 || shootBusy) ? 0.5 : 1,
+                        }}>
+                  <span style={{display:"inline-flex"}}>{Ic.sparkle}</span>
+                  <span>{shootBusy ? "Generuję sesję…" : "Generuj fotosesję"}</span>
+                  <span style={{
+                    fontFamily:"Geist Mono", fontSize: 11,
+                    background:"rgba(255,255,255,.10)", padding:"3px 8px",
+                    borderRadius: 999, color:"rgba(255,255,255,.75)",
+                  }}>{shootCounts.packshot} PS + {shootCounts.lifestyle} LS · ${shootCost}</span>
+                </button>
+                {shootError && (
+                  <div style={{color:"#c0392b", fontSize: 11}}>{shootError}</div>
+                )}
+              </div>
+
+              {shootBusy && (
+                <div style={{display:"flex", alignItems:"center", gap: 10, padding: 10,
+                              background:"rgba(0,0,0,.04)", borderRadius: 10, fontSize: 12}}>
+                  <span className="ico">{Ic.sparkle}</span>
+                  <span>
+                    Pass A: anchor + warianty packshot z fabric swatch · Pass B: lifestyle anchor + scene-ref dla 2. shot
+                  </span>
+                </div>
+              )}
+
+              {shootResult && (
+                <div style={{display:"flex", flexDirection:"column", gap: 14}}>
+                  <div style={{fontSize: 12, color:"var(--ink-3)"}}>
+                    Sesja gotowa · ${shootResult.total_cost?.toFixed(3)} łącznie
+                    {shootResult.errors?.length > 0 && ` · ${shootResult.errors.length} błędów`}
+                  </div>
+
+                  {shootResult.packshot?.length > 0 && (
+                    <div>
+                      <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
+                        PACKSHOT ({shootResult.packshot.length}) — wspólny look fabric/koloru, każdy ze swojego kąta źródłowego
+                      </div>
+                      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap: 10}}>
+                        {shootResult.packshot.map((r, i) => {
+                          const slug = [st.color, st.mat, shootBackdrop].filter(Boolean).join("-");
+                          const ext = (r.image_url.split(".").pop() || "png").split("?")[0];
+                          const dlName = `nano-sofa-${r.label}-${slug}.${ext}`;
+                          return (
+                            <div key={i} style={{
+                              display:"flex", flexDirection:"column",
+                              background:"#fff", borderRadius: 10, overflow:"hidden",
+                              border: "0.5px solid rgba(0,0,0,.08)",
+                            }}>
+                              <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative"}}>
+                                <img src={r.image_url} alt={r.label}
+                                     style={{position:"absolute", inset: 0, width:"100%", height:"100%", objectFit:"cover"}} />
+                                {r.anchor && (
+                                  <span style={{position:"absolute", top: 6, left: 6,
+                                                background:"var(--ink)", color:"var(--paper)",
+                                                fontSize: 9, padding: "2px 6px", borderRadius: 999,
+                                                fontFamily:"Geist Mono"}}>anchor</span>
+                                )}
+                              </div>
+                              <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+                                <span style={{fontSize: 11, fontFamily:"Geist Mono"}}>{r.label}</span>
+                                <a href={r.image_url} download={dlName}
+                                   style={{display:"inline-flex", alignItems:"center", gap: 4,
+                                           fontSize: 10, fontFamily:"Geist Mono",
+                                           color:"var(--ink)", textDecoration:"none",
+                                           padding:"3px 7px", borderRadius: 999, background:"rgba(0,0,0,.04)"}}>
+                                  <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
+                                  PNG
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {shootResult.lifestyle?.length > 0 && (
+                    <div>
+                      <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
+                        LIFESTYLE ({shootResult.lifestyle.length}) — wspólny pokój, drugi shot dziedziczy scenę z anchora
+                      </div>
+                      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px, 1fr))", gap: 10}}>
+                        {shootResult.lifestyle.map((r, i) => {
+                          const slug = [st.color, st.mat, shootLifestyleEnv].filter(Boolean).join("-");
+                          const ext = (r.image_url.split(".").pop() || "png").split("?")[0];
+                          const dlName = `nano-sofa-${r.label}-lifestyle-${slug}.${ext}`;
+                          return (
+                            <div key={i} style={{
+                              display:"flex", flexDirection:"column",
+                              background:"#fff", borderRadius: 10, overflow:"hidden",
+                              border: "0.5px solid rgba(0,0,0,.08)",
+                            }}>
+                              <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative"}}>
+                                <img src={r.image_url} alt={r.label}
+                                     style={{position:"absolute", inset: 0, width:"100%", height:"100%", objectFit:"cover"}} />
+                                {r.anchor && (
+                                  <span style={{position:"absolute", top: 6, left: 6,
+                                                background:"var(--ink)", color:"var(--paper)",
+                                                fontSize: 9, padding: "2px 6px", borderRadius: 999,
+                                                fontFamily:"Geist Mono"}}>anchor</span>
+                                )}
+                              </div>
+                              <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+                                <span style={{fontSize: 11, fontFamily:"Geist Mono"}}>{r.label}</span>
+                                <a href={r.image_url} download={dlName}
+                                   style={{display:"inline-flex", alignItems:"center", gap: 4,
+                                           fontSize: 10, fontFamily:"Geist Mono",
+                                           color:"var(--ink)", textDecoration:"none",
+                                           padding:"3px 7px", borderRadius: 999, background:"rgba(0,0,0,.04)"}}>
+                                  <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
+                                  PNG
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {shootResult.errors?.length > 0 && (
+                    <div>
+                      <div style={{fontSize: 11, color:"#c0392b", fontFamily:"Geist Mono", marginBottom: 6}}>BŁĘDY</div>
+                      <div style={{display:"flex", flexDirection:"column", gap: 4}}>
+                        {shootResult.errors.map((e, i) => (
+                          <div key={i} style={{fontSize: 11, color:"#c0392b", padding: "6px 10px",
+                                               background:"rgba(192,57,43,.08)", borderRadius: 6}}>
+                            <b>{e.label}</b> ({e.role}{e.source_filename ? `, ${e.source_filename}` : ""}): {e.error}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

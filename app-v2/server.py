@@ -109,14 +109,72 @@ _LEG_TO_ID = {
     "swivel": "swivel-base",
 }
 
+# Cyclorama profile — locked multi-sentence spec. The packshot SCENE block
+# in generator.py emits this verbatim when env_mode == "packshot". The level
+# of detail is intentional: the loose one-liner ("clean white studio
+# cyclorama") used to allow the model to reinterpret the backdrop on every
+# render, which is exactly the inconsistency the user reported. With a fixed
+# RGB, an explicit no-horizon-line clause, and a specific contact-shadow
+# description, every packshot lands on the same look.
+_CYCLORAMA_PROFILES = {
+    "cyclorama_warm": (
+        "a seamless infinity-curve studio cyclorama in warm off-white "
+        "RGB(244,240,229) hex #F4F0E5 (a catalog warm cream — the standard "
+        "for premium European furniture catalogs). The backdrop has no "
+        "visible horizon line between floor and wall — the curve is "
+        "completely seamless. Lighting is large soft-box diffuse from above, "
+        "perfectly even across the entire backdrop with no hot spots and no "
+        "vignetting toward the corners. A small, soft, diffuse contact shadow "
+        "sits directly beneath the product (no directional cast — the shadow "
+        "is anchored, not thrown). The floor under the product has a very "
+        "subtle gradient — fractionally darker right at the contact line, "
+        "fading to the full backdrop tone within roughly 30 centimeters. "
+        "Absolutely no props, no walls, no floor seams, no environment "
+        "objects, no other furniture, no plants, no rugs"
+    ),
+    "cyclorama_neutral": (
+        "a seamless infinity-curve studio cyclorama in clean neutral white "
+        "RGB(250,250,250) hex #FAFAFA (pure photo-studio white, no warm "
+        "or cool tint). Otherwise identical to the warm cyclorama profile: "
+        "seamless floor-to-wall curve, no horizon line, large soft-box "
+        "even diffuse light from above with no hot spots or corner falloff, "
+        "small soft anchored contact shadow under the product only, no "
+        "directional cast, subtle floor-darkening gradient at the contact "
+        "line. No props, no walls, no environment objects of any kind"
+    ),
+    "cyclorama_grey": (
+        "a seamless infinity-curve studio cyclorama in neutral mid-grey "
+        "RGB(220,220,220) hex #DCDCDC (packshot grey, slightly cooler than "
+        "neutral white). Otherwise identical to the cyclorama profile: "
+        "seamless floor-to-wall curve, no horizon line, soft-box even "
+        "diffuse light with no hot spots, small soft anchored contact "
+        "shadow under the product only, no directional cast. No props, "
+        "no walls, no environment objects"
+    ),
+    "cyclorama_transparent": (
+        "transparent background output (alpha PNG) — the product is isolated "
+        "with no backdrop at all. Render only the product with a small soft "
+        "contact shadow beneath it; everything else is fully transparent. "
+        "No floor, no wall, no environment"
+    ),
+}
+
 # Environment id (from data.jsx ENVIRONMENTS) → (mode, scene description).
 # Mode drives the two branches of the SCENE block in generator.py:
 #   "packshot"  → product on a clean backdrop, no room context.
 #   "lifestyle" → product staged inside a real interior, environment first-class.
 _ENV_TO_SCENE = {
-    "studio_white":  ("packshot",  "clean white studio cyclorama, soft even lighting, e-commerce catalog"),
-    "studio_grey":   ("packshot",  "neutral grey studio cyclorama, packshot lighting"),
-    "transparent":   ("packshot",  "transparent background, isolated product, no environment, alpha PNG output"),
+    # Cyclorama presets — locked profiles that always look the same.
+    "cyclorama_warm":        ("packshot", _CYCLORAMA_PROFILES["cyclorama_warm"]),
+    "cyclorama_neutral":     ("packshot", _CYCLORAMA_PROFILES["cyclorama_neutral"]),
+    "cyclorama_grey":        ("packshot", _CYCLORAMA_PROFILES["cyclorama_grey"]),
+    "cyclorama_transparent": ("packshot", _CYCLORAMA_PROFILES["cyclorama_transparent"]),
+    # Legacy aliases — point at the new locked profiles so existing wizard
+    # users automatically inherit the consistency upgrade.
+    "studio_white":          ("packshot", _CYCLORAMA_PROFILES["cyclorama_warm"]),
+    "studio_grey":           ("packshot", _CYCLORAMA_PROFILES["cyclorama_grey"]),
+    "transparent":           ("packshot", _CYCLORAMA_PROFILES["cyclorama_transparent"]),
+    # Lifestyle envs — unchanged narrative descriptions.
     "scandi":        ("lifestyle", "a scandinavian living room with light oak floors, white walls, and indoor plants"),
     "loft":          ("lifestyle", "an industrial loft with exposed brick walls, polished concrete floors, and dark metal accents"),
     "japandi":       ("lifestyle", "a japandi interior with a warm minimalist palette, natural wood, and soft diffuse light"),
@@ -608,6 +666,283 @@ async def api_generate_set(
         "variants": variants_payload,
         "total_cost": total_cost,
         "model": model,
+    }
+
+
+@app.post("/api/generate-photoshoot")
+async def api_generate_photoshoot(
+    api_key: str = Form(""),
+    kind: str = Form("sofa"),
+    color: str = Form("saliw"),
+    color_custom: str = Form(""),
+    mat: str = Form("boucle"),
+    mat_notes: str = Form(""),
+    size: str = Form("3"),
+    legs: str = Form("keep"),
+    cam: str = Form("studio"),
+    lens: str = Form("50mm_natural"),
+    tod: str = Form("noon_neutral"),
+    shadow: str = Form("soft_diffuse"),
+    backdrop: str = Form("cyclorama_warm"),      # packshot env id (locked profile)
+    lifestyle_env: str = Form("scandi"),         # lifestyle env id
+    env_note: str = Form(""),
+    model: str = Form("gemini-3.1-flash-image-preview"),
+    aspect: str = Form("4:3"),
+    res: str = Form("1K"),
+    seed: str = Form(""),
+    # Source images + per-source role flags. Lengths must match.
+    # roles: "packshot" | "lifestyle" | "skip"
+    sources: list[UploadFile] = File(...),
+    source_roles_csv: str = Form(""),
+):
+    """
+    Generate a full product photoshoot from user-supplied angle photos.
+
+    Two passes:
+      Pass A (packshot batch) — for each source tagged "packshot":
+        - Render 1 (fabric anchor): full prompt on backdrop, no swatch.
+        - Renders 2..N: anchor PNG as swatch_reference_image (slot 2)
+          + use_swatch_for_fabric=True. Locks fabric color/texture exactly
+          across the batch. Each call uses its own source image as base
+          so the angle, frame geometry, and pose are preserved per shot.
+
+      Pass B (lifestyle pair) — for each source tagged "lifestyle":
+        - Render 1 (lifestyle anchor): full lifestyle prompt, establishes
+          the room.
+        - Render 2 (if present): anchor as scene_reference_image
+          + view_consistency=True + prior_history=anchor.next_history.
+          The room is locked; only the camera angle (from the second
+          source's base image) changes.
+
+    Returns:
+      {
+        "packshot": [ {label, image_url, anchor?, cost, ...}, ... ],
+        "lifestyle": [ {label, image_url, anchor?, cost, ...}, ... ],
+        "errors":   [ {label, role, error}, ... ],
+        "total_cost": float,
+      }
+    """
+    if not api_key.strip():
+        return JSONResponse({"error": "Brak klucza API."}, status_code=400)
+
+    if not sources:
+        return JSONResponse({"error": "Brak zdjęć źródłowych."}, status_code=400)
+
+    roles = [r.strip().lower() for r in source_roles_csv.split(",")]
+    while len(roles) < len(sources):
+        roles.append("packshot")   # default any unflagged source to packshot
+
+    # Save all uploads to disk first; collect (path, role) tuples.
+    saved: list[tuple[Path, str, str]] = []   # (path, role, original_filename)
+    for upload, role in zip(sources, roles):
+        if role == "skip":
+            continue
+        if role not in ("packshot", "lifestyle"):
+            role = "packshot"
+        try:
+            p = await _save_upload(upload, suffix=f"_src_{role}")
+            saved.append((p, role, upload.filename or ""))
+        except Exception as exc:
+            logger.warning("Skipping unreadable source %s: %s", upload.filename, exc)
+
+    packshot_sources = [(p, fn) for (p, r, fn) in saved if r == "packshot"]
+    lifestyle_sources = [(p, fn) for (p, r, fn) in saved if r == "lifestyle"]
+
+    if not packshot_sources and not lifestyle_sources:
+        return JSONResponse(
+            {"error": "Brak czytelnych zdjęć źródłowych po dekodowaniu."},
+            status_code=400,
+        )
+    if len(packshot_sources) + len(lifestyle_sources) > 10:
+        return JSONResponse(
+            {"error": "Limit sesji: max 10 zdjęć źródłowych (packshot + lifestyle)."},
+            status_code=400,
+        )
+
+    logger.info(
+        "Photoshoot: %d packshot + %d lifestyle sources",
+        len(packshot_sources), len(lifestyle_sources),
+    )
+
+    # ------------------------------------------------------------------ #
+    # Pass A — Packshot batch
+    # ------------------------------------------------------------------ #
+    packshot_results: list[dict] = []
+    errors: list[dict] = []
+    packshot_anchor_path: Optional[Path] = None
+
+    if packshot_sources:
+        # 1. Fabric anchor — first packshot source.
+        anchor_src_path, anchor_src_fn = packshot_sources[0]
+        anchor_req = _build_generation_request(
+            api_key=api_key, kind=kind,
+            color=color, color_custom=color_custom,
+            mat=mat, mat_notes=mat_notes,
+            size=size, legs=legs, cam=cam,
+            lens=lens, tod=tod, shadow=shadow,
+            env=backdrop, env_note=env_note, env_mode="",
+            model=model, aspect=aspect, res=res, seed=seed,
+            base_image_path=anchor_src_path,
+            scene_image_path=None,
+        )
+        anchor_result = await asyncio.to_thread(generate, anchor_req)
+
+        if not anchor_result.success or anchor_result.output_path is None:
+            errors.append({
+                "label": "v1",
+                "source_filename": anchor_src_fn,
+                "role": "packshot",
+                "error": anchor_result.error_message or "anchor render failed",
+            })
+        else:
+            packshot_anchor_path = anchor_result.output_path
+            packshot_results.append({
+                "label": "v1",
+                "source_filename": anchor_src_fn,
+                "image_url": f"/api/outputs/{anchor_result.output_path.name}",
+                "anchor": True,
+                "cost": anchor_result.actual_cost,
+            })
+
+        # 2. Remaining packshot variants — fan out in parallel using the
+        # anchor as a fabric swatch reference.
+        if packshot_anchor_path and len(packshot_sources) > 1:
+
+            def _render_packshot_variant(idx: int, src_path: Path, src_fn: str):
+                req = _build_generation_request(
+                    api_key=api_key, kind=kind,
+                    color=color, color_custom=color_custom,
+                    mat=mat, mat_notes=mat_notes,
+                    size=size, legs=legs, cam=cam,
+                    lens=lens, tod=tod, shadow=shadow,
+                    env=backdrop, env_note=env_note, env_mode="",
+                    model=model, aspect=aspect, res=res, seed=seed,
+                    base_image_path=src_path,
+                    scene_image_path=None,
+                )
+                # Inject swatch ref + flag.
+                req = dataclass_replace(
+                    req,
+                    swatch_reference_image=str(packshot_anchor_path),
+                    use_swatch_for_fabric=True,
+                )
+                return idx, src_fn, generate(req)
+
+            variant_jobs = [
+                (i + 2, p, fn) for i, (p, fn) in enumerate(packshot_sources[1:])
+            ]
+            results = await asyncio.gather(
+                *(asyncio.to_thread(_render_packshot_variant, idx, p, fn) for idx, p, fn in variant_jobs),
+                return_exceptions=True,
+            )
+            for r in results:
+                if isinstance(r, Exception):
+                    errors.append({"label": "v?", "role": "packshot", "error": str(r)})
+                    continue
+                idx, src_fn, gen_result = r
+                if not gen_result.success or gen_result.output_path is None:
+                    errors.append({
+                        "label": f"v{idx}", "source_filename": src_fn,
+                        "role": "packshot",
+                        "error": gen_result.error_message or "render failed",
+                    })
+                    continue
+                packshot_results.append({
+                    "label": f"v{idx}",
+                    "source_filename": src_fn,
+                    "image_url": f"/api/outputs/{gen_result.output_path.name}",
+                    "cost": gen_result.actual_cost,
+                })
+            packshot_results.sort(key=lambda x: int(x["label"][1:]))
+
+    # ------------------------------------------------------------------ #
+    # Pass B — Lifestyle pair (up to 2 shots sharing a room)
+    # ------------------------------------------------------------------ #
+    lifestyle_results: list[dict] = []
+    if lifestyle_sources:
+        # 1. Lifestyle anchor — establishes the room.
+        anchor_src_path, anchor_src_fn = lifestyle_sources[0]
+        # Labels continue from the packshot numbering so the user sees
+        # a single coherent v1..vN sequence across the whole session.
+        anchor_label = f"v{len(packshot_results) + len(errors) + 1}"
+        anchor_req = _build_generation_request(
+            api_key=api_key, kind=kind,
+            color=color, color_custom=color_custom,
+            mat=mat, mat_notes=mat_notes,
+            size=size, legs=legs, cam=cam,
+            lens=lens, tod=tod, shadow=shadow,
+            env=lifestyle_env, env_note=env_note, env_mode="",
+            model=model, aspect=aspect, res=res, seed=seed,
+            base_image_path=anchor_src_path,
+            scene_image_path=None,
+        )
+        ls_anchor = await asyncio.to_thread(generate, anchor_req)
+
+        if not ls_anchor.success or ls_anchor.output_path is None:
+            errors.append({
+                "label": anchor_label, "source_filename": anchor_src_fn,
+                "role": "lifestyle",
+                "error": ls_anchor.error_message or "lifestyle anchor failed",
+            })
+        else:
+            lifestyle_results.append({
+                "label": anchor_label,
+                "source_filename": anchor_src_fn,
+                "image_url": f"/api/outputs/{ls_anchor.output_path.name}",
+                "anchor": True,
+                "cost": ls_anchor.actual_cost,
+            })
+
+            # 2. Lifestyle variant 2 (if a second lifestyle source exists).
+            if len(lifestyle_sources) >= 2:
+                src2_path, src2_fn = lifestyle_sources[1]
+                v2_label = f"v{len(packshot_results) + len(errors) + 2}"
+                v2_req = _build_generation_request(
+                    api_key=api_key, kind=kind,
+                    color=color, color_custom=color_custom,
+                    mat=mat, mat_notes=mat_notes,
+                    size=size, legs=legs, cam=cam,
+                    lens=lens, tod=tod, shadow=shadow,
+                    env=lifestyle_env, env_note=env_note, env_mode="",
+                    model=model, aspect=aspect, res=res, seed=seed,
+                    base_image_path=src2_path,
+                    scene_image_path=ls_anchor.output_path,
+                )
+                v2_req = dataclass_replace(
+                    v2_req,
+                    view_consistency=True,
+                    prior_history=list(ls_anchor.next_history),
+                    turn_number=2,
+                )
+                v2_result = await asyncio.to_thread(generate, v2_req)
+                if not v2_result.success or v2_result.output_path is None:
+                    errors.append({
+                        "label": v2_label, "source_filename": src2_fn,
+                        "role": "lifestyle",
+                        "error": v2_result.error_message or "lifestyle v2 failed",
+                    })
+                else:
+                    lifestyle_results.append({
+                        "label": v2_label,
+                        "source_filename": src2_fn,
+                        "image_url": f"/api/outputs/{v2_result.output_path.name}",
+                        "cost": v2_result.actual_cost,
+                    })
+
+    total_cost = (
+        sum(p.get("cost", 0) for p in packshot_results)
+        + sum(l.get("cost", 0) for l in lifestyle_results)
+    )
+
+    return {
+        "success": True,
+        "packshot": packshot_results,
+        "lifestyle": lifestyle_results,
+        "errors": errors,
+        "total_cost": total_cost,
+        "model": model,
+        "backdrop": backdrop,
+        "lifestyle_env": lifestyle_env,
     }
 
 

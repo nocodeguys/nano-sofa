@@ -95,6 +95,19 @@ class GenerationRequest:
     env_mode: str = ""              # "" | "packshot" | "lifestyle"
     env_description: str = ""       # full English scene description
 
+    # When True, the prompt emits a strong "same room, different angle"
+    # paragraph above CAMERA. Used by the lifestyle pair pass in
+    # /api/generate-photoshoot, where the scene_reference_image is the
+    # anchor lifestyle render and the model must preserve every room
+    # detail while accepting a new product angle from the base image.
+    view_consistency: bool = False
+
+    # When True, the prompt emits a "swatch reference" paragraph that tells
+    # the model to copy ONLY the fabric color and texture from the swatch
+    # reference image, not its geometry or shadows. Used by the packshot
+    # batch pass to lock fabric appearance across N angle renders.
+    use_swatch_for_fabric: bool = False
+
     # Output
     aspect_ratio: str = "4:3"
     resolution: str = "1K"
@@ -357,6 +370,43 @@ def _build_prompt_text(req: GenerationRequest) -> str:
                 f"(platform-style construction). Do not add visible legs, feet, posts, "
                 f"or risers under the {product_noun}."
             )
+
+    # ------------------------------------------------------------------ #
+    # Swatch reference instruction — when an additional reference image is
+    # being passed as the canonical fabric/color source (set by the packshot
+    # batch pass), make the role explicit so the model copies fabric appearance
+    # only and not geometry.
+    # ------------------------------------------------------------------ #
+    if req.use_swatch_for_fabric and req.swatch_reference_image is not None:
+        lines.append(
+            f"\nFABRIC / COLOR REFERENCE: An additional reference image is attached "
+            f"as a fabric and color swatch. Copy the EXACT upholstery color, fabric "
+            f"weave, and surface texture from this swatch reference and apply it to "
+            f"the {product_noun} in the base image (slot 1). Do not copy any other "
+            f"detail from the swatch reference — only fabric and color appearance. "
+            f"Do not copy shadows, lighting, perspective, or geometry from the swatch."
+        )
+
+    # ------------------------------------------------------------------ #
+    # View-consistency instruction — when the caller wants the model to
+    # render the product at a DIFFERENT angle than the scene reference,
+    # while keeping every room detail (walls, floor, props, lighting)
+    # identical to the scene reference. Used by the lifestyle pair pass.
+    # ------------------------------------------------------------------ #
+    if req.view_consistency and req.scene_reference_image is not None:
+        lines.append(
+            f"\nROOM AND LIGHTING CONTINUITY: This {product_noun} is being "
+            f"photographed in the EXACT same room as shown in the scene reference "
+            f"image — the same wall paint, the same floor material, the same props, "
+            f"the same windows, the same time of day, the same light source position. "
+            f"Treat the scene reference as a fixed-pixel definition of the room. "
+            f"The {product_noun}'s pose and camera angle come from the base image "
+            f"(slot 1); the room and lighting come from the scene reference (slot 2). "
+            f"Shadows on the {product_noun} fall in physically correct directions for "
+            f"its new camera angle but originate from the same light source position "
+            f"shown in the scene reference. Do not redesign the room, do not change "
+            f"wall paint, floor, props, or window light direction."
+        )
 
     # ------------------------------------------------------------------ #
     # Camera angle — stated explicitly even when reference is attached

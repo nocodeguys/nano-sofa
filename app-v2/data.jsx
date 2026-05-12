@@ -54,8 +54,13 @@ const CAMERAS = [
 ];
 
 const ENVIRONMENTS = [
-  { id: "studio_white",  name: "Białe studio",        prop: "katalog, e-commerce",    grad: "linear-gradient(180deg,#F4F0E5,#DCD3BD)",      acc: "#E8DEC9" },
-  { id: "studio_grey",   name: "Studio cykloramy",    prop: "neutralny, packshot",    grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
+  // Locked cyclorama profiles — guarantee identical backdrop look across renders.
+  { id: "cyclorama_warm",    name: "Cyklorama ciepła",   prop: "warm catalog white #F4F0E5", grad: "linear-gradient(180deg,#F4F0E5,#E4DBC6)",      acc: "#E8DEC9" },
+  { id: "cyclorama_neutral", name: "Cyklorama neutralna",prop: "pure photo white #FAFAFA",    grad: "linear-gradient(180deg,#FAFAFA,#E8E8E8)",      acc: "#F0F0F0" },
+  { id: "cyclorama_grey",    name: "Cyklorama szara",    prop: "packshot grey #DCDCDC",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
+  // Legacy ids — kept for back-compat; both resolve to cyclorama_warm/grey server-side.
+  { id: "studio_white",  name: "Białe studio (legacy)",   prop: "→ cyklorama ciepła",      grad: "linear-gradient(180deg,#F4F0E5,#DCD3BD)",      acc: "#E8DEC9" },
+  { id: "studio_grey",   name: "Studio szare (legacy)",   prop: "→ cyklorama szara",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
   { id: "scandi",        name: "Salon skandynawski",  prop: "drewno, biel, rośliny",  grad: "linear-gradient(180deg,#EFE8D6,#C9B796)",      acc: "#B89F7A" },
   { id: "loft",          name: "Loft industrial",     prop: "cegła, beton, metal",    grad: "linear-gradient(180deg,#C9B79C,#7C6B57)",      acc: "#8E7B62" },
   { id: "japandi",       name: "Japandi",             prop: "ciepła minimalistyka",   grad: "linear-gradient(180deg,#E9DDC4,#B59A74)",      acc: "#A88560" },
