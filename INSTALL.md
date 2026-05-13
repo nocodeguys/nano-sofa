@@ -17,9 +17,51 @@ bar (Mac) or taskbar (Windows) to show "Docker Desktop is running".
 
 ---
 
-## Quick start (two ways to launch)
+## Quick start
 
-### Path A — One command, no files to download
+### Path A — One-line install (recommended)
+
+The simplest way. Open a Terminal (Mac/Linux) or PowerShell (Windows) and paste
+the matching line. This downloads the latest config into `~/nano-sofa/`,
+pulls the image, and starts the app — no zip downloads, no Gatekeeper
+"unidentified developer" dialog, no manual file extraction.
+
+**Mac / Linux** — open Terminal and paste:
+
+```
+curl -fsSL https://raw.githubusercontent.com/nocodeguys/nano-sofa/main/install.sh | bash
+```
+
+**Windows** — open PowerShell and paste:
+
+```
+iwr -useb https://raw.githubusercontent.com/nocodeguys/nano-sofa/main/install.ps1 | iex
+```
+
+When the installer finishes you will see a green box with the localhost URL —
+open http://localhost:7861 in your browser.
+
+Subsequent launches: double-click the `launch.command` (Mac) or
+`Launch Nano Sofa.bat` (Windows) file the installer placed inside the
+nano-sofa folder. These files are created locally on your machine, so macOS
+does **not** quarantine them and Gatekeeper stays out of the way.
+
+You do not need to re-run the installer for updates — the included Watchtower
+service pulls new versions every ~5 minutes silently. See "Automatic updates"
+below.
+
+---
+
+### Path B — Bundled zip (offline / air-gapped installs)
+
+If you cannot run a one-liner (offline machine, locked-down corporate laptop),
+grab the latest `nano-sofa-vX.Y.Z.zip` from the
+[Releases page](https://github.com/nocodeguys/nano-sofa/releases) and follow
+"Path D" below for the double-click launcher.
+
+---
+
+### Path C — One command, no files to download
 
 Open a Terminal (Mac/Linux) and run:
 
@@ -45,7 +87,7 @@ at http://localhost:7861.
 
 ---
 
-### Path B — Double-click launcher (recommended for non-technical users)
+### Path D — Double-click launcher (from the bundled zip)
 
 1. Download the `nano-sofa` folder you received and place it anywhere on your
    computer (Desktop is fine).
@@ -175,7 +217,7 @@ write into it through the bind mount.
 shows an error like `bind: address already in use` or `port is already
 allocated`.
 
-**Fix (Path A — docker run):** Use a different host port. Replace `7861:7861`
+**Fix (Path C — docker run):** Use a different host port. Replace `7861:7861`
 with `7862:7861` (or any free port):
 
 ```
@@ -184,9 +226,10 @@ docker run --rm -p 7862:7861 -v "$PWD/outputs:/app/outputs" ghcr.io/nocodeguys/n
 
 Then open http://localhost:7862 instead.
 
-**Fix (Path B — docker compose):** Open `docker-compose.yml` in a text editor
-and change `"7861:7861"` to `"7862:7861"`, then run the launcher again. Open
-http://localhost:7862 in your browser.
+**Fix (Paths A / B / D — docker compose):** Open `~/nano-sofa/docker-compose.yml`
+(or `docker-compose.yml` inside the bundle folder) in a text editor and change
+`"7861:7861"` to `"7862:7861"`, then re-launch. Open http://localhost:7862 in
+your browser.
 
 To find out what is using port 7861:
 
