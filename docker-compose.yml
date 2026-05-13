@@ -29,6 +29,12 @@ services:
       # GEMINI_API_KEY is intentionally absent — each user supplies their own
       # key through the browser UI. It is never stored in the container.
 
+    # Opt this container in to Watchtower auto-updates (see service below).
+    # Watchtower will only update containers carrying this label, so it never
+    # touches unrelated Docker apps the user might run on the same machine.
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
     # Mirror the Dockerfile healthcheck so `docker compose ps` shows healthy.
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:7861/healthz"]
@@ -38,3 +44,35 @@ services:
       retries: 3
 
     restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Watchtower — silent auto-updater for the nano-sofa container.
+  #
+  # Every 5 minutes it checks GHCR for a newer digest of
+  # ghcr.io/nocodeguys/nano-sofa:latest. If a newer image is published, it
+  # pulls it, stops the old container, and starts a new one with the same
+  # config (ports, volumes, env). No action required from the user.
+  #
+  # WATCHTOWER_LABEL_ENABLE=true scopes Watchtower to containers carrying
+  # `com.centurylinklabs.watchtower.enable=true` — i.e. only nano-sofa.
+  # This is important: without it, Watchtower would try to update every
+  # running container on the host, including unrelated apps.
+  # ─────────────────────────────────────────────────────────────────────────
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      # Watchtower needs the Docker socket to inspect and recreate containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Check for new images every 5 minutes.
+      WATCHTOWER_POLL_INTERVAL: "300"
+      # Only update containers explicitly labeled (see nano-sofa above).
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Remove old image layers after a successful update to save disk.
+      WATCHTOWER_CLEANUP: "true"
+      # Roll restarting containers in too, so updates aren't blocked by a
+      # container that's mid-restart when the poll fires.
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      # Quieter logs — only print when something actually happened.
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"
