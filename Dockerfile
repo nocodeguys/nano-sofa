@@ -66,7 +66,12 @@ COPY prompts/              /app/prompts/
 COPY legs/                 /app/legs/
 
 # ── create the outputs dir so it exists even without a volume mount ──────────
-RUN mkdir -p /app/outputs && chown -R sofa:sofa /app
+# /app/outputs gets a sticky-bit 1777 so that when the host bind-mounts a
+# directory owned by an arbitrary UID over it, the container's `sofa` user
+# (UID 1001) can still write generated images into it without hitting EACCES.
+RUN mkdir -p /app/outputs \
+    && chown -R sofa:sofa /app \
+    && chmod 1777 /app/outputs
 
 USER sofa
 

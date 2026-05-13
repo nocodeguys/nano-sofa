@@ -21,16 +21,22 @@ bar (Mac) or taskbar (Windows) to show "Docker Desktop is running".
 
 ### Path A — One command, no files to download
 
-Open a Terminal (Mac) or Command Prompt (Windows) and run:
+Open a Terminal (Mac/Linux) and run:
 
 ```
-docker run --rm -p 7861:7861 -v "$PWD/outputs:/app/outputs" ghcr.io/nocodeguys/nano-sofa:latest
+mkdir -p outputs && docker run --rm -p 7861:7861 -v "$PWD/outputs:/app/outputs" ghcr.io/nocodeguys/nano-sofa:latest
 ```
 
-On Windows Command Prompt, replace `"$PWD/outputs"` with the full path to a
-folder where you want generated images saved, for example:
+The `mkdir -p outputs` part matters — it creates the host folder *as you*
+before Docker mounts it, so the container can write generated images into it.
+If you skip it, Docker will create the folder as root and the app will fail
+with "Permission denied" when saving renders.
+
+On Windows Command Prompt, first create a folder for outputs, then mount it
+with its full path:
 
 ```
+mkdir C:\Users\YourName\nano-sofa-outputs
 docker run --rm -p 7861:7861 -v "C:\Users\YourName\nano-sofa-outputs:/app/outputs" ghcr.io/nocodeguys/nano-sofa:latest
 ```
 
@@ -101,6 +107,42 @@ installed but not running."
    the status shows "Running" (the whale icon stops animating).
 
 3. Run the launcher again.
+
+---
+
+### Permission denied when saving generated images
+
+**Symptom:** The browser shows a generation error, and the Terminal log contains
+something like `PermissionError: [Errno 13] Permission denied: '/app/outputs/...'`
+or `cannot create directory '/app/outputs/...': Permission denied`.
+
+**Cause:** The host `outputs/` folder was created by Docker itself (running as
+root) instead of by you, so the in-container user (`sofa`, UID 1001) can't
+write into it through the bind mount.
+
+**Fix:**
+
+1. Stop the container (Ctrl+C in the Terminal).
+
+2. Re-create the folder as your own user, then re-launch:
+
+   - Mac / Linux:
+     ```
+     rm -rf outputs
+     mkdir -p outputs
+     ```
+   - Windows (PowerShell):
+     ```
+     Remove-Item -Recurse -Force outputs
+     New-Item -ItemType Directory outputs
+     ```
+
+3. If you used the one-line `docker run` command, re-run it — the updated
+   command in this guide now prefixes `mkdir -p outputs &&` so this won't
+   happen again.
+
+4. If you used the launcher script, just double-click it again — the script
+   creates the folder for you.
 
 ---
 
