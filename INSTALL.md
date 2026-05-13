@@ -76,6 +76,29 @@ at http://localhost:7861.
 
 ---
 
+## Automatic updates
+
+Once the app is running, you do **not** need to pull new versions manually.
+A small companion container called Watchtower runs in the background and
+checks GitHub every 5 minutes for a newer build. When one is published it
+silently pulls it, restarts Nano Sofa with the new version, and cleans up the
+old image. No action from you.
+
+Practically this means:
+
+- Leave the launcher window open (or keep Docker Desktop running) and the app
+  stays current on its own.
+- A live generation will not be interrupted mid-flight — Watchtower waits for
+  the next idle moment before restarting the container.
+- Watchtower only touches the `nano-sofa` container. Any other Docker apps you
+  run are ignored.
+
+If you ever want to force an update right now instead of waiting for the next
+5-minute poll, just close the launcher window and double-click it again — the
+launcher pulls the latest image before starting.
+
+---
+
 ## Getting your Gemini API key
 
 Nano Sofa Studio does not store API keys. You paste your own key directly in
