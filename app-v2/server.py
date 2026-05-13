@@ -177,6 +177,129 @@ _CYCLORAMA_PROFILES = {
         "blurred, no directional cast); everything else is fully transparent. "
         "No floor, no wall, no environment, no other objects"
     ),
+    "cyclorama_paperwhite": (
+        "a seamless, minimalist studio cyclorama in bright off-white — a "
+        "lifted, airy version of the softlight setup. There is NO visible "
+        "horizon line and NO floor-to-wall seam; the curve is a perfectly "
+        "continuous infinity sweep. BACKDROP COLOR (locked, uniform): a "
+        "very bright but still off-white tone at RGB(252,250,247) hex "
+        "#FCFAF7. The faint warm tint is intentional — this is off-white, "
+        "NOT stark pure white, NOT hospital white, NOT pure RGB(255,255,255). "
+        "If the rendered backdrop reads as #FFFFFF pure white, the color is "
+        "wrong; it must retain a barely-perceptible warm cream undertone. "
+        "This exact tone must cover the ENTIRE backdrop and floor with "
+        "ZERO luminance variation. The cyclorama is rendered as one "
+        "perfectly flat color field — like a painted wall, not a "
+        "photographed surface. CRITICAL ANTI-HOTSPOT RULE: no part of the "
+        "backdrop or floor may be brighter than RGB(254,252,250) or darker "
+        "than RGB(249,247,244). Forbidden artifacts — each of these is a "
+        "defect: a circular bright glow anywhere on the backdrop, a soft "
+        "halo behind or above the product, a visible patch where the key "
+        "light hits the cyclorama, a brighter upper-left corner, a "
+        "brighter upper-right corner, a brighter band along any edge, ANY "
+        "luminance gradient or falloff or vignette of any kind on the "
+        "backdrop, ANY specular sheen, ANY visible evidence of where the "
+        "light source is positioned. Treat the backdrop as a flat painted "
+        "surface that ignores the studio lighting setup entirely — the "
+        "light source is OFF-FRAME and does NOT register on the wall. If "
+        "a viewer can locate the key light from the backdrop alone, the "
+        "render has failed. PRODUCT LIGHTING (separate from backdrop): "
+        "soft, diffused, even high-key lighting from a slightly elevated "
+        "frontal-left angle. Lifts the product to a bright airy exposure "
+        "with gentle form-defining shading on the product surfaces only — "
+        "never spilling onto the backdrop. SHADOW (extremely subtle, "
+        "almost invisible): a single whisper-soft contact shadow anchors "
+        "the product to the floor. Shadow color is a very pale warm grey "
+        "RGB(242,238,232). Opacity is ONLY 4–7 percent at its densest "
+        "core, never darker — this is a barely-perceptible ground hint, "
+        "NOT a drop shadow. The shadow feathers gently toward the RIGHT "
+        "side of the frame. Edges are heavily gaussian-blurred; shadow "
+        "fades to fully invisible within 10–14 centimeters of the product. "
+        "CRITICAL: if you can clearly see the shadow as a distinct dark "
+        "shape, it is TOO STRONG — make it lighter. The shadow should "
+        "read more as a subtle softening of the floor tone than as a "
+        "defined area. No second shadow on the left, no rim shadow, no "
+        "stray cast shadows. TEXTURE: the entire backdrop is completely "
+        "smooth and matte — zero film grain, zero paper fibers, zero "
+        "specular reflection, zero environmental detail, zero noise, zero "
+        "imperfections. Ultra-minimalist clean studio aesthetic. Absolutely "
+        "no props, no furniture, no plants, no architectural elements, no "
+        "signage, no overlaid text"
+    ),
+    "cyclorama_softlight": (
+        "a seamless, minimalist studio cyclorama in clean off-white. There is "
+        "NO visible horizon line and NO floor-to-wall seam — the curve is a "
+        "perfectly continuous infinity sweep. BACKDROP COLOR (locked, "
+        "uniform): a soft warm off-white at RGB(250,248,246) hex #FAF8F6. "
+        "This exact tone must cover the ENTIRE backdrop and floor with "
+        "ZERO luminance variation. The cyclorama is rendered as one "
+        "perfectly flat color field — like a painted wall, not a "
+        "photographed surface. CRITICAL ANTI-HOTSPOT RULE: no part of the "
+        "backdrop or floor may be brighter than RGB(252,250,248) or darker "
+        "than RGB(247,245,243). Forbidden artifacts — each of these is a "
+        "defect that ruins the image: a circular bright glow anywhere on "
+        "the backdrop, a soft halo behind or above the product, a visible "
+        "patch where the key light hits the cyclorama, a brighter upper-"
+        "left corner, a brighter upper-right corner, a brighter band along "
+        "any edge, ANY luminance gradient or falloff or vignette of any "
+        "kind on the backdrop, ANY specular sheen, ANY visible evidence "
+        "of where the light source is positioned. Treat the backdrop as a "
+        "flat painted surface that ignores the studio lighting setup "
+        "entirely — the light source is OFF-FRAME and does NOT register "
+        "on the wall. If a viewer can locate the key light from looking "
+        "at the backdrop alone, the render has failed. PRODUCT LIGHTING "
+        "(separate from backdrop): the product itself is lit with soft, "
+        "diffused, even high-key lighting from a slightly elevated "
+        "frontal-left angle, producing gentle form-defining shading on "
+        "the product surfaces only — never spilling onto the backdrop. "
+        "SHADOW (extremely subtle, almost invisible): a single whisper-"
+        "soft contact shadow anchors the product to the floor. Shadow "
+        "color is a very pale warm grey RGB(238,234,228). Opacity is ONLY "
+        "5–8 percent at its densest core, never darker — this is a "
+        "barely-perceptible ground hint, NOT a drop shadow. The shadow "
+        "feathers gently toward the RIGHT side of the frame. Edges are "
+        "heavily gaussian-blurred; shadow fades to fully invisible within "
+        "10–15 centimeters of the product. CRITICAL: if you can clearly "
+        "see the shadow as a distinct dark shape, it is TOO STRONG — make "
+        "it lighter. The shadow should read more as a subtle softening of "
+        "the floor tone than as a defined area. No second shadow on the "
+        "left, no rim shadow, no stray cast shadows, no dark patches "
+        "anywhere on the floor. TEXTURE: the entire backdrop is completely "
+        "smooth and matte — zero film grain, zero paper fibers, zero "
+        "specular reflection, zero environmental detail, zero noise, zero "
+        "imperfections. Ultra-minimalist clean studio aesthetic. Absolutely "
+        "no props, no furniture, no plants, no architectural elements, no "
+        "signage, no overlaid text"
+    ),
+    "cyclorama_architectural": (
+        "a seamless architectural-studio backdrop in warm soft ivory, base "
+        "tone RGB(247,243,234) hex #F7F3EA — a clean off-white that reads as "
+        "warm and architectural, NOT a stark hospital or pure-photo white. "
+        "There is NO visible horizon line and NO visible floor-to-wall seam; "
+        "the surface behaves like a perfect floating cyclorama with the "
+        "product appearing to rest on a continuous ivory plane. CRITICAL "
+        "LIGHTING DETAIL: high-key, even studio lighting with a single large "
+        "soft-box key light positioned at the TOP-LEFT of the frame. This "
+        "produces a gentle directional wash: the floor area in front of and "
+        "around the product is fractionally BRIGHTER (about RGB 252,249,242) "
+        "than the upper portion of the backdrop, which softens by 4–6 RGB "
+        "values toward the top edge. The gradient is subtle but visible — "
+        "the lower third of the frame should clearly read as the brightest "
+        "zone. The overall exposure is high-key (bright, airy, no deep "
+        "midtones in the backdrop). SHADOW SPEC: a single soft diffused drop "
+        "shadow anchors the product to the floor. The shadow is densest "
+        "directly beneath the product's contact footprint (warm mid-grey "
+        "RGB 215,208,196, roughly 30–40 percent opacity at its core), and "
+        "feathers out smoothly toward the RIGHT side of the frame — the "
+        "natural shadow direction for a top-left key light. The shadow's "
+        "right edge fades gradually to invisibility within roughly 35–45 "
+        "centimeters of the product, with heavily blurred, gaussian-soft "
+        "edges throughout. No second shadow on the left side. TEXTURE: the "
+        "entire backdrop is completely smooth and matte — zero film grain, "
+        "zero specular reflections, zero environmental detail, zero texture "
+        "noise, no paper fibers, no wall imperfections. Absolutely no props, "
+        "no furniture, no plants, no architectural elements, no signage"
+    ),
 }
 
 # Environment id (from data.jsx ENVIRONMENTS) → (mode, scene description).
@@ -189,6 +312,9 @@ _ENV_TO_SCENE = {
     "cyclorama_neutral":     ("packshot", _CYCLORAMA_PROFILES["cyclorama_neutral"]),
     "cyclorama_grey":        ("packshot", _CYCLORAMA_PROFILES["cyclorama_grey"]),
     "cyclorama_transparent": ("packshot", _CYCLORAMA_PROFILES["cyclorama_transparent"]),
+    "cyclorama_architectural": ("packshot", _CYCLORAMA_PROFILES["cyclorama_architectural"]),
+    "cyclorama_softlight":     ("packshot", _CYCLORAMA_PROFILES["cyclorama_softlight"]),
+    "cyclorama_paperwhite":    ("packshot", _CYCLORAMA_PROFILES["cyclorama_paperwhite"]),
     # Legacy aliases — point at the new locked profiles so existing wizard
     # users automatically inherit the consistency upgrade.
     "studio_white":          ("packshot", _CYCLORAMA_PROFILES["cyclorama_warm"]),
@@ -258,6 +384,120 @@ _SHADOW_LEGACY_ALIAS = {
 }
 _SHADOW_DEFAULT = {"direction": "soft diffuse",
                    "desc": "soft diffuse shadow beneath the product, no strong directional cast"}
+
+# ---------------------------------------------------------------------------
+# Bed styling — section 10 in the wizard. Each preset id maps to an English
+# clause that becomes part of the BEDDING block emitted by the generator
+# (see generator._build_prompt_text). When the user picks "custom" for
+# bedding, the free-text field replaces the preset; for everything else
+# we compose the clauses by concatenation. Empty for sofas.
+# ---------------------------------------------------------------------------
+_BEDDING_TO_PROMPT = {
+    "none":          "no bedding at all — the bare mattress is visible, no sheets, no duvet, no pillows",
+    "linen_white":   "crisp white pure-linen sheets and a matching white linen duvet, gentle natural creases, soft matte texture",
+    "linen_natural": "natural undyed flax linen sheets and duvet in warm ecru / oatmeal tone, visible weave, soft wrinkles",
+    "linen_grey":    "stone-grey washed linen sheets and duvet, gently rumpled, slightly cool undertone",
+    "linen_sage":    "muted sage-green washed linen sheets and duvet, soft and matte",
+    "cotton_white":  "smooth white percale cotton sheets and duvet, crisp and lightly pressed, hotel-look finish",
+    "jersey_warm":   "soft cream cotton-jersey sheets and a matching jersey duvet, cozy and relaxed drape",
+}
+_THROW_TO_PROMPT = {
+    "linen_foot":  "a light-weight linen throw folded neatly at the foot of the bed",
+    "knit_chunky": "a chunky hand-knit wool throw casually draped across the lower third of the bed",
+    "wool_plaid":  "a folded wool plaid blanket placed across the foot of the bed",
+    "boucle":      "a soft cream bouclé throw lightly tossed across one corner of the bed",
+    "quilt":       "a vintage-style quilted bedspread folded along the foot, lightly textured",
+}
+_TIDY_TO_PROMPT = {
+    "unmade":   "the bed is unmade — sheets pulled aside, duvet partly thrown off, a clearly slept-in look. Casual and very lived-in, but still photogenic and not chaotic",
+    "lived_in": "the bedding is naturally rumpled with soft organic creases and gentle wrinkles — a lived-in but pleasant look, not staged-stiff and not messy",
+    "neat":     "the bedding is smoothed and tidy with only subtle natural wrinkles, the duvet centered and even, pillows neatly arranged. Calm and orderly",
+    "hotel":    "the bedding is crisp and hotel-perfect — taut sheets, perfectly squared duvet corners, pillows precisely stacked and fluffed, zero wrinkles, magazine-grade styling",
+    "five_star": (
+        "the bedding is rendered to ultra-luxury five-star hotel suite standard: "
+        "ABSOLUTELY zero folds, zero creases, zero wrinkles, zero rumples anywhere "
+        "on the sheets, duvet, or pillowcases. Every surface is ironed glass-smooth "
+        "and pulled taut to the millimeter. Duvet corners are knife-sharp 90-degree "
+        "right angles, perfectly squared and aligned to the mattress edges. The "
+        "duvet itself lies flat and evenly tensioned across the entire bed with no "
+        "air bubbles, no puckering, and no soft sag. Pillows are flawlessly fluffed, "
+        "identical in height and shape, precisely stacked or aligned with "
+        "mathematical symmetry. Sheet edges are crisp and perfectly parallel. "
+        "Top-tier luxury presentation, like a Mandarin Oriental or Four Seasons "
+        "master suite immediately after housekeeping turn-down. ANY visible fold, "
+        "wrinkle, or asymmetry on the bedding is a defect that ruins the render"
+    ),
+}
+_DENSITY_TO_PROMPT = {
+    "minimal":  "an extremely minimal scene — only the bed and its bedding are visible, absolutely no decorative props, no books, no trays, no plants, no extra objects in the frame",
+    "balanced": "a balanced scene with the bedding and at most one or two small tasteful styling items if listed below; otherwise the frame stays clean",
+    "rich":     "a fully styled editorial-look scene with multiple tasteful styling items adding warmth and narrative — but never cluttered or busy",
+}
+_ACCENT_TO_PROMPT = {
+    "extra_pillows": "an extra pair of decorative pillows neatly arranged against the headboard",
+    "book":          "a single hardback book resting on top of the duvet, casually placed",
+    "tray":          "a small wooden breakfast tray with a coffee cup placed on the bed",
+    "robe":          "a soft linen robe casually laid across the corner of the bed",
+    "plant":         "a small potted plant visible on a nightstand or just beside the bed",
+    "candle":        "a single lit candle in a simple ceramic holder placed near the bed",
+}
+
+
+def _compose_bedding_description(
+    *,
+    bedding: str,
+    bedding_custom: str,
+    throw: str,
+    tidy: str,
+    density: str,
+    accents_csv: str,
+    bed_note: str,
+) -> str:
+    """
+    Translate the wizard's section-10 selections into one narrative paragraph
+    that the generator emits as the BEDDING & STYLING block. Returns "" when
+    the user left every field at empty/default — that suppresses the block
+    entirely so the prompt stays clean for sofas and bed-no-styling cases.
+    """
+    parts: list[str] = []
+
+    # Bedding textile — preset OR custom free text.
+    bedding_id = (bedding or "").strip().lower()
+    custom_text = (bedding_custom or "").strip()
+    if bedding_id == "custom" and custom_text:
+        parts.append(custom_text)
+    elif bedding_id in _BEDDING_TO_PROMPT:
+        parts.append(_BEDDING_TO_PROMPT[bedding_id])
+
+    # Throw / extra blanket.
+    throw_id = (throw or "").strip().lower()
+    if throw_id in _THROW_TO_PROMPT:
+        parts.append(_THROW_TO_PROMPT[throw_id])
+
+    # Tidiness / arrangement.
+    tidy_id = (tidy or "").strip().lower()
+    if tidy_id in _TIDY_TO_PROMPT:
+        parts.append(_TIDY_TO_PROMPT[tidy_id])
+
+    # Density / how busy the frame is.
+    density_id = (density or "").strip().lower()
+    if density_id in _DENSITY_TO_PROMPT:
+        parts.append(_DENSITY_TO_PROMPT[density_id])
+
+    # Optional decorative accents — silently dropped when density==minimal so
+    # the prompt stays internally consistent (the UI also tells the user this).
+    if density_id != "minimal":
+        accent_ids = [a.strip() for a in (accents_csv or "").split(",") if a.strip()]
+        accent_clauses = [_ACCENT_TO_PROMPT[a] for a in accent_ids if a in _ACCENT_TO_PROMPT]
+        if accent_clauses:
+            parts.append("Additional styling items in the frame: " + "; ".join(accent_clauses))
+
+    # User's free-text override — appended last, highest authority for nuance.
+    note = (bed_note or "").strip()
+    if note:
+        parts.append(f"Special styling note from the user: {note}")
+
+    return ". ".join(parts).strip()
 
 
 def _resolve_id(value: str, aliases: dict) -> str:
@@ -391,6 +631,10 @@ def _build_generation_request(
     base_image_path: Path,
     scene_image_path: Optional[Path],
     preserve_camera_from_base: bool = False,
+    strict_in_place_recolor: bool = False,
+    extra_reference_paths: Optional[list[Path]] = None,
+    lock_to_reference: bool = False,
+    bedding_description: str = "",
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
@@ -433,6 +677,8 @@ def _build_generation_request(
         model_id=model,
         base_product_image=str(base_image_path),
         scene_reference_image=str(scene_image_path) if scene_image_path else None,
+        extra_reference_images=[str(p) for p in (extra_reference_paths or [])],
+        lock_to_reference=lock_to_reference,
         product_type="bed" if is_bed else "sofa",
         sofa_configuration=sofa_config,
         leg_count=leg_count,
@@ -451,6 +697,8 @@ def _build_generation_request(
         env_mode=env_mode_label,
         env_description=env_description,
         preserve_camera_from_base=preserve_camera_from_base,
+        strict_in_place_recolor=strict_in_place_recolor,
+        bedding_description=bedding_description.strip(),
         aspect_ratio=aspect,
         resolution=resolution,
         notes=" | ".join(notes_parts),
@@ -491,6 +739,16 @@ async def api_generate(
     seed: str = Form(""),
     base_image: Optional[UploadFile] = File(None),
     scene_image: Optional[UploadFile] = File(None),
+    references: list[UploadFile] = File(default_factory=list),
+    refs_lock: str = Form(""),
+    preserve_base: str = Form(""),
+    bedding: str = Form(""),
+    bedding_custom: str = Form(""),
+    throw: str = Form(""),
+    tidy: str = Form(""),
+    density: str = Form(""),
+    accents: str = Form(""),
+    bed_note: str = Form(""),
 ):
     if not api_key.strip():
         return JSONResponse({"error": "Brak klucza API."}, status_code=400)
@@ -509,6 +767,30 @@ async def api_generate(
         except Exception as exc:
             logger.warning("Scene reference image unreadable, ignoring: %s", exc)
 
+    # Optional moodboard references from section 09 "Referencje". Each one that
+    # can't be decoded is skipped with a warning rather than failing the whole
+    # request — a malformed jpg in slot 3 shouldn't block the render.
+    extra_ref_paths: list[Path] = []
+    for idx, ref in enumerate(references or []):
+        if ref is None:
+            continue
+        try:
+            extra_ref_paths.append(await _save_upload(ref, suffix=f"_ref{idx}"))
+        except Exception as exc:
+            logger.warning("Reference #%d unreadable, ignoring: %s", idx, exc)
+
+    bedding_desc = ""
+    if kind == "bed":
+        bedding_desc = _compose_bedding_description(
+            bedding=bedding,
+            bedding_custom=bedding_custom,
+            throw=throw,
+            tidy=tidy,
+            density=density,
+            accents_csv=accents,
+            bed_note=bed_note,
+        )
+
     req = _build_generation_request(
         api_key=api_key, kind=kind,
         color=color, color_custom=color_custom,
@@ -519,6 +801,10 @@ async def api_generate(
         model=model, aspect=aspect, res=res, seed=seed,
         base_image_path=upload_path,
         scene_image_path=scene_upload_path,
+        extra_reference_paths=extra_ref_paths,
+        lock_to_reference=refs_lock.strip().lower() in ("1", "true", "on", "yes"),
+        preserve_camera_from_base=preserve_base.strip().lower() in ("1", "true", "on", "yes"),
+        bedding_description=bedding_desc,
     )
 
     logger.info("Generating: %s / %s / %s", req.upholstery_color, req.upholstery_material, req.camera_angle)
@@ -829,6 +1115,7 @@ async def api_generate_photoshoot(
             base_image_path=anchor_src_path,
             scene_image_path=backdrop_ref_path,    # locks cyclorama look pixel-level
             preserve_camera_from_base=True,
+            strict_in_place_recolor=True,
         )
         if backdrop_ref_path:
             logger.info("Packshot anchor: using curated cyclorama reference %s", backdrop_ref_path.name)
@@ -882,6 +1169,7 @@ async def api_generate_photoshoot(
                     base_image_path=src_path,
                     scene_image_path=backdrop_ref_path,  # same cyclorama lock as anchor
                     preserve_camera_from_base=True,
+                    strict_in_place_recolor=True,
                 )
                 return idx, src_fn, generate(req)
 

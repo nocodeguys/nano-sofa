@@ -1,7 +1,8 @@
 /* global React, ReactDOM, Ic, NS_DATA */
 const { useState, useMemo, useRef, useEffect } = React;
 const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
-        LENSES, TIMES_OF_DAY, SHADOWS } = NS_DATA;
+        LENSES, TIMES_OF_DAY, SHADOWS,
+        BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS } = NS_DATA;
 
 /* ---------- helpers ---------- */
 function LegGlyph({ id }) {
@@ -82,17 +83,49 @@ function App({ t }) {
     legs: "keep",
     cam: "studio", lens: "50mm_natural", tod: "noon_neutral", shadow: "soft_diffuse",
     env: "scandi", envFile: null, envNote: "", envMode: "reference",
-    refs: [null, null, null],
+    refs: [null, null, null], refsLock: false,
+    // Lock camera angle + framing + object pose to the base photo (section 02).
+    // Wizard color/material/size/scene still apply — the model just keeps the
+    // exact same viewpoint as the uploaded base image. Useful for detail crops
+    // where any reframing would be wrong.
+    preserveBaseCamera: false,
+    // Bed-only styling block (section 10). Ignored for sofas.
+    bedding: "linen_white", beddingCustom: "",
+    throw: "none",
+    tidy: "lived_in",
+    density: "balanced",
+    accents: [],            // array of BED_ACCENTS ids
+    bedNote: "",            // optional free-text styling note
     model: "gemini-3.1-flash-image-preview", aspect: "4:3", res: "1K", seed: "",
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
 
   const fileRef = useRef(null);
   const envFileRef = useRef(null);
+  const refFileRef = useRef(null);
+  const refSlotRef = useRef(-1);  // which reference slot the next file-pick fills
   const onPickBase = (file) => {
     if (!file) return;
     const url = URL.createObjectURL(file);
     set({ baseFile: file, baseFileName: file.name, baseFileSize: file.size, basePreviewUrl: url, uploaded: true });
+  };
+  const onPickRef = (file) => {
+    const slot = refSlotRef.current;
+    refSlotRef.current = -1;
+    if (!file || slot < 0) return;
+    const url = URL.createObjectURL(file);
+    const next = [...st.refs];
+    while (next.length <= slot) next.push(null);
+    // Revoke the old object URL if we're replacing an existing pick.
+    if (next[slot] && next[slot].previewUrl) URL.revokeObjectURL(next[slot].previewUrl);
+    next[slot] = { file, name: file.name, size: file.size, previewUrl: url };
+    set({ refs: next });
+  };
+  const clearRef = (slot) => {
+    const next = [...st.refs];
+    if (next[slot] && next[slot].previewUrl) URL.revokeObjectURL(next[slot].previewUrl);
+    next[slot] = null;
+    set({ refs: next });
   };
   const fmtSize = (b) => b < 1024*1024 ? (b/1024).toFixed(0) + " KB" : (b/1024/1024).toFixed(1) + " MB";
 
@@ -152,7 +185,7 @@ function App({ t }) {
       time_of_day: todObj?.id || st.tod,
       shadows: shadowObj?.id || st.shadow,
     },
-    references: st.refs.filter(Boolean),
+    references: st.refs.filter(Boolean).map(r => r.name || "reference"),
     output: {
       model: st.model,
       aspect: st.aspect,
@@ -218,6 +251,26 @@ function App({ t }) {
     fd.append("base_image", st.baseFile);
     if (st.envFile && st.envFile instanceof File) {
       fd.append("scene_image", st.envFile);
+    }
+    // Section 09 "Referencje" — moodboard uploads. Send each picked file as a
+    // separate `references` entry so FastAPI receives them as list[UploadFile].
+    const hasAnyRef = st.refs.some(r => r && r.file instanceof File);
+    for (const r of st.refs) {
+      if (r && r.file instanceof File) fd.append("references", r.file);
+    }
+    // Reference-lock: makes the uploaded reference the source of truth for
+    // camera/lighting/scene; suppresses the wizard's camera + scene blocks.
+    // Only meaningful when at least one reference is present.
+    if (hasAnyRef && st.refsLock) fd.append("refs_lock", "1");
+    if (st.preserveBaseCamera) fd.append("preserve_base", "1");
+    if (st.kind === "bed") {
+      fd.append("bedding", st.bedding || "");
+      fd.append("bedding_custom", st.beddingCustom || "");
+      fd.append("throw", st.throw || "");
+      fd.append("tidy", st.tidy || "");
+      fd.append("density", st.density || "");
+      fd.append("accents", (st.accents || []).join(","));
+      fd.append("bed_note", st.bedNote || "");
     }
 
     setGenerating(true);
@@ -1093,6 +1146,8 @@ function App({ t }) {
               <div className="field-lbl">proporcje</div>
               <select className="select" value={st.aspect} onChange={e => set({ aspect: e.target.value })}>
                 <option>4:3</option><option>3:2</option><option>1:1</option><option>16:9</option>
+                <option value="4:5">4:5 — Instagram feed</option>
+                <option value="9:16">9:16 — Instagram Stories</option>
               </select>
             </div>
             <div>
@@ -1306,9 +1361,33 @@ function App({ t }) {
         </Section>
 
         {/* 07 — camera */}
-        <Section num="08" title="Kamera i światło" summary={camObj?.name + " · " + (lensObj?.name?.split(" — ")[0] || "—")}
+        <Section num="08" title="Kamera i światło" summary={
+          (st.preserveBaseCamera ? "z bazowego zdjęcia · " : "") +
+          camObj?.name + " · " + (lensObj?.name?.split(" — ")[0] || "—")
+        }
           help="Wybór sceny ustawia oświetlenie i ogniskową. Trzy listy poniżej dostrajają detal.">
-          <div className="cam-grid">
+          <label style={{
+            display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
+            padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
+            background: st.preserveBaseCamera ? "rgba(95,122,86,.06)" : "var(--bg-1)",
+            cursor: st.uploaded ? "pointer" : "not-allowed",
+            opacity: st.uploaded ? 1 : 0.55,
+            fontSize:12.5, lineHeight:1.45,
+          }}>
+            <input
+              type="checkbox"
+              checked={st.uploaded && !!st.preserveBaseCamera}
+              disabled={!st.uploaded}
+              onChange={e => set({ preserveBaseCamera: e.target.checked })}
+              style={{marginTop:2, flexShrink:0}} />
+            <span>
+              <strong style={{fontWeight:600}}>Zachowaj kąt i sylwetkę z bazowego zdjęcia</strong>
+              {!st.uploaded
+                ? " — wgraj najpierw zdjęcie bazowe w sekcji 02, żeby włączyć tę opcję."
+                : " — kamera, kadrowanie, dystans i pozycja produktu pochodzą wtedy z bazowego zdjęcia (sekcja 02). Idealne do macro / detal crop, kiedy nie chcesz, by model „doframował” pełny produkt. Kolor, materiał, rozmiar i otoczenie nadal pochodzą z kreatora."}
+            </span>
+          </label>
+          <div className="cam-grid" style={st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : undefined}>
             {CAMERAS.map(c => (
               <div key={c.id} className={"cam " + (st.cam === c.id ? "sel" : "")} onClick={() => set({ cam: c.id })}>
                 <div className={"cam-render " + (c.style || "")}>
@@ -1358,30 +1437,167 @@ function App({ t }) {
                 : `Maks. ${slotCount} dodatkowe obrazy dla wybranego modelu. Wybierz najtrafniejsze kadry, nie cały moodboard.`}>
               {slotCount > 0 ? (
                 <div className="refs">
-                  {Array.from({length: slotCount}).map((_, i) => (
-                    <div key={i}
-                      className={"ref-slot " + (st.refs[i] ? "filled" : "")}
-                      onClick={() => {
-                        const next = [...st.refs];
-                        while (next.length < slotCount) next.push(null);
-                        next[i] = next[i] ? null : ["nastrojowa.jpg", "tkanina-zbliz.jpg", "salon-ref.jpg", "ref-4.jpg", "ref-5.jpg", "ref-6.jpg"][i];
-                        set({ refs: next });
-                      }}>
-                      {st.refs[i] ? (
-                        <div>
-                          <div className="fname">{st.refs[i]}</div>
-                          <div className="fhint">kliknij aby usunąć</div>
-                        </div>
-                      ) : (
-                        <div>
-                          <div style={{ fontSize: 16, marginBottom: 3 }}>+</div>
-                          <div>slot {i + 1}</div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                  <input ref={refFileRef} type="file" accept="image/*" style={{display:"none"}}
+                    onChange={e => { onPickRef(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+                  {Array.from({length: slotCount}).map((_, i) => {
+                    const r = st.refs[i];
+                    return (
+                      <div key={i}
+                        className={"ref-slot " + (r ? "filled" : "")}
+                        title={r ? `${r.name} · ${fmtSize(r.size)} · kliknij aby zmienić` : `slot ${i + 1} — kliknij aby wgrać`}
+                        onClick={() => {
+                          refSlotRef.current = i;
+                          refFileRef.current && refFileRef.current.click();
+                        }}
+                        style={r && r.previewUrl ? {
+                          backgroundImage: `url(${r.previewUrl})`,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                        } : undefined}>
+                        {r ? (
+                          <button
+                            type="button"
+                            onClick={ev => { ev.stopPropagation(); clearRef(i); }}
+                            title="Usuń referencję"
+                            style={{
+                              position:"absolute", top:4, right:4,
+                              width:18, height:18, borderRadius:9,
+                              border:"none", background:"rgba(0,0,0,.55)",
+                              color:"#fff", fontSize:12, lineHeight:"16px",
+                              cursor:"pointer", padding:0,
+                            }}>×</button>
+                        ) : (
+                          <div>
+                            <div style={{ fontSize: 16, marginBottom: 3 }}>+</div>
+                            <div>slot {i + 1}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
+              {slotCount > 0 ? (
+                <label style={{
+                  display:"flex", alignItems:"flex-start", gap:8, marginTop:10,
+                  padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
+                  background: (filled > 0 && st.refsLock) ? "rgba(95,122,86,.06)" : "var(--bg-1)",
+                  cursor: filled > 0 ? "pointer" : "not-allowed",
+                  opacity: filled > 0 ? 1 : 0.55,
+                  fontSize:12.5, lineHeight:1.45,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={filled > 0 && !!st.refsLock}
+                    disabled={filled === 0}
+                    onChange={e => set({ refsLock: e.target.checked })}
+                    style={{marginTop:2, flexShrink:0}} />
+                  <span>
+                    <strong style={{fontWeight:600}}>Użyj referencji jako wzorca</strong>
+                    {filled === 0
+                      ? " — wgraj najpierw referencję w slot powyżej, żeby włączyć tę opcję."
+                      : " — "}
+                    {filled > 0 && (
+                      <>
+                        referencja staje się źródłem prawdy dla kąta kamery,
+                        kadrowania, oświetlenia, cieni i sceny. Ustawienia z sekcji{" "}
+                        <span style={{fontFamily:"'Geist Mono', monospace"}}>04 Ujęcie</span>{", "}
+                        <span style={{fontFamily:"'Geist Mono', monospace"}}>06 Otoczenie</span>{" oraz "}
+                        <span style={{fontFamily:"'Geist Mono', monospace"}}>07 Światło</span>
+                        {" "}są wtedy ignorowane. Kolor, materiał, nogi i rozmiar nadal pochodzą z kreatora.
+                      </>
+                    )}
+                  </span>
+                </label>
+              ) : null}
+            </Section>
+          );
+        })()}
+
+        {/* 10 — bed styling (only when product is a bed) */}
+        {st.kind === "bed" && (() => {
+          const beddingObj = BEDDING_PRESETS.find(b => b.id === st.bedding) || BEDDING_PRESETS[1];
+          const tidyObj    = TIDY_LEVELS.find(t => t.id === st.tidy)        || TIDY_LEVELS[1];
+          const densityObj = DENSITY_LEVELS.find(d => d.id === st.density)  || DENSITY_LEVELS[1];
+          const throwObj   = THROW_PRESETS.find(t => t.id === st.throw)     || THROW_PRESETS[0];
+          const accentNames = (st.accents || [])
+            .map(id => BED_ACCENTS.find(a => a.id === id)?.name)
+            .filter(Boolean);
+          const summaryBits = [
+            st.bedding === "none" ? "bez pościeli" : beddingObj?.name,
+            tidyObj?.name,
+            st.density !== "balanced" ? densityObj?.name : null,
+            st.throw !== "none" ? throwObj?.name : null,
+            accentNames.length ? `+${accentNames.length}` : null,
+          ].filter(Boolean);
+          const toggleAccent = (id) => {
+            const cur = new Set(st.accents || []);
+            cur.has(id) ? cur.delete(id) : cur.add(id);
+            set({ accents: Array.from(cur) });
+          };
+          return (
+            <Section num="10" title="Pościel i styling"
+              summary={summaryBits.join(" · ")}
+              help="Co leży na łóżku, jak bardzo jest pościelone i ile rzeczy ma się znaleźć w kadrze. Tylko dla łóżek — wysyłane do Gemini jako osobny blok BEDDING.">
+              <div className="field-lbl">Pościel</div>
+              <select className="select" value={st.bedding} onChange={e => set({ bedding: e.target.value })}>
+                {BEDDING_PRESETS.map(b => <option key={b.id} value={b.id}>{b.name} — {b.prop}</option>)}
+              </select>
+              {st.bedding === "custom" && (
+                <input className="input" placeholder="np. ciepłe wafelkowe w pasku, ecru z koronką na poszewce"
+                  style={{marginTop:6}}
+                  value={st.beddingCustom} onChange={e => set({ beddingCustom: e.target.value })} />
+              )}
+
+              <div className="tri-row" style={{marginTop:12}}>
+                <div>
+                  <div className="field-lbl">Porządek</div>
+                  <select className="select" value={st.tidy} onChange={e => set({ tidy: e.target.value })}>
+                    {TIDY_LEVELS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div className="field-lbl">Koc / narzuta</div>
+                  <select className="select" value={st.throw} onChange={e => set({ throw: e.target.value })}>
+                    {THROW_PRESETS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div className="field-lbl">Gęstość kadru</div>
+                  <select className="select" value={st.density} onChange={e => set({ density: e.target.value })}>
+                    {DENSITY_LEVELS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="field-lbl" style={{marginTop:12}}>
+                Akcenty {st.density === "minimal" && (
+                  <span style={{color:"var(--ink-3)", fontWeight:400}}>(ignorowane przy gęstości minimalnej)</span>
+                )}
+              </div>
+              <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
+                {BED_ACCENTS.map(a => {
+                  const on = (st.accents || []).includes(a.id);
+                  return (
+                    <button key={a.id} type="button"
+                      onClick={() => toggleAccent(a.id)}
+                      style={{
+                        padding:"6px 12px", borderRadius:14, fontSize:12,
+                        border: on ? "1.5px solid var(--ink-2)" : "1px solid var(--line-2)",
+                        background: on ? "rgba(95,122,86,.10)" : "var(--bg-1)",
+                        color: on ? "var(--ink)" : "var(--ink-2)",
+                        cursor: "pointer",
+                      }}>
+                      {on ? "✓ " : "+ "}{a.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="field-lbl" style={{marginTop:12}}>Notatka stylingu (opcjonalnie)</div>
+              <input className="input"
+                placeholder='np. „kołdra złożona w trójkąt, jedna poszewka delikatnie pomięta"'
+                value={st.bedNote} onChange={e => set({ bedNote: e.target.value })} />
             </Section>
           );
         })()}

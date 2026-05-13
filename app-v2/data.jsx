@@ -58,6 +58,9 @@ const ENVIRONMENTS = [
   { id: "cyclorama_warm",    name: "Cyklorama ciepła",   prop: "warm catalog white #F4F0E5", grad: "linear-gradient(180deg,#F4F0E5,#E4DBC6)",      acc: "#E8DEC9" },
   { id: "cyclorama_neutral", name: "Cyklorama neutralna",prop: "pure photo white #FAFAFA",    grad: "linear-gradient(180deg,#FAFAFA,#E8E8E8)",      acc: "#F0F0F0" },
   { id: "cyclorama_grey",    name: "Cyklorama szara",    prop: "packshot grey #DCDCDC",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
+  { id: "cyclorama_architectural", name: "Architektoniczna ivory", prop: "high-key ivory #F7F3EA, cień w prawo", grad: "linear-gradient(180deg,#F1ECDE 0%,#F7F3EA 60%,#FCF9F2 100%)", acc: "#EFE9DA" },
+  { id: "cyclorama_softlight",     name: "Softlight minimal",      prop: "off-white #FAF8F6, płaskie tło, zero plam",     grad: "linear-gradient(180deg,#FAF8F6,#FAF8F6)",                     acc: "#F2EFEB" },
+  { id: "cyclorama_paperwhite",    name: "Paperwhite bright",      prop: "jasne off-white #FCFAF7, lifted high-key",      grad: "linear-gradient(180deg,#FCFAF7,#FCFAF7)",                     acc: "#F5F2ED" },
   // Legacy ids — kept for back-compat; both resolve to cyclorama_warm/grey server-side.
   { id: "studio_white",  name: "Białe studio (legacy)",   prop: "→ cyklorama ciepła",      grad: "linear-gradient(180deg,#F4F0E5,#DCD3BD)",      acc: "#E8DEC9" },
   { id: "studio_grey",   name: "Studio szare (legacy)",   prop: "→ cyklorama szara",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
@@ -153,6 +156,63 @@ const Ic = {
   copy: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>,
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Bed styling — controls what lies on the bed and how tidy it is.
+// Only rendered when product type === "bed" (sofas don't have bedding).
+// Each preset.prompt becomes a fragment of the BEDDING block sent to Gemini.
+// ─────────────────────────────────────────────────────────────────────────────
+const BEDDING_PRESETS = [
+  { id: "none",         name: "Bez pościeli",        prop: "tylko materac, brak tekstyliów",
+    prompt: "no bedding at all — the bare mattress is visible, no sheets, no duvet, no pillows" },
+  { id: "linen_white",  name: "Len biały",           prop: "naturalne lniane prześcieradło + kołdra",
+    prompt: "crisp white pure-linen sheets and a matching white linen duvet, gentle natural creases, soft matte texture" },
+  { id: "linen_natural",name: "Len naturalny",       prop: "ciepły len ecru, surowy beż",
+    prompt: "natural undyed flax linen sheets and duvet in warm ecru / oatmeal tone, visible weave, soft wrinkles" },
+  { id: "linen_grey",   name: "Len szary",           prop: "stonowany len kamienno-szary",
+    prompt: "stone-grey washed linen sheets and duvet, gently rumpled, slightly cool undertone" },
+  { id: "linen_sage",   name: "Len szałwiowy",       prop: "len w kolorze sage / oliwka",
+    prompt: "muted sage-green washed linen sheets and duvet, soft and matte" },
+  { id: "cotton_white", name: "Bawełna percale",     prop: "biała bawełna percale, hotel-look",
+    prompt: "smooth white percale cotton sheets and duvet, crisp and lightly pressed, hotel-look finish" },
+  { id: "jersey_warm",  name: "Jersey kremowy",      prop: "miękki jersey w odcieniu kremu",
+    prompt: "soft cream cotton-jersey sheets and a matching jersey duvet, cozy and relaxed drape" },
+  { id: "custom",       name: "Własny opis",         prop: "wpisz swój opis pościeli",
+    prompt: "" },
+];
+
+const THROW_PRESETS = [
+  { id: "none",         name: "Brak",                prompt: "" },
+  { id: "linen_foot",   name: "Lniana u stóp",       prompt: "a light-weight linen throw folded neatly at the foot of the bed" },
+  { id: "knit_chunky",  name: "Chunky knit",         prompt: "a chunky hand-knit wool throw casually draped across the lower third of the bed" },
+  { id: "wool_plaid",   name: "Wełniana krata",      prompt: "a folded wool plaid blanket placed across the foot of the bed" },
+  { id: "boucle",       name: "Bouclé miękki",       prompt: "a soft cream bouclé throw lightly tossed across one corner of the bed" },
+  { id: "quilt",        name: "Pikowana narzuta",    prompt: "a vintage-style quilted bedspread folded along the foot, lightly textured" },
+];
+
+const TIDY_LEVELS = [
+  { id: "unmade",      name: "Rozbebrana",          prompt: "the bed is unmade — sheets pulled aside, duvet partly thrown off, a clearly slept-in look. Casual and very lived-in, but still photogenic and not chaotic" },
+  { id: "lived_in",   name: "Naturalna",           prompt: "the bedding is naturally rumpled with soft organic creases and gentle wrinkles — a lived-in but pleasant look, not staged-stiff and not messy" },
+  { id: "neat",        name: "Równa",               prompt: "the bedding is smoothed and tidy with only subtle natural wrinkles, the duvet centered and even, pillows neatly arranged. Calm and orderly" },
+  { id: "hotel",       name: "Hotel-perfect",       prompt: "the bedding is crisp and hotel-perfect — taut sheets, perfectly squared duvet corners, pillows precisely stacked and fluffed, zero wrinkles, magazine-grade styling" },
+  { id: "five_star",   name: "5★ hotel — zero zagnieceń", prompt: "the bedding is rendered to ultra-luxury five-star hotel suite standard: ABSOLUTELY zero folds, zero creases, zero wrinkles, zero rumples anywhere on the sheets, duvet, or pillowcases. Every surface is ironed glass-smooth and pulled taut to the millimeter. Duvet corners are knife-sharp 90-degree right angles, perfectly squared and aligned to the mattress edges. The duvet itself lies flat and evenly tensioned across the entire bed with no air bubbles, no puckering, and no soft sag. Pillows are flawlessly fluffed, identical in height and shape, precisely stacked or aligned with mathematical symmetry. Sheet edges are crisp and perfectly parallel. Top-tier luxury presentation, like a Mandarin Oriental or Four Seasons master suite immediately after housekeeping turn-down. ANY visible fold, wrinkle, or asymmetry is a defect that ruins the render" },
+];
+
+const DENSITY_LEVELS = [
+  { id: "minimal",     name: "Minimalna",           prompt: "an extremely minimal scene — only the bed and its bedding are visible, absolutely no decorative props, no books, no trays, no plants, no extra objects in the frame" },
+  { id: "balanced",    name: "Zbalansowana",        prompt: "a balanced scene with the bedding and at most one or two small tasteful styling items if requested below; otherwise the frame stays clean" },
+  { id: "rich",        name: "Bogata aranżacja",    prompt: "a fully styled editorial-look scene with multiple tasteful styling items adding warmth and narrative — but never cluttered or busy" },
+];
+
+const BED_ACCENTS = [
+  { id: "extra_pillows", name: "Dodatkowe poduszki",    prompt: "an extra pair of decorative pillows neatly arranged against the headboard" },
+  { id: "book",          name: "Książka",               prompt: "a single hardback book resting on top of the duvet, casually placed" },
+  { id: "tray",          name: "Taca śniadaniowa",      prompt: "a small wooden breakfast tray with a coffee cup placed on the bed" },
+  { id: "robe",          name: "Szlafrok / koszula",    prompt: "a soft linen robe casually laid across the corner of the bed" },
+  { id: "plant",         name: "Roślinka obok",         prompt: "a small potted plant visible on a nightstand or just beside the bed" },
+  { id: "candle",        name: "Świeca",                prompt: "a single lit candle in a simple ceramic holder placed near the bed" },
+];
+
 window.Ic = Ic;
 window.NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
-                   STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS };
+                   STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
+                   BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS };

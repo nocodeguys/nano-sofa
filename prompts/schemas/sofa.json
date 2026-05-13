@@ -258,8 +258,8 @@
       "properties": {
         "aspect_ratio": {
           "type": "string",
-          "enum": ["1:1", "4:3", "3:2", "16:9"],
-          "description": "All four values are supported on all three active models. Do not add 1:4, 4:1, 1:8, 8:1 — those are only available on gemini-3.1-flash-image-preview and are not needed for sofa product photography."
+          "enum": ["1:1", "4:3", "3:2", "16:9", "9:16", "4:5"],
+          "description": "Supported on all three active models. 9:16 is the Instagram Stories / Reels vertical. 4:5 is the Instagram feed portrait (the most common social vertical for product photography). Do not add 1:4, 4:1, 1:8, 8:1 — those are only available on gemini-3.1-flash-image-preview and are not needed for sofa product photography."
         },
         "resolution": {
           "type": "string",

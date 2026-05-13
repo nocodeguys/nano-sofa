@@ -961,6 +961,8 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
   cursor: pointer;
   background: repeating-linear-gradient(135deg, transparent 0 8px, rgba(0,0,0,.012) 8px 9px);
   transition: border-color var(--t-fast);
+  position: relative;
+  overflow: hidden;
 }
 .ref-slot:hover { border-color: var(--ink-3); color: var(--ink-2); }
 .ref-slot.filled {

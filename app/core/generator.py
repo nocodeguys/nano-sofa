@@ -59,6 +59,13 @@ class GenerationRequest:
     scene_reference_image: Optional[Any] = None
     swatch_reference_image: Optional[Any] = None
 
+    # Extra moodboard-style references uploaded by the user in the UI's
+    # "Referencje" section. Unlike the named slots above, these don't have a
+    # specific prompt role — they're appended to the multimodal call so the
+    # model can pick up style/material/lighting cues. Capped at runtime to
+    # whatever the model's max_refs allows after the named slots are counted.
+    extra_reference_images: list = field(default_factory=list)
+
     # Product
     product_type: str = "sofa"   # "sofa" | "bed"
     sofa_configuration: str = "3-seater"   # also used for bed sizes when product_type == "bed"
@@ -117,6 +124,26 @@ class GenerationRequest:
     # opposite of what a multi-angle photoshoot needs.
     preserve_camera_from_base: bool = False
 
+    # When True, the prompt switches into "near-pixel-identical recolor of
+    # slot 1" mode — only the upholstery color/material change, everything
+    # else (camera, scene, background, framing, crop) is preserved verbatim.
+    # This is the Fotosesja packshot-pass behavior; it should NOT be used
+    # when the caller wants to swap the background via env_mode. The wizard
+    # "Zachowaj kąt z bazowego zdjęcia" toggle sets preserve_camera_from_base
+    # but NOT this flag — so the wizard's chosen env still applies.
+    strict_in_place_recolor: bool = False
+
+    # When True AND extra_reference_images is non-empty, the prompt names the
+    # first extra reference as the authoritative source of CAMERA, LIGHTING,
+    # SHADOW, and SCENE/BACKDROP appearance — and suppresses the wizard's
+    # camera_angle / framing / lens / env description / shadow direction so
+    # they don't fight the reference. Variant attributes (color, material,
+    # legs) still come from the wizard: this is "apply my new color in the
+    # look of this reference photo," not "ignore everything and clone the
+    # reference." Toggled by the section-09 "Użyj referencji jako wzorca"
+    # checkbox in the UI.
+    lock_to_reference: bool = False
+
     # Output
     aspect_ratio: str = "4:3"
     resolution: str = "1K"
@@ -128,6 +155,14 @@ class GenerationRequest:
 
     # Notes
     notes: str = ""
+
+    # Bed-only styling block — composed by server.py from the wizard's section
+    # 10 (Pościel i styling) selections. When non-empty AND product_type == "bed",
+    # the prompt emits a dedicated BEDDING block telling Gemini exactly what
+    # textiles are on the bed, how tidy they should be, and how many extra
+    # styling items belong in the frame. Empty for sofas and for beds where
+    # the user left every field at its default with "bez pościeli" selected.
+    bedding_description: str = ""
 
     # API key — per-user, supplied via the UI. Falls back to GEMINI_API_KEY
     # environment variable only when this field is empty.
@@ -199,6 +234,7 @@ def _count_active_refs(req: GenerationRequest) -> int:
         count += 1
     if req.swatch_reference_image is not None:
         count += 1
+    count += len(req.extra_reference_images or [])
     return count
 
 
@@ -324,8 +360,14 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # slot 1 preserved except the upholstery (Fotosesja packshot pass). The
     # lifestyle pass also sets preserve_camera_from_base but uses env_mode
     # "lifestyle" — those renders intentionally swap the backdrop, so they
-    # should NOT use the strict in-place TASK framing.
-    in_place_recolor = req.preserve_camera_from_base and req.env_mode == "packshot"
+    # should NOT use the strict in-place TASK framing. Gated by
+    # strict_in_place_recolor so the wizard "preserve camera" toggle (which
+    # also sets preserve_camera_from_base) does NOT freeze the backdrop.
+    in_place_recolor = (
+        req.strict_in_place_recolor
+        and req.preserve_camera_from_base
+        and req.env_mode == "packshot"
+    )
 
     # ------------------------------------------------------------------ #
     # Primary instruction
@@ -391,6 +433,15 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     )
     if req.texture_notes:
         lines.append(f"Texture detail: {req.texture_notes}")
+
+    # ------------------------------------------------------------------ #
+    # Bedding & styling block — bed-only. Populated by the wizard's
+    # section 10. Tells the model exactly what textiles are on the bed,
+    # how tidy they should look, and how many extra props belong in
+    # the frame. Skipped for sofas and for empty descriptions.
+    # ------------------------------------------------------------------ #
+    if is_bed and req.bedding_description.strip():
+        lines.append(f"\nBEDDING & STYLING: {req.bedding_description.strip()}")
 
     # ------------------------------------------------------------------ #
     # Legs — only when relevant (leg_count > 0 OR explicit leg swap)
@@ -479,11 +530,54 @@ def _build_prompt_text(req: GenerationRequest) -> str:
         )
 
     # ------------------------------------------------------------------ #
+    # Reference-lock mode — user uploaded a moodboard reference (section
+    # 09) and toggled "Użyj referencji jako wzorca" so the reference is
+    # the source of truth for camera, lighting, scene, and shadows. We
+    # emit a strong directive here and short-circuit the wizard-driven
+    # CAMERA / shadow / SCENE blocks below so they don't fight the ref.
+    # Variant attributes (color, material, legs, size) still apply — the
+    # whole point of this mode is "show my color in this reference's look",
+    # not "ignore everything and clone the reference."
+    # ------------------------------------------------------------------ #
+    reference_locked = bool(req.lock_to_reference and req.extra_reference_images)
+    if reference_locked:
+        lines.append(
+            f"\nREFERENCE LOCK — IMPORTANT: An additional moodboard reference "
+            f"photograph is attached to this request. That reference photograph "
+            f"is the AUTHORITATIVE source of truth for the look of the output. "
+            f"Match the reference EXACTLY on all of the following dimensions:"
+            f"\n• CAMERA: identical camera angle, viewpoint, height, distance, "
+            f"perspective, focal length / lens compression, framing, and crop. "
+            f"If the reference is a tight detail or macro crop, the output is "
+            f"the same tight crop — do not pull back to a hero shot."
+            f"\n• LIGHTING: identical light direction, quality (hard/soft), "
+            f"intensity, color temperature, time-of-day mood, and key/fill "
+            f"ratio. Reproduce the reference's overall exposure and contrast."
+            f"\n• SHADOWS: identical shadow direction, length, softness, and "
+            f"density as cast in the reference photograph."
+            f"\n• SCENE / BACKDROP: identical background, environment, props, "
+            f"floor, walls, and any contextual scene elements visible in the "
+            f"reference. Do not invent a new backdrop, do not swap to a "
+            f"studio cyclorama, do not add props that aren't in the reference."
+            f"\n• COLOR GRADE: identical overall color grade, white balance, "
+            f"and post-processing mood."
+            f"\nIGNORE any conflicting camera, lens, time-of-day, shadow, or "
+            f"environment directives elsewhere in this prompt — the reference "
+            f"photograph overrides them. The ONLY things you take from the "
+            f"wizard instead of the reference are the upholstery color, "
+            f"upholstery material, leg style (when specified), and product "
+            f"size. The {product_noun} silhouette itself comes from slot 1."
+        )
+
+    # ------------------------------------------------------------------ #
     # Camera angle — either preserved from the base image (photoshoot
     # session mode, where each render's correct angle is already in its
     # own base image) or stated explicitly from the wizard's cam preset.
     # ------------------------------------------------------------------ #
-    if req.preserve_camera_from_base:
+    if reference_locked:
+        # Camera comes from the moodboard reference — skip the wizard block.
+        pass
+    elif req.preserve_camera_from_base:
         lines.append(
             f"\nCAMERA (slot 1 is authoritative): The camera angle, framing, "
             f"crop, distance, perspective, lens compression, and {product_noun} "
@@ -511,7 +605,10 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # and shadow_direction is often a non-clock label like "soft diffuse"
     # which makes the "(clock position)" sentence awkward.
     # ------------------------------------------------------------------ #
-    if req.shadow_direction and not req.env_mode:
+    if reference_locked:
+        # Shadow direction comes from the moodboard reference — skip.
+        pass
+    elif req.shadow_direction and not req.env_mode:
         shadow_text = (
             f"Shadow direction: the shadow cast by the {product_noun} falls at "
             f"{req.shadow_direction} (clock position from the {product_noun}'s perspective)."
@@ -532,8 +629,11 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # Eliminates the prior contradiction where a hardcoded "Neutral studio
     # backdrop" line was emitted even when the caller wanted a lifestyle
     # render with a specific environment.
+    # Skipped entirely under reference_locked: the moodboard reference is
+    # the authoritative scene/backdrop source.
     # ------------------------------------------------------------------ #
-    lines.append(_build_scene_block(req, product_noun))
+    if not reference_locked:
+        lines.append(_build_scene_block(req, product_noun))
 
     # ------------------------------------------------------------------ #
     # Preserve list
@@ -631,6 +731,22 @@ def _collect_reference_images(
                 max_refs,
                 active_refs,
             )
+
+    # Slot 5+: user-uploaded moodboard references. Appended in order until the
+    # model's max_refs cap is reached. Anything past the cap is dropped with a
+    # warning so the call still succeeds instead of failing the whole request.
+    if req.extra_reference_images:
+        max_refs = schema.max_refs_for_model(req.model_id)
+        for idx, extra in enumerate(req.extra_reference_images):
+            if len(images) >= max_refs:
+                logger.warning(
+                    "Extra reference #%d dropped: model %s allows max %d refs, already at %d",
+                    idx + 1, req.model_id, max_refs, len(images),
+                )
+                continue
+            extra_img = _load_image(extra)
+            if extra_img:
+                images.append(extra_img)
 
     return images
 
