@@ -1,0 +1,51 @@
+# Nano Sofa Studio — WebGL 3D Preview experiment
+# Runs alongside the main deployment on a separate port.
+#
+# Deploy on VPS:
+#   docker compose -f docker-compose.webgl.yml up -d
+#
+# The image is built and pushed by CI on every push to
+# the worktree-webgl-3d-preview branch, tagged as :webgl.
+
+services:
+  nano-sofa-webgl:
+    image: ghcr.io/nocodeguys/nano-sofa:webgl
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    ports:
+      - "7862:7861"
+
+    volumes:
+      - ./outputs-webgl:/app/outputs
+
+    environment:
+      PORT: "7861"
+      HOST: "0.0.0.0"
+      LOG_LEVEL: "info"
+      OUTPUTS_DIR: "/app/outputs"
+
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:7861/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "300"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"

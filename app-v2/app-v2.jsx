@@ -503,22 +503,38 @@ function App({ t }) {
         )}
 
         <div className="stage-tabs">
-          <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>Mockup</button>
+          <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>{st.kind === "bed" ? "3D" : "Mockup"}</button>
           <button className={stageTab === "json" ? "on" : ""} onClick={() => setStageTab("json")}>JSON</button>
           <button className={stageTab === "variants" ? "on" : ""} onClick={() => setStageTab("variants")}>Warianty</button>
           <button className={stageTab === "photoshoot" ? "on" : ""} onClick={() => setStageTab("photoshoot")}>Fotosesja</button>
         </div>
 
-        <div className="stage-canvas" style={{
-          background: envObj?.grad,
+        <div className={"stage-canvas" + (st.kind === "bed" && stageTab === "mockup" ? " bed-3d-active" : "")} style={{
+          background: (st.kind === "bed" && stageTab === "mockup") ? "transparent" : envObj?.grad,
           "--stage-zoom": (t.stageZoom / 100),
-          "--vignette-opacity": t.stageVignette ? 0.18 : 0,
+          "--vignette-opacity": (st.kind === "bed" && stageTab === "mockup") ? 0 : (t.stageVignette ? 0.18 : 0),
         }}>
           {stageTab === "mockup" && (() => {
             const showGen = activeGallery >= 0 && gallery[activeGallery] && gallery[activeGallery].url;
             if (showGen) {
               return <img src={gallery[activeGallery].url} alt="rendering"
                           style={{position:"absolute", inset:"6% 6% 14% 6%", width:"88%", height:"80%", objectFit:"contain"}} />;
+            }
+            if (st.kind === "bed" && typeof Bed3DViewer !== "undefined") {
+              return (
+                <div style={{position:"absolute", inset: 0}}>
+                  <Bed3DViewer
+                    color={colorObj?.hex || "#6F8C68"}
+                    material={st.mat}
+                    legs={st.legs}
+                    tod={st.tod}
+                    shadow={st.shadow}
+                    size={st.size}
+                    bedding={st.bedding}
+                    env={st.env}
+                  />
+                </div>
+              );
             }
             return (
               <div className="sofa" style={{

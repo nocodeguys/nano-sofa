@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - app-v2-design
+      - worktree-webgl-3d-preview
     tags:
       - "v*.*.*"
   workflow_dispatch:
@@ -48,6 +49,8 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             # :edge on every push to the active dev branch
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/app-v2-design' }}
+            # :webgl on every push to the WebGL 3D preview experiment branch
+            type=raw,value=webgl,enable=${{ github.ref == 'refs/heads/worktree-webgl-3d-preview' }}
             # :sha-<short> on every push (for pinning to an exact commit)
             type=sha,prefix=sha-,format=short
             # :<semver-tag> when a v*.*.* tag is pushed
