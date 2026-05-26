@@ -3,10 +3,6 @@ services:
     # Pull the pre-built multi-arch image from GitHub Container Registry.
     # For local dev builds, comment out `image:` and uncomment `build:`.
     image: ghcr.io/nocodeguys/nano-sofa:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-
     ports:
       - "7861:7861"
 
