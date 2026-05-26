@@ -91,6 +91,7 @@ const LENSES = [
   { id: "35mm_wide",    name: "35 mm — szeroki kontekst" },
   { id: "50mm_natural", name: "50 mm — naturalna" },
   { id: "85mm_product", name: "85 mm — produktowa" },
+  { id: "100mm_macro",  name: "100 mm makro" },
 ];
 
 const TIMES_OF_DAY = [
@@ -104,6 +105,91 @@ const SHADOWS = [
   { id: "soft_diffuse",  name: "miękkie rozproszone" },
   { id: "directional_4", name: "kierunkowe — okno" },
   { id: "hard_studio_5", name: "twarde — studio" },
+];
+
+/* Shot type — the primary framing intent. Drives the `framing` line in the
+   generated prompt.
+
+   `close_up` is a tight crop on a named anatomy region (corner / side /
+   back / headboard etc) — only part of the product is visible but the
+   backdrop is still partially in frame, so the cyclorama SCENE block is
+   kept as-is.
+
+   `detail_fabric` and `detail_corner` are macro-distance shots — at that
+   range the cyclorama is not in the frame, so the SCENE block is replaced
+   with an OOF-background line. Without that swap the cyclorama text
+   overrides the detail crop instruction (the "can't generate detail
+   photo" bug). */
+const SHOT_TYPES = [
+  { id: "wide",          name: "Szeroki — z otoczeniem",     hint: "produkt zajmuje centralną trzecią część kadru" },
+  { id: "hero",          name: "Hero — pełny produkt",       hint: "klasyczny katalog, oddech wokół" },
+  { id: "three_quarter", name: "3/4 — produkt wypełnia",     hint: "delikatne kadrowanie na krawędziach" },
+  { id: "cropped",       name: "Kadr kompozycyjny",          hint: "tnij wzdłuż trójpodziału, produkt dominuje" },
+  { id: "close_up",      name: "Close-up — fragment produktu", hint: "róg, bok, tył, wezgłowie — wybierz obszar" },
+  { id: "detail_fabric", name: "Detal makro — tkanina",      hint: "ekstremalne zbliżenie na strukturę materiału" },
+  { id: "detail_corner", name: "Detal — szew / złącze",      hint: "ciasny makro na szew, joinery, mocowanie nóżki" },
+];
+
+/* Detail / close-up subject regions.
+   - DETAIL_REGIONS_FABRIC → fabric-texture macro (extreme close-up, no product silhouette)
+   - DETAIL_REGIONS_CORNER → small mechanical detail (stitching, joinery)
+   - CLOSE_REGIONS_BED / CLOSE_REGIONS_SOFA → section close-up of the product
+     (corner / side / back etc); chosen by product kind, not by shot type alone.
+*/
+const DETAIL_REGIONS_FABRIC = [
+  { id: "weave",   name: "splot tkaniny" },
+  { id: "nap",     name: "włos / boucle / welur" },
+  { id: "threads", name: "nici / faktura lnu" },
+  { id: "boucle",  name: "pętle boucle" },
+];
+const DETAIL_REGIONS_CORNER = [
+  { id: "arm_back_corner", name: "róg podłokietnik / oparcie" },
+  { id: "cushion_edge",    name: "krawędź siedziska" },
+  { id: "panel_seam",      name: "łączenie paneli / szew" },
+  { id: "leg_attachment",  name: "mocowanie nóżki / stopa" },
+];
+const CLOSE_REGIONS_BED = [
+  { id: "bed_headboard",   name: "wezgłowie (front)" },
+  { id: "bed_side",        name: "bok łóżka (profil)" },
+  { id: "bed_foot",        name: "stopa łóżka (end-on)" },
+  { id: "bed_back",        name: "tył wezgłowia" },
+  { id: "bed_corner_head", name: "narożnik przy wezgłowiu" },
+  { id: "bed_corner_foot", name: "narożnik przy stopie" },
+];
+const CLOSE_REGIONS_SOFA = [
+  { id: "sofa_armrest",  name: "podłokietnik" },
+  { id: "sofa_backrest", name: "oparcie (góra)" },
+  { id: "sofa_seat",     name: "siedzisko" },
+  { id: "sofa_corner",   name: "narożnik (cała wysokość)" },
+  { id: "sofa_side",     name: "bok (profil)" },
+  { id: "sofa_back",     name: "tył kanapy" },
+];
+
+/* Camera height — vertical position of the camera relative to product. */
+const CAMERA_HEIGHTS = [
+  { id: "low",      name: "nisko (kolano)" },
+  { id: "seated",   name: "siedząca (krzesło)" },
+  { id: "eye",      name: "wzrok stojący" },
+  { id: "standing", name: "wysoko (podest)" },
+  { id: "overhead", name: "z góry (45°)" },
+];
+
+/* Camera yaw — horizontal angle around the product. */
+const CAMERA_YAWS = [
+  { id: "front",      name: "front" },
+  { id: "34_left",    name: "3/4 z lewej" },
+  { id: "34_right",   name: "3/4 z prawej" },
+  { id: "side_left",  name: "bok lewy" },
+  { id: "side_right", name: "bok prawy" },
+  { id: "back",       name: "tył" },
+];
+
+/* Depth of field — pairs with lens to drive aperture in the prompt. */
+const DEPTHS_OF_FIELD = [
+  { id: "deep",          name: "głęboka — f/8" },
+  { id: "standard",      name: "standard — f/4.5" },
+  { id: "shallow",       name: "płytka — f/2" },
+  { id: "macro_shallow", name: "makro płytka — f/2.8" },
 ];
 
 /* ======================================================
@@ -215,4 +301,7 @@ const BED_ACCENTS = [
 window.Ic = Ic;
 window.NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
                    STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
+                   SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
+                   CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
+                   CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
                    BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS };

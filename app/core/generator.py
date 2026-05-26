@@ -92,6 +92,23 @@ class GenerationRequest:
     aperture: str = "f/4.5"
     framing: str = "full product visible with breathing room above and below"
 
+    # Shot type — the framing intent. Detail variants change two things in the
+    # emitted prompt: the CAMERA block drops the yaw line (a yaw at macro
+    # distance is nonsensical and conflicts with the crop), and the SCENE
+    # block emits a short out-of-focus background description instead of the
+    # full cyclorama spec (which describes a hero packshot and overrides
+    # the detail crop instruction — the original failure the user reported).
+    #
+    # Values:
+    #   wide / hero / three_quarter / cropped  → standard framing
+    #   detail_fabric                          → extreme macro on upholstery surface
+    #   detail_corner                          → tight crop on a single region
+    shot_type: str = "hero"
+    # Optional region phrase woven into the framing string for detail shots
+    # (e.g. "the upholstery fabric weave pattern", "the corner where the arm
+    # meets the backrest"). Empty for non-detail shot_types.
+    detail_region_phrase: str = ""
+
     # Scene — structured fields that feed the SCENE block as a narrative
     # paragraph instead of buried name=value notes. When env_mode is empty
     # the SCENE block falls back to the legacy single-line behavior so
@@ -281,6 +298,31 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
     if req.env_mode == "packshot":
         tod_clause = f" Lighting: {req.tod_description}." if req.tod_description else ""
         scene_desc = req.env_description or "neutral grey studio backdrop, packshot lighting"
+        is_detail = req.shot_type in ("detail_fabric", "detail_corner")
+        # Detail crop: at macro distance the cyclorama sweep, top-light
+        # gradient, and contact shadow are not in the frame — emitting the
+        # full cyclorama spec re-anchors the model to a hero packshot and
+        # cancels the detail crop. Emit a minimal OOF-background line and
+        # explicitly tell the model to disregard any attached cyclorama
+        # reference (the wizard always attaches one for packshot shots).
+        if is_detail:
+            return (
+                f"\nSCENE (detail crop): The background is the {product_noun}'s own "
+                f"upholstery surface, completely out of focus at macro distance — "
+                f"soft, blurred, no studio backdrop visible, no horizon, no contact "
+                f"shadow, no environment objects. The frame is filled by the detail "
+                f"region in sharp focus; everything beyond ~5 cm depth is rendered "
+                f"as smooth, defocused bokeh of the same fabric color."
+                f"{lens_clause}"
+                + (
+                    f"\n\nNOTE ON BACKDROP REFERENCE: A cyclorama reference image may "
+                    f"be attached (slot 2). At macro distance the backdrop is not in "
+                    f"the frame — disregard the backdrop reference entirely for this "
+                    f"render. Use slot 1 only for the {product_noun}'s color, material, "
+                    f"and detail-region geometry."
+                    if req.scene_reference_image is not None else ""
+                )
+            )
         # When a scene reference image is attached for a packshot, it's the
         # curated cyclorama reference (not a lifestyle scene). Tell the model
         # to copy backdrop characteristics — tone, top-light gradient, shadow
@@ -317,6 +359,22 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
         if req.tod_description else ""
     )
     scene_desc = req.env_description or "interior setting"
+    is_detail = req.shot_type in ("detail_fabric", "detail_corner")
+    # Detail crop in a lifestyle env: at macro distance the room isn't in
+    # the frame. Emit OOF fabric background but keep the lighting hue/temp
+    # so the room's light quality still influences the detail crop.
+    if is_detail:
+        return (
+            f"\nSCENE (detail crop in {scene_desc}): The background is the "
+            f"{product_noun}'s own upholstery surface, completely out of focus "
+            f"at macro distance — no room interior visible in the frame. The "
+            f"frame is filled by the detail region in sharp focus; everything "
+            f"beyond ~5 cm depth is smooth defocused bokeh of the same fabric. "
+            f"The ambient light color temperature and direction come from the "
+            f"surrounding {scene_desc}, not from a studio strobe."
+            f"{tod_clause}"
+            f"{lens_clause}"
+        )
 
     if req.scene_reference_image is not None:
         placement = (
@@ -591,12 +649,27 @@ def _build_prompt_text(req: GenerationRequest) -> str:
         )
     else:
         angle_label = req.camera_angle.replace("-", " ")
-        lines.append(
-            f"\nCAMERA: {angle_label} view, approximately {req.angle_degrees_from_left} degrees "
-            f"from the left. "
-            f"Focal length equivalent {req.focal_length_mm} mm, {req.aperture} aperture. "
-            f"Framing: {req.framing}."
-        )
+        is_detail = req.shot_type in ("detail_fabric", "detail_corner")
+        if is_detail:
+            # Detail crop: lead with the framing instruction (the only thing
+            # that matters at macro distance) and skip the yaw line entirely.
+            # Yaw + "X degrees from the left" at macro reads as a centered
+            # hero shot to the model and overrides the crop — the failure
+            # mode behind the "can't generate detail photo" bug.
+            lines.append(
+                f"\nCAMERA: macro detail crop. Framing: {req.framing}. "
+                f"Focal length equivalent {req.focal_length_mm} mm, {req.aperture} aperture, "
+                f"shallow depth of field. The full {product_noun} must NOT be visible — "
+                f"the frame is filled by the detail region only, with the rest of the "
+                f"{product_noun} cropped out by the frame edge."
+            )
+        else:
+            lines.append(
+                f"\nCAMERA: {angle_label} view, approximately {req.angle_degrees_from_left} degrees "
+                f"from the left. "
+                f"Focal length equivalent {req.focal_length_mm} mm, {req.aperture} aperture. "
+                f"Framing: {req.framing}."
+            )
 
     # ------------------------------------------------------------------ #
     # Shadow direction — required for leg swap and scene ref.

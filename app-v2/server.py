@@ -80,15 +80,6 @@ _MATERIAL_PL_TO_EN = {
     "leather": "smooth leather",
 }
 
-_CAMERA_TO_ANGLE = {
-    "studio": ("front-34-left", 35),
-    "lounge": ("front-34-right", 40),
-    "loft": ("front-34-left", 30),
-    "detail": ("close-detail", 0),
-    "eye": ("eye-level-front", 0),
-    "top": ("top-down-45", 0),
-}
-
 _SOFA_CONFIG = {
     "1": "armchair",
     "2": "2-seater",
@@ -358,13 +349,114 @@ _LENS_TO_PROMPT = {
     "35mm_wide":    {"focal_mm": 35, "descriptor": "35 mm wide-angle, includes generous environment context, slight perspective exaggeration"},
     "50mm_natural": {"focal_mm": 50, "descriptor": "50 mm natural perspective, matches the human eye, standard catalog framing"},
     "85mm_product": {"focal_mm": 85, "descriptor": "85 mm short telephoto, mild background compression, flattering product photography standard"},
+    "100mm_macro":  {"focal_mm": 100, "descriptor": "100 mm macro lens, extreme close-focus capability, razor-thin depth of field at minimum focus distance, flat field rendering of fabric texture detail"},
 }
 _LENS_LEGACY_ALIAS = {
     "35 mm — szeroki kontekst": "35mm_wide",
     "50 mm — naturalna":         "50mm_natural",
     "85 mm — produktowa":        "85mm_product",
+    "100 mm makro":              "100mm_macro",
 }
 _LENS_DEFAULT = {"focal_mm": 50, "descriptor": "50 mm natural perspective, standard catalog framing"}
+
+# ---------------------------------------------------------------------------
+# Shot type → framing template. The user picks one of six framing intents
+# in the Camera step; the server emits the matching framing string into
+# GenerationRequest.framing.  Detail variants ALSO flip GenerationRequest
+# .shot_type which causes generator.py to suppress the yaw line in the
+# CAMERA block and emit an OOF-background SCENE block — without those two
+# changes the cyclorama profile text overrides the detail crop instruction
+# (the bug the user reported as "can't generate detail photo").
+#
+# The `{region}` placeholder is filled in by `_compose_detail_framing()`
+# from the chosen detail_region (when shot_type is a detail variant).
+# ---------------------------------------------------------------------------
+_SHOT_TYPE_TO_FRAMING = {
+    "wide":          "wide establishing shot, product occupies the central third of the frame, generous environment context above and around the product",
+    "hero":          "full product visible with breathing room above and below, classic catalog hero framing centered in the frame",
+    "three_quarter": "product fills roughly three quarters of the frame, slight crop at frame edges is allowed, no environment context visible",
+    "cropped":       "compositional crop along thirds, product fills most of the frame, intentional cuts at the frame edges, no environment context visible",
+    "close_up":      "close-up shot of {region}; only that section of the product is visible in the frame; the rest of the product is intentionally cropped at the frame edge; product anatomy is still recognizable but the framing is tight on the chosen region",
+    "detail_fabric": "extreme macro close-up of {region}; the frame is filled by fabric texture only; no product silhouette, no product edges, no full-product shapes anywhere in the frame",
+    "detail_corner": "tight macro crop on {region}; only that single region of the product is visible; the rest of the product is intentionally cropped out by the frame edge",
+}
+
+# Detail / close-up region id → English phrase. Substituted into the framing template.
+# Region IDs are namespaced by product/region kind to avoid collisions across
+# the three region pickers (fabric macro / mechanical detail / section close-up).
+_DETAIL_REGION_TO_PHRASE = {
+    # Fabric-macro regions (extreme close, no product silhouette)
+    "weave":   "the upholstery fabric weave pattern, individual warp and weft threads visible",
+    "nap":     "the upholstery fabric pile / nap (velvet or boucle short-pile texture)",
+    "threads": "the individual fibers and thread structure of the upholstery, linen-style weave",
+    "boucle":  "the looped boucle yarn structure of the upholstery, individual loops visible",
+    # Small mechanical-detail regions (stitching, joinery)
+    "arm_back_corner": "the corner where the armrest meets the backrest of the product",
+    "cushion_edge":    "the edge of a seat cushion against the frame, showing piping and seam",
+    "panel_seam":      "the seam where two upholstery panels are joined, stitching visible",
+    "leg_attachment":  "the point where a leg meets the underside of the frame, joinery visible",
+    # Bed section close-ups
+    "bed_headboard":   "the front of the headboard and the top half of the bed, the lower half of the bed cropped at the frame edge",
+    "bed_side":        "the side profile of the bed, showing the side rail, the foot end, and the lower portion of the headboard",
+    "bed_foot":        "the foot end of the bed viewed end-on, the headboard not visible in the frame",
+    "bed_back":        "the back of the headboard, viewed from behind the bed, the mattress only partially visible",
+    "bed_corner_head": "the headboard-end corner of the bed in three-quarter view, showing the corner of the headboard, the head of the side rail, and a small portion of the mattress",
+    "bed_corner_foot": "the foot-end corner of the bed in three-quarter view, showing the corner where the side rail meets the foot of the bed",
+    # Sofa section close-ups
+    "sofa_armrest":  "one armrest of the sofa with the adjacent seat cushion, the rest of the sofa cropped at the frame edge",
+    "sofa_backrest": "the top half of the sofa backrest, the seat cushions only partially visible at the bottom of the frame",
+    "sofa_seat":     "the seat cushions and the front edge of the sofa, the backrest and armrests partially cropped",
+    "sofa_corner":   "one full-height corner of the sofa, showing the armrest, the backrest, and the seat at that corner",
+    "sofa_side":     "the side profile of the sofa, showing one armrest end-on and the side of the seat and backrest",
+    "sofa_back":     "the back of the sofa, rear elevation view, no front-facing upholstery visible",
+}
+_DETAIL_REGION_DEFAULT_FABRIC = "weave"
+_DETAIL_REGION_DEFAULT_CORNER = "arm_back_corner"
+_CLOSE_REGION_DEFAULT_BED  = "bed_corner_head"
+_CLOSE_REGION_DEFAULT_SOFA = "sofa_corner"
+
+# Camera yaw → (camera_angle_label, degrees-from-left).
+# Replaces the old _CAMERA_TO_ANGLE table that bundled shot type and yaw
+# together. With shot type now independent, yaw is a pure orientation pick.
+_YAW_TO_ANGLE = {
+    "front":      ("front-on",        0),
+    "34_left":    ("front-34-left",  35),
+    "34_right":   ("front-34-right", 35),
+    "side_left":  ("side-left",      90),
+    "side_right": ("side-right",     90),
+    "back":       ("back",          180),
+}
+
+# Camera height → descriptive phrase woven into the CAMERA line.
+_HEIGHT_TO_PHRASE = {
+    "low":      "low camera height, roughly knee-level",
+    "seated":   "seated camera height, roughly chair-seat-level",
+    "eye":      "eye-level camera height, standing adult viewpoint",
+    "standing": "raised camera height, slightly above standing eye-level",
+    "overhead": "overhead camera height, looking down at approximately 45 degrees",
+}
+
+# Depth of field → aperture. Pairs with lens (focal length); together they
+# determine how blurred the background renders.
+_DOF_TO_APERTURE = {
+    "deep":          "f/8.0",
+    "standard":      "f/4.5",
+    "shallow":       "f/2.0",
+    "macro_shallow": "f/2.8",
+}
+
+# Legacy `cam` preset → (shot_type, yaw, height) triple. Used when the
+# request only carries the old single `cam` field (older browser cache or
+# the quick-preset buttons in the new UI). Lets us deprecate `cam` without
+# breaking existing form posts.
+_CAM_PRESET_TO_STRUCTURED = {
+    "studio": ("hero",          "34_left",  "eye"),
+    "lounge": ("hero",          "34_right", "eye"),
+    "loft":   ("hero",          "34_left",  "eye"),
+    "detail": ("detail_fabric", "front",    "eye"),
+    "eye":    ("hero",          "front",    "eye"),
+    "top":    ("hero",          "front",    "overhead"),
+}
 
 # English id → (clock-position direction, full English description).
 # `direction` keeps backward compat with the existing shadow_direction field;
@@ -635,6 +727,14 @@ def _build_generation_request(
     extra_reference_paths: Optional[list[Path]] = None,
     lock_to_reference: bool = False,
     bedding_description: str = "",
+    # New structured camera fields. When `shot` is empty, the old `cam`
+    # preset is used as a fallback (back-compat with older form posts and
+    # the batch / photoshoot paths that haven't been migrated yet).
+    shot: str = "",
+    yaw: str = "",
+    height: str = "",
+    dof: str = "",
+    detail_region: str = "",
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
@@ -651,7 +751,68 @@ def _build_generation_request(
 
     is_bed = kind == "bed"
     sofa_config = (_BED_CONFIG if is_bed else _SOFA_CONFIG).get(size, "3-seater")
-    camera_angle, deg = _CAMERA_TO_ANGLE.get(cam, ("front-34-left", 35))
+
+    # ---- Resolve structured camera fields ---------------------------- #
+    # If the new `shot` field is missing, derive shot/yaw/height from the
+    # legacy `cam` preset. The new UI sends both `cam` (preset) and the
+    # structured fields explicitly so users can override the preset.
+    preset_shot, preset_yaw, preset_height = _CAM_PRESET_TO_STRUCTURED.get(
+        cam, ("hero", "34_left", "eye")
+    )
+    shot_id   = shot.strip()   or preset_shot
+    yaw_id    = yaw.strip()    or preset_yaw
+    height_id = height.strip() or preset_height
+    dof_id    = dof.strip()    or ("macro_shallow" if shot_id.startswith("detail_") else "standard")
+
+    is_detail = shot_id in ("detail_fabric", "detail_corner")
+    is_close_up = shot_id == "close_up"
+    # Detail shots force a macro lens unless the user explicitly picked one
+    # of the longer focal lengths. A 35 mm wide on a detail crop produces a
+    # weirdly perspective-distorted macro that doesn't read as a real shot.
+    if is_detail and lens.strip() in ("", "35mm_wide", "50mm_natural"):
+        lens = "100mm_macro"
+
+    camera_angle, deg = _YAW_TO_ANGLE.get(yaw_id, ("front-34-left", 35))
+
+    # Build framing string from shot type + (optional) region.
+    # Region selection rules:
+    #   detail_fabric  → DETAIL_REGIONS_FABRIC  (default: weave)
+    #   detail_corner  → DETAIL_REGIONS_CORNER  (default: arm_back_corner)
+    #   close_up + bed → CLOSE_REGIONS_BED      (default: bed_corner_head)
+    #   close_up + sofa→ CLOSE_REGIONS_SOFA     (default: sofa_corner)
+    #   other          → no region
+    if is_detail:
+        default_region = (
+            _DETAIL_REGION_DEFAULT_FABRIC if shot_id == "detail_fabric"
+            else _DETAIL_REGION_DEFAULT_CORNER
+        )
+        region_id = detail_region.strip() or default_region
+        region_phrase = _DETAIL_REGION_TO_PHRASE.get(
+            region_id, _DETAIL_REGION_TO_PHRASE[default_region]
+        )
+    elif is_close_up:
+        default_region = _CLOSE_REGION_DEFAULT_BED if is_bed else _CLOSE_REGION_DEFAULT_SOFA
+        region_id = detail_region.strip() or default_region
+        # Guard against cross-product region pick (e.g. sofa region with bed
+        # product, or vice versa) by falling back to the product's default.
+        valid_prefix = "bed_" if is_bed else "sofa_"
+        if not region_id.startswith(valid_prefix):
+            region_id = default_region
+        region_phrase = _DETAIL_REGION_TO_PHRASE.get(
+            region_id, _DETAIL_REGION_TO_PHRASE[default_region]
+        )
+    else:
+        region_phrase = ""
+    framing_template = _SHOT_TYPE_TO_FRAMING.get(shot_id, _SHOT_TYPE_TO_FRAMING["hero"])
+    framing_str = framing_template.format(region=region_phrase) if "{region}" in framing_template else framing_template
+    # Append camera-height phrase for non-detail shots (at macro distance
+    # height isn't visually relevant — the crop fills the frame regardless).
+    if not is_detail:
+        height_phrase = _HEIGHT_TO_PHRASE.get(height_id, "")
+        if height_phrase:
+            framing_str = f"{framing_str}; {height_phrase}"
+
+    aperture_str = _DOF_TO_APERTURE.get(dof_id, "f/4.5")
 
     lens_id   = _resolve_id(lens,   _LENS_LEGACY_ALIAS)
     tod_id    = _resolve_id(tod,    _TOD_LEGACY_ALIAS)
@@ -691,6 +852,10 @@ def _build_generation_request(
         angle_degrees_from_left=deg,
         shadow_direction=shadow_data["direction"],
         focal_length_mm=lens_data["focal_mm"],
+        aperture=aperture_str,
+        framing=framing_str,
+        shot_type=shot_id,
+        detail_region_phrase=region_phrase,
         lens_descriptor=lens_data["descriptor"],
         tod_description=tod_description,
         shadow_description=shadow_data["desc"],
@@ -730,6 +895,13 @@ async def api_generate(
     lens: str = Form("50mm_natural"),
     tod: str = Form("noon_neutral"),
     shadow: str = Form("soft_diffuse"),
+    # New structured camera fields — see _build_generation_request for the
+    # mapping tables. Empty values fall back to the `cam` preset.
+    shot: str = Form(""),
+    yaw: str = Form(""),
+    height: str = Form(""),
+    dof: str = Form(""),
+    detail_region: str = Form(""),
     env: str = Form(""),
     env_note: str = Form(""),
     env_mode: str = Form(""),
@@ -797,6 +969,7 @@ async def api_generate(
         mat=mat, mat_notes=mat_notes,
         size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow,
+        shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
         env=env, env_note=env_note, env_mode=env_mode,
         model=model, aspect=aspect, res=res, seed=seed,
         base_image_path=upload_path,

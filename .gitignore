@@ -23,3 +23,6 @@ state/
 .env
 .env.*
 !.env.example
+
+# Docker compose dev override — local-only bind mounts for fast iteration.
+docker-compose.override.yml
