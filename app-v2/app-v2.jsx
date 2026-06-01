@@ -45,6 +45,26 @@ function mkErr(message, code = "VALIDATION") {
   return { message, code, retryable: false };
 }
 
+// Client-side ETA seed, mirroring cost_tracker._DURATION_SEED. Used as the
+// instant, model-aware estimate AND the fallback when /api/eta is unavailable
+// (e.g. before the server is restarted with the new route), so the overlay
+// never shows a flat constant. /api/eta refines this with measured history.
+const _ETA_SEED = {
+  flash: { "1K": [8, 16], "2K": [13, 26], "4K": [20, 38] },
+  pro:   { "1K": [18, 34], "2K": [26, 50], "4K": [40, 72] },
+};
+function localEta(model, res, refs) {
+  const tier = (model || "").includes("pro") ? "pro" : "flash";
+  const r = (res || "1K").split(" ")[0].toUpperCase();
+  const seed = _ETA_SEED[tier][r] || _ETA_SEED[tier]["1K"];
+  const n = refs || 0;
+  return {
+    p50_s: Math.round((seed[0] + 1.2 * n) * 10) / 10,
+    p90_s: Math.round((seed[1] + 2 * n) * 10) / 10,
+    source: "estimate", n: 0,
+  };
+}
+
 // Typed error card. Accepts either a structured error object or a plain string
 // (back-compat for the per-variant simple cases). Offers contextual actions:
 // retry for transient failures, "fix key" for auth problems.
@@ -123,6 +143,21 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key";
+const PRESETS_STORAGE = "nano-sofa-v2-presets";
+
+// The form fields a preset captures. Deliberately a whitelist (NOT a spread of
+// st) so the base image (baseFile/basePreviewUrl/uploaded/alpha — File handles
+// + object URLs that can't be JSON-serialized), the reference File objects
+// (envFile/refs), the API key, and `seed` are never stored. Excluding seed
+// means re-applying a preset still randomizes — settings travel between images,
+// the exact roll does not.
+const PRESET_FIELDS = [
+  "kind", "color", "colorCustom", "mat", "matNotes", "size", "legs",
+  "cam", "lens", "tod", "shadow", "shot", "yaw", "height", "dof", "detailRegion",
+  "env", "envNote", "envMode", "refsLock", "preserveBaseCamera",
+  "bedding", "beddingCustom", "throw", "tidy", "density", "accents", "bedNote",
+  "model", "aspect", "res", "outputFormat", "outputQuality",
+];
 
 // Szybki preset → seeded structured fields. Mirrors _CAM_PRESET_TO_STRUCTURED
 // in server.py (server-side fallback for legacy form posts) but adds the
@@ -197,6 +232,68 @@ function App({ t }) {
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
 
+  // ---- Presets: save/reuse the whole config across base images ------------ //
+  // Stored client-side (localStorage), same trust model as the API key — no
+  // server round-trip, no shared volume. Export/import covers cross-device use.
+  const [presets, setPresets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PRESETS_STORAGE) || "[]"); } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(PRESETS_STORAGE, JSON.stringify(presets)); } catch {}
+  }, [presets]);
+  const presetFileRef = useRef(null);
+  const [presetMsg, setPresetMsg] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState("");
+
+  const savePreset = () => {
+    const name = (window.prompt("Nazwa presetu:") || "").trim();
+    if (!name) return;
+    const params = Object.fromEntries(PRESET_FIELDS.map(k => [k, st[k]]));
+    setPresets(p => [...p.filter(x => x.name !== name), { name, params }]);
+    setPresetMsg(`Zapisano „${name}”.`);
+  };
+  const applyPreset = (name) => {
+    const p = presets.find(x => x.name === name);
+    if (!p) return;
+    set(p.params);   // merges params; base image, API key and seed untouched
+    setPresetMsg(`Wczytano „${name}” — zdjęcie bazowe i seed bez zmian.`);
+  };
+  const deletePreset = (name) => {
+    if (!name) return;
+    setPresets(p => p.filter(x => x.name !== name));
+    setPresetMsg(`Usunięto „${name}”.`);
+  };
+  const exportPresets = () => {
+    try {
+      const blob = new Blob([JSON.stringify(presets, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "nano-sofa-presets.json";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch {}
+  };
+  const importPresets = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const incoming = JSON.parse(reader.result);
+        if (!Array.isArray(incoming)) throw new Error("bad shape");
+        const valid = incoming.filter(x => x && typeof x.name === "string" && x.params);
+        // merge by name (imported wins)
+        setPresets(prev => {
+          const names = new Set(valid.map(x => x.name));
+          return [...prev.filter(x => !names.has(x.name)), ...valid];
+        });
+        setPresetMsg(`Zaimportowano ${valid.length} preset(ów).`);
+      } catch {
+        setPresetMsg("Nie udało się wczytać pliku presetów (zły format).");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const fileRef = useRef(null);
   const envFileRef = useRef(null);
   const refFileRef = useRef(null);
@@ -230,7 +327,7 @@ function App({ t }) {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genElapsed, setGenElapsed] = useState(0);   // seconds, live while generating
-  const [eta, setEta] = useState({ p50_s: 12, p90_s: 24, source: "estimate", n: 0 });
+  const [eta, setEta] = useState(() => localEta("gemini-3.1-flash-image-preview", "1K", 0));
   // When true, the next /api/generate call attaches the most recent gallery
   // image as scene_image — locking the backdrop pixel-perfectly across
   // re-renders. Same mechanism the Warianty tab uses for cross-variant
@@ -366,6 +463,9 @@ function App({ t }) {
   useEffect(() => {
     const refs = st.refs.filter(Boolean).length;
     const res = (st.res || "1K").split(" ")[0];
+    // Instant, model-aware estimate so the overlay reflects the current pick
+    // immediately (and survives /api/eta being unavailable).
+    setEta(localEta(st.model, res, refs));
     const t = setTimeout(() => {
       fetch(`/api/eta?model=${encodeURIComponent(st.model)}&resolution=${encodeURIComponent(res)}&refs=${refs}`)
         .then(r => (r.ok ? r.json() : null))
@@ -2064,6 +2164,31 @@ function App({ t }) {
         {genError && (
           <ErrorCard info={genError} onRetry={handleGenerate} onFixKey={() => setShowKeyEdit(true)} />
         )}
+
+        {/* Presets — save the whole config (except base image, key, seed) and
+            re-apply it to any other photo. Stored in the browser; export/import
+            for backup or sharing. */}
+        <div style={{
+          display:"flex", flexWrap:"wrap", alignItems:"center", gap:8,
+          margin:"0 0 14px 0", padding:"10px 14px", borderRadius:10,
+          background:"var(--bg-1, rgba(0,0,0,.03))", border:"1px solid var(--line-2, rgba(0,0,0,.12))",
+        }}>
+          <span style={{fontFamily:"Geist Mono", fontSize:11, color:"var(--ink-3)"}}>presety</span>
+          <select className="select" style={{maxWidth:220}} value={selectedPreset}
+            onChange={e => { const v = e.target.value; setSelectedPreset(v); if (v) applyPreset(v); }}>
+            <option value="">— wczytaj preset —</option>
+            {presets.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </select>
+          <button type="button" className="copy" onClick={savePreset}>zapisz bieżące</button>
+          <button type="button" className="copy" disabled={!selectedPreset}
+            onClick={() => { deletePreset(selectedPreset); setSelectedPreset(""); }}>usuń</button>
+          <button type="button" className="copy" disabled={!presets.length} onClick={exportPresets}>eksport</button>
+          <button type="button" className="copy" onClick={() => presetFileRef.current && presetFileRef.current.click()}>import</button>
+          <input ref={presetFileRef} type="file" accept="application/json,.json" style={{display:"none"}}
+            onChange={e => { importPresets(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+          {presetMsg && <span style={{color:"var(--ink-3)", fontSize:11}}>{presetMsg}</span>}
+        </div>
+
         <div className="form-foot">
           <div className="foot-summary">
             <div className="foot-lead serif">Gotowy do wygenerowania wariantu.</div>
