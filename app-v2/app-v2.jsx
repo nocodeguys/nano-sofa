@@ -193,6 +193,7 @@ function App({ t }) {
     accents: [],            // array of BED_ACCENTS ids
     bedNote: "",            // optional free-text styling note
     model: "gemini-3.1-flash-image-preview", aspect: "4:3", res: "1K", seed: "",
+    outputFormat: "jpg", outputQuality: 82,
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
 
@@ -387,6 +388,8 @@ function App({ t }) {
     fd.append("aspect", st.aspect);
     fd.append("res", st.res);
     fd.append("seed", st.seed || "");
+    fd.append("output_format", st.outputFormat || "jpg");
+    fd.append("output_quality", String(st.outputQuality || 82));
     fd.append("base_image", st.baseFile);
     // Background lock: when active, fetch the most recent gallery render and
     // attach it as scene_image. The server's packshot SCENE block instructs
@@ -576,6 +579,8 @@ function App({ t }) {
     fd.append("aspect", st.aspect);
     fd.append("res", st.res);
     fd.append("seed", st.seed || "");
+    fd.append("output_format", st.outputFormat || "jpg");
+    fd.append("output_quality", String(st.outputQuality || 82));
     // Sources + roles arrays are positionally paired on the server side.
     const roles = [];
     for (const s of shootSources) {
@@ -650,6 +655,8 @@ function App({ t }) {
     fd.append("aspect", st.aspect);
     fd.append("res", st.res);
     fd.append("seed", st.seed || "");
+    fd.append("output_format", st.outputFormat || "jpg");
+    fd.append("output_quality", String(st.outputQuality || 82));
     fd.append("base_image", st.baseFile);
     if (st.envFile && st.envFile instanceof File) fd.append("scene_image", st.envFile);
 
@@ -757,10 +764,11 @@ function App({ t }) {
           {stageTab === "mockup" && (() => {
             const activeImg = activeGallery >= 0 && gallery[activeGallery] && gallery[activeGallery].url ? gallery[activeGallery] : null;
             let downloadName = "";
+            let ext = "jpg";
             if (activeImg) {
               const tag = activeImg.tag || ("v" + (activeGallery + 1));
               const slug = [colorObj?.id, matObj?.id, envObj?.id].filter(Boolean).join("-");
-              const ext = (activeImg.url.split(".").pop() || "png").split("?")[0];
+              ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
               downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
             }
             return (
@@ -775,7 +783,7 @@ function App({ t }) {
                   <a className="stage-download"
                      href={activeImg.url}
                      download={downloadName}
-                     title="Pobierz PNG"
+                     title={"Pobierz " + ext.toUpperCase()}
                      style={{
                        display: "flex", alignItems: "center", gap: 8,
                        padding: "11px 16px", fontSize: 13, fontFamily: "Geist",
@@ -787,7 +795,7 @@ function App({ t }) {
                        letterSpacing: "-0.005em",
                      }}>
                     <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
-                    <span>Pobierz PNG</span>
+                    <span>Pobierz {ext.toUpperCase()}</span>
                   </a>
                 )}
                 <button className="gen-fab" onClick={handleGenerate} style={{
@@ -1049,7 +1057,7 @@ function App({ t }) {
                                 <span style={{color:"var(--ink-3)", marginLeft: 4}}>· {vMatObj?.name}</span>
                               </span>
                             </div>
-                            <a href={v.image_url} download={dlName} title="Pobierz PNG"
+                            <a href={v.image_url} download={dlName} title={"Pobierz " + ext.toUpperCase()}
                                style={{
                                  display:"inline-flex", alignItems:"center", gap: 4,
                                  fontSize: 10, fontFamily: "Geist Mono",
@@ -1438,6 +1446,25 @@ function App({ t }) {
               <div className="field-lbl">seed</div>
               <input className="input" placeholder="losowy" value={st.seed} onChange={e => set({ seed: e.target.value })} />
             </div>
+            <div>
+              <div className="field-lbl">format pliku</div>
+              <select className="select" value={st.outputFormat} onChange={e => set({ outputFormat: e.target.value })}>
+                <option value="jpg">JPG — mały plik (zalecane)</option>
+                <option value="webp">WebP — najmniejszy, z alfą</option>
+                <option value="png">PNG — bezstratny, duży</option>
+              </select>
+            </div>
+            {st.outputFormat !== "png" && (
+              <div>
+                <div className="field-lbl">jakość · {st.outputQuality}</div>
+                <input type="range" min="40" max="100" step="1" value={st.outputQuality}
+                       onChange={e => set({ outputQuality: parseInt(e.target.value, 10) || 82 })}
+                       style={{width:"100%"}} />
+                <div style={{fontSize:10, color:"var(--ink-3)", marginTop:4, fontFamily:"Geist Mono"}}>
+                  niżej = mniejszy plik
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 

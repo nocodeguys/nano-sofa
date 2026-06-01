@@ -769,7 +769,7 @@ def get_output(name: str):
     candidate = _OUTPUT_DIR / name
     if not candidate.exists() or not candidate.is_file():
         raise HTTPException(404, "Not found")
-    return FileResponse(candidate)
+    return FileResponse(candidate, media_type=_MEDIA_TYPES.get(candidate.suffix.lower()))
 
 
 def _build_generation_request(
@@ -954,6 +954,115 @@ async def _save_upload(upload: UploadFile, suffix: str = "") -> Path:
     return await asyncio.to_thread(_decode_and_save, raw, suffix)
 
 
+# ---------------------------------------------------------------------------
+# Output format / size optimization
+# ---------------------------------------------------------------------------
+# Envs that emit a transparent-background render (alpha). JPEG can't hold alpha,
+# so a JPG request for these is downgraded to WebP (which keeps alpha + stays
+# small). Source of truth: the transparent cyclorama profile in _ENV_TO_SCENE.
+_TRANSPARENT_ENVS = {"cyclorama_transparent", "transparent"}
+
+_MEDIA_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png", ".webp": "image/webp",
+}
+
+
+def _parse_quality(raw: str, default: int = 82) -> int:
+    """Clamp a user-supplied quality string to a sane JPEG/WebP range."""
+    try:
+        q = int(float(raw))
+    except (TypeError, ValueError):
+        return default
+    return max(40, min(100, q))
+
+
+def _derive_output(master: Path, fmt: str, quality: int, transparent: bool) -> tuple[Path, str, bool]:
+    """
+    From the lossless PNG `master`, write the user-facing delivery file in
+    `fmt` (jpg|png|webp) and return (path, fmt_used, downgraded).
+
+    The master is never mutated — it stays the lossless reference used by the
+    variant/photoshoot pixel-lock chain. For png we just serve the master.
+    JPEG has no alpha, so a transparent render asked for as jpg is transparently
+    downgraded to WebP (keeps alpha, still ~5x smaller than PNG).
+    """
+    fmt = (fmt or "jpg").lower().strip()
+    if fmt == "jpeg":
+        fmt = "jpg"
+    if fmt not in ("jpg", "png", "webp"):
+        fmt = "jpg"
+
+    downgraded = False
+    if fmt == "jpg" and transparent:
+        fmt = "webp"
+        downgraded = True
+
+    if fmt == "png":
+        return master, "png", False  # master is already an optimized PNG
+
+    img = Image.open(master)
+    img.load()
+    out = master.with_suffix("." + fmt)
+    if fmt == "jpg":
+        # Flatten any alpha onto white before JPEG (no alpha channel in JPEG).
+        if img.mode in ("RGBA", "LA", "P"):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            rgba = img.convert("RGBA")
+            bg.paste(rgba, mask=rgba.split()[-1])
+            img = bg
+        img.convert("RGB").save(out, format="JPEG", quality=quality, optimize=True, progressive=True)
+    else:  # webp — keeps alpha if present
+        img.save(out, format="WEBP", quality=quality, method=6)
+    return out, fmt, downgraded
+
+
+async def _derived_url(master: Path, fmt: str, quality: int, transparent: bool) -> tuple[str, str, bool]:
+    """Derive the delivery file off the event loop and return its public URL."""
+    derived, fmt_used, downgraded = await asyncio.to_thread(
+        _derive_output, master, fmt, quality, transparent
+    )
+    return f"/api/outputs/{derived.name}", fmt_used, downgraded
+
+
+# ---------------------------------------------------------------------------
+# Storage retention — keep the outputs volume from growing without bound. Best
+# effort: never raises, never blocks a response (run via asyncio.to_thread).
+# ---------------------------------------------------------------------------
+_MAX_OUTPUT_FILES = int(os.environ.get("MAX_OUTPUT_FILES", "800"))
+_MAX_UPLOAD_FILES = int(os.environ.get("MAX_UPLOAD_FILES", "200"))
+
+
+def _prune_dir(directory: Path, keep_newest: int) -> int:
+    try:
+        files = [p for p in directory.iterdir() if p.is_file()]
+    except Exception:
+        return 0
+    if len(files) <= keep_newest:
+        return 0
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    removed = 0
+    for p in files[keep_newest:]:
+        try:
+            p.unlink()
+            removed += 1
+        except Exception:
+            pass
+    return removed
+
+
+def _prune_storage() -> None:
+    """Trim outputs + uploads to their newest-N caps. Masters and their derived
+    siblings share an mtime, so they prune together."""
+    try:
+        n_out = _prune_dir(_OUTPUT_DIR, _MAX_OUTPUT_FILES)
+        n_up = _prune_dir(_UPLOAD_DIR, _MAX_UPLOAD_FILES)
+        if n_out or n_up:
+            logger.info("Storage prune: removed %d output(s), %d upload(s)", n_out, n_up)
+    except Exception as exc:  # never let cleanup break a request
+        logger.warning("Storage prune skipped: %s", exc)
+
+
 @app.post("/api/generate")
 async def api_generate(
     api_key: str = Form(""),
@@ -982,6 +1091,8 @@ async def api_generate(
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
+    output_format: str = Form("jpg"),
+    output_quality: str = Form("82"),
     base_image: Optional[UploadFile] = File(None),
     scene_image: Optional[UploadFile] = File(None),
     references: list[UploadFile] = File(default_factory=list),
@@ -1063,10 +1174,20 @@ async def api_generate(
     if not result.success or result.output_path is None:
         return _result_error(result)
 
+    # Derive the user-facing download file (default JPG) off the lossless PNG
+    # master, then trim the storage volume. The master is kept for reference reuse.
+    image_url, fmt_used, downgraded = await _derived_url(
+        result.output_path, output_format, _parse_quality(output_quality),
+        env in _TRANSPARENT_ENVS,
+    )
+    await asyncio.to_thread(_prune_storage)
+
     return {
         "success": True,
         "generation_id": result.generation_id,
-        "image_url": f"/api/outputs/{result.output_path.name}",
+        "image_url": image_url,
+        "format": fmt_used,
+        "format_downgraded": downgraded,
         "cost": result.actual_cost,
         "model": result.model_id,
         "resolution": result.resolution,
@@ -1115,6 +1236,8 @@ async def api_generate_set(
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
+    output_format: str = Form("jpg"),
+    output_quality: str = Form("82"),
     base_image: Optional[UploadFile] = File(None),
     scene_image: Optional[UploadFile] = File(None),
 ):
@@ -1216,7 +1339,11 @@ async def api_generate_set(
     if not anchor_result.success or anchor_result.output_path is None:
         return _result_error(anchor_result)
 
-    anchor_url = f"/api/outputs/{anchor_result.output_path.name}"
+    transparent_env = env in _TRANSPARENT_ENVS
+    qual = _parse_quality(output_quality)
+    anchor_url, _afmt, _adn = await _derived_url(
+        anchor_result.output_path, output_format, qual, transparent_env
+    )
     anchor_payload = {
         "color": anchor_color,
         "material": anchor_mat,
@@ -1272,14 +1399,16 @@ async def api_generate_set(
         if not r.success or r.output_path is None:
             variants_payload.append(_item_error({"color": cid, "material": mid}, r))
             continue
+        v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, transparent_env)
         variants_payload.append({
             "color": cid,
             "material": mid,
-            "image_url": f"/api/outputs/{r.output_path.name}",
+            "image_url": v_url,
             "generation_id": r.generation_id,
             "cost": r.actual_cost,
         })
 
+    await asyncio.to_thread(_prune_storage)
     total_cost = anchor_result.actual_cost + sum(
         v.get("cost", 0) for v in variants_payload if "cost" in v
     )
@@ -1314,6 +1443,8 @@ async def api_generate_photoshoot(
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
+    output_format: str = Form("jpg"),
+    output_quality: str = Form("82"),
     # Source images + per-source role flags. Lengths must match.
     # roles: "packshot" | "lifestyle" | "skip"
     sources: list[UploadFile] = File(...),
@@ -1392,6 +1523,11 @@ async def api_generate_photoshoot(
     packshot_results: list[dict] = []
     errors: list[dict] = []
     packshot_anchor_path: Optional[Path] = None
+    # Output-format derivation params, computed once for the whole session.
+    # Only packshots can be transparent (the cyclorama backdrop); lifestyle
+    # envs always have a room, so their derive is never alpha-coerced.
+    qual = _parse_quality(output_quality)
+    transparent_pack = backdrop in _TRANSPARENT_ENVS
     # Look up the curated cyclorama reference once — used by both the anchor
     # and every variant so the backdrop look is locked pixel-level across
     # the whole batch.
@@ -1426,10 +1562,11 @@ async def api_generate_photoshoot(
             }, anchor_result))
         else:
             packshot_anchor_path = anchor_result.output_path
+            a_url, _, _ = await _derived_url(anchor_result.output_path, output_format, qual, transparent_pack)
             packshot_results.append({
                 "label": "v1",
                 "source_filename": anchor_src_fn,
-                "image_url": f"/api/outputs/{anchor_result.output_path.name}",
+                "image_url": a_url,
                 "anchor": True,
                 "cost": anchor_result.actual_cost,
             })
@@ -1487,10 +1624,11 @@ async def api_generate_photoshoot(
                         "role": "packshot",
                     }, gen_result))
                     continue
+                pv_url, _, _ = await _derived_url(gen_result.output_path, output_format, qual, transparent_pack)
                 packshot_results.append({
                     "label": f"v{idx}",
                     "source_filename": src_fn,
-                    "image_url": f"/api/outputs/{gen_result.output_path.name}",
+                    "image_url": pv_url,
                     "cost": gen_result.actual_cost,
                 })
             packshot_results.sort(key=lambda x: int(x["label"][1:]))
@@ -1525,10 +1663,11 @@ async def api_generate_photoshoot(
                 "role": "lifestyle",
             }, ls_anchor))
         else:
+            la_url, _, _ = await _derived_url(ls_anchor.output_path, output_format, qual, False)
             lifestyle_results.append({
                 "label": anchor_label,
                 "source_filename": anchor_src_fn,
-                "image_url": f"/api/outputs/{ls_anchor.output_path.name}",
+                "image_url": la_url,
                 "anchor": True,
                 "cost": ls_anchor.actual_cost,
             })
@@ -1562,13 +1701,15 @@ async def api_generate_photoshoot(
                         "role": "lifestyle",
                     }, v2_result))
                 else:
+                    lv_url, _, _ = await _derived_url(v2_result.output_path, output_format, qual, False)
                     lifestyle_results.append({
                         "label": v2_label,
                         "source_filename": src2_fn,
-                        "image_url": f"/api/outputs/{v2_result.output_path.name}",
+                        "image_url": lv_url,
                         "cost": v2_result.actual_cost,
                     })
 
+    await asyncio.to_thread(_prune_storage)
     total_cost = (
         sum(p.get("cost", 0) for p in packshot_results)
         + sum(l.get("cost", 0) for l in lifestyle_results)

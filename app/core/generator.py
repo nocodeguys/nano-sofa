@@ -1154,7 +1154,12 @@ def generate(req: GenerationRequest) -> GenerationResult:
         ts = int(time.time())
         filename = f"{ts}_{req.model_id.replace('.', '-')}_{generation_id[:8]}.png"
         output_path = _OUTPUTS_DIR / filename
-        output_image.save(str(output_path), format="PNG")
+        # This PNG is the lossless canonical master: it is what gets reused as a
+        # pixel-lock reference for variant/photoshoot batches, so it must stay
+        # lossless. optimize=True is a free, lossless size reduction. The
+        # user-facing download (JPG/WebP) is derived from this master by the
+        # server layer — never the other way round.
+        output_image.save(str(output_path), format="PNG", optimize=True)
         status = "success"
         actual_cost = cost_est.total_low  # use conservative (low) estimate as actual
 
