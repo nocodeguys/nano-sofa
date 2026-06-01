@@ -89,7 +89,7 @@ EXPOSE 7861
 # /healthz returns {"ok":true,...} — no external API call required.
 # FastAPI emits compact JSON (no whitespace around the colon), so the grep
 # pattern is "ok":true with no space.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
     CMD curl -fs http://localhost:7861/healthz | grep -q '"ok":true' || exit 1
 
 # ── entry point ──────────────────────────────────────────────────────────────

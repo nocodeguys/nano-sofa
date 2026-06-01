@@ -41,6 +41,12 @@ _MAX_RETRIES = 4
 _BACKOFF_BASE_SECONDS = 2.0
 _BACKOFF_MAX_SECONDS = 30.0
 
+# Per-attempt request timeout (milliseconds). Bounds a hung Gemini connection
+# so a single call can't occupy a worker thread indefinitely (the prior client
+# had no deadline at all). Generous by default so legitimate slow 4K/Pro
+# renders aren't cut off; overridable via env for slow links.
+_REQUEST_TIMEOUT_MS = int(os.environ.get("GEMINI_TIMEOUT_MS", "120000"))
+
 # 18% sRGB neutral grey (#7F7F7F) — matches legs/STANDARDS.md so flattened
 # base products and leg-library renders share the same background value.
 _ALPHA_FLATTEN_GREY = (127, 127, 127)
@@ -212,6 +218,133 @@ class GenerationResult:
     error_message: Optional[str]
     model_id: str
     resolution: str
+    # Structured error metadata — populated only on failure. `error_code` is a
+    # stable machine string the frontend keys off (see _ERROR_CATALOG);
+    # `error_detail` is the raw technical message (EN, for logs / debugging);
+    # `retryable` tells the UI whether a "try again" is worth offering;
+    # `http_status` is the status the API layer should return.
+    error_code: Optional[str] = None
+    error_detail: Optional[str] = None
+    retryable: bool = False
+    http_status: int = 500
+
+
+@dataclass
+class ErrorInfo:
+    """Classified, user-facing error. Bilingual: PL is primary (the UI), EN is
+    the secondary detail line."""
+    error_code: str
+    message_pl: str
+    message_en: str
+    retryable: bool
+    http_status: int
+
+
+# code → (http_status, retryable, PL message, EN message). Single source of
+# truth for how every failure is explained to the user. Keep messages
+# actionable: tell the user what to do, not just what broke.
+_ERROR_CATALOG: dict[str, tuple[int, bool, str, str]] = {
+    "MODEL_OVERLOADED": (
+        503, True,
+        "Model Gemini jest chwilowo przeciążony. Spróbuj ponownie za chwilę.",
+        "Gemini model temporarily overloaded (503 UNAVAILABLE).",
+    ),
+    "RATE_LIMITED": (
+        429, True,
+        "Przekroczono limit zapytań do API Gemini. Odczekaj chwilę i spróbuj ponownie "
+        "(lub sprawdź limity/rozliczenia swojego klucza).",
+        "Rate / quota limit hit (429 RESOURCE_EXHAUSTED).",
+    ),
+    "AUTH_INVALID_KEY": (
+        401, False,
+        "Klucz API jest nieprawidłowy lub nie ma uprawnień do tego modelu. "
+        "Sprawdź klucz Gemini w polu na górze strony.",
+        "API key invalid or lacks permission (401/403).",
+    ),
+    "INVALID_REQUEST": (
+        400, False,
+        "Żądanie zostało odrzucone — nieprawidłowe parametry generowania. "
+        "Zmień ustawienia (model, proporcje, rozdzielczość) i spróbuj ponownie.",
+        "Request rejected by the API (400 INVALID_ARGUMENT).",
+    ),
+    "UPSTREAM_ERROR": (
+        502, True,
+        "Błąd po stronie serwera Gemini. Spróbuj ponownie za chwilę.",
+        "Upstream Gemini server error (500/502/504).",
+    ),
+    "NETWORK_TIMEOUT": (
+        504, True,
+        "Brak połączenia z API lub przekroczono czas oczekiwania. "
+        "Sprawdź internet i spróbuj ponownie.",
+        "Network timeout / connection error.",
+    ),
+    "SAFETY_NO_IMAGE": (
+        422, False,
+        "Model nie zwrócił obrazu — prawdopodobnie blokada bezpieczeństwa lub treści. "
+        "Zmień zdjęcie bazowe, prompt lub referencje i spróbuj ponownie.",
+        "No image returned (likely a safety / recitation block).",
+    ),
+    "MISSING_API_KEY": (
+        400, False,
+        "Brak klucza API. Wklej swój klucz Gemini API w polu na górze strony "
+        "(sekcja \"Klucz API\") i spróbuj ponownie.",
+        "No API key provided.",
+    ),
+    "BAD_INPUT_IMAGE": (
+        400, False,
+        "Nie udało się wczytać zdjęcia bazowego. Wgraj poprawny plik JPG lub PNG.",
+        "Could not load base product image.",
+    ),
+    "SERVER_MISCONFIG": (
+        500, False,
+        "Błąd konfiguracji serwera. Skontaktuj się z administratorem.",
+        "Server misconfigured (google-genai not installed).",
+    ),
+    "UNKNOWN": (
+        500, True,
+        "Nieznany błąd generowania. Spróbuj ponownie.",
+        "Unknown generation error.",
+    ),
+}
+
+
+def _err(code: str) -> ErrorInfo:
+    http, retry, pl, en = _ERROR_CATALOG[code]
+    return ErrorInfo(error_code=code, message_pl=pl, message_en=en,
+                     retryable=retry, http_status=http)
+
+
+def classify_exception(exc: Exception) -> ErrorInfo:
+    """
+    Map a raw exception from the Gemini call to a stable ErrorInfo. The genai
+    SDK raises google.genai.errors.APIError subclasses carrying an HTTP `.code`
+    (int) and a `.status` string (e.g. "UNAVAILABLE", "RESOURCE_EXHAUSTED").
+    Everything else (httpx/socket errors, timeouts) is treated as network or,
+    failing that, UNKNOWN.
+    """
+    try:
+        from google.genai import errors as genai_errors
+        if isinstance(exc, genai_errors.APIError):
+            code = getattr(exc, "code", None)
+            status = (getattr(exc, "status", "") or "").upper()
+            if code == 429 or status == "RESOURCE_EXHAUSTED":
+                return _err("RATE_LIMITED")
+            if code == 503 or status == "UNAVAILABLE":
+                return _err("MODEL_OVERLOADED")
+            if code in (401, 403) or status in ("UNAUTHENTICATED", "PERMISSION_DENIED"):
+                return _err("AUTH_INVALID_KEY")
+            if code == 400 or status in ("INVALID_ARGUMENT", "FAILED_PRECONDITION"):
+                return _err("INVALID_REQUEST")
+            # any other API error (incl. 500/502/504/INTERNAL/DEADLINE) → upstream
+            return _err("UPSTREAM_ERROR")
+    except Exception:
+        pass
+    # Non-API: network / timeout heuristics (httpx raises ReadTimeout,
+    # ConnectError, etc. — not subclasses of the builtin TimeoutError).
+    name = type(exc).__name__.lower()
+    if isinstance(exc, (TimeoutError, ConnectionError)) or "timeout" in name or "connect" in name:
+        return _err("NETWORK_TIMEOUT")
+    return _err("UNKNOWN")
 
 
 def _flatten_alpha(img: Image.Image) -> Image.Image:
@@ -832,6 +965,16 @@ def _pil_to_part(img: Image.Image, gtypes) -> Any:
     return gtypes.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
 
 
+def _is_retryable_error(exc: Exception) -> bool:
+    """Whether `exc` is transient and worth retrying. Delegates to the single
+    classifier so the retry loop and the user-facing taxonomy never disagree:
+    overload (503), rate limit (429), upstream 5xx, and network/timeout are
+    retryable; deterministic client errors (400 invalid args, 401/403 auth) are
+    not — retrying them just burns ~14s of backoff before the identical
+    failure."""
+    return classify_exception(exc).retryable
+
+
 def generate(req: GenerationRequest) -> GenerationResult:
     """
     Main entry point. Calls the Gemini API with retry logic.
@@ -854,7 +997,11 @@ def generate(req: GenerationRequest) -> GenerationResult:
             next_history=list(req.prior_history),
             actual_cost=0.0,
             attempts=0,
-            error_message="Could not load base product image.",
+            error_message=_ERROR_CATALOG["BAD_INPUT_IMAGE"][2],
+            error_code="BAD_INPUT_IMAGE",
+            error_detail="Could not load base product image.",
+            retryable=False,
+            http_status=400,
             model_id=req.model_id,
             resolution=req.resolution,
         )
@@ -881,10 +1028,11 @@ def generate(req: GenerationRequest) -> GenerationResult:
             next_history=list(req.prior_history),
             actual_cost=0.0,
             attempts=0,
-            error_message=(
-                "Brak klucza API. Wklej swój klucz Gemini API w polu na górze "
-                "strony (sekcja \"Klucz API\") i spróbuj ponownie."
-            ),
+            error_message=_ERROR_CATALOG["MISSING_API_KEY"][2],
+            error_code="MISSING_API_KEY",
+            error_detail="No API key provided.",
+            retryable=False,
+            http_status=400,
             model_id=req.model_id,
             resolution=req.resolution,
         )
@@ -901,14 +1049,19 @@ def generate(req: GenerationRequest) -> GenerationResult:
             next_history=list(req.prior_history),
             actual_cost=0.0,
             attempts=0,
-            error_message=(
-                "google-genai package not installed. Run: pip install google-genai"
-            ),
+            error_message=_ERROR_CATALOG["SERVER_MISCONFIG"][2],
+            error_code="SERVER_MISCONFIG",
+            error_detail="google-genai package not installed. Run: pip install google-genai",
+            retryable=False,
+            http_status=500,
             model_id=req.model_id,
             resolution=req.resolution,
         )
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=gtypes.HttpOptions(timeout=_REQUEST_TIMEOUT_MS),
+    )
 
     # Build the user-turn Content explicitly so we can preserve it in the
     # conversation history alongside the model's response (which carries
@@ -936,6 +1089,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
     )
 
     last_error: str = ""
+    last_exc: Optional[Exception] = None
     output_image: Optional[Image.Image] = None
     model_content: Optional[Any] = None
     attempts_made = 0
@@ -976,9 +1130,18 @@ def generate(req: GenerationRequest) -> GenerationResult:
 
         except Exception as exc:
             last_error = str(exc)
-            logger.warning("Attempt %d failed: %s", attempt, last_error)
-            if attempt < _MAX_RETRIES:
+            last_exc = exc
+            retryable = _is_retryable_error(exc)
+            logger.warning(
+                "Attempt %d failed (%sretryable): %s",
+                attempt, "" if retryable else "non-", last_error,
+            )
+            if retryable and attempt < _MAX_RETRIES:
                 _sleep_backoff(attempt)
+            else:
+                # Non-retryable (bad key, invalid args, safety) — stop now
+                # rather than waste the remaining attempts + backoff.
+                break
 
     # ------------------------------------------------------------------ #
     # Persist output
@@ -994,6 +1157,16 @@ def generate(req: GenerationRequest) -> GenerationResult:
         output_image.save(str(output_path), format="PNG")
         status = "success"
         actual_cost = cost_est.total_low  # use conservative (low) estimate as actual
+
+    # Classify the failure (if any) into a stable, user-facing ErrorInfo. A
+    # response with no image part is almost always a safety / recitation block;
+    # otherwise classify the last raw exception.
+    err_info: Optional[ErrorInfo] = None
+    if output_image is None:
+        if last_exc is not None:
+            err_info = classify_exception(last_exc)
+        else:
+            err_info = _err("SAFETY_NO_IMAGE")
 
     # Extend the chain only if we got a usable response. On failure, return the
     # caller's prior_history unchanged so the next retry doesn't pollute the
@@ -1031,7 +1204,12 @@ def generate(req: GenerationRequest) -> GenerationResult:
         next_history=next_history,
         actual_cost=actual_cost,
         attempts=attempts_made,
-        error_message=last_error if output_image is None else None,
+        # User-facing PL message on failure; raw technical string kept as detail.
+        error_message=err_info.message_pl if err_info else None,
+        error_code=err_info.error_code if err_info else None,
+        error_detail=(last_error or err_info.message_en) if err_info else None,
+        retryable=err_info.retryable if err_info else False,
+        http_status=err_info.http_status if err_info else 500,
         model_id=req.model_id,
         resolution=req.resolution,
     )

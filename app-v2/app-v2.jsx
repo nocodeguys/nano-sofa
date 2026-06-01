@@ -6,6 +6,80 @@ const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
         CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS } = NS_DATA;
 
+/* ---------- error handling ---------- */
+const ERR_BTN = {
+  fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 7,
+  border: "1px solid rgba(163,58,46,.4)", background: "rgba(163,58,46,.10)",
+  color: "#A33A2E", cursor: "pointer",
+};
+
+// Normalize a failed fetch Response (+ already-parsed JSON body, which may be
+// null for a non-JSON proxy 502/503 page) into a typed error object the
+// ErrorCard can render. The server returns { error, error_code, detail_en,
+// retryable } on every failure path (see server.py _result_error/_item_error).
+function errorFromResponse(r, data) {
+  if (data && (data.error || data.error_code)) {
+    return {
+      message: data.error || `Błąd serwera (${r.status}).`,
+      code: data.error_code || "SERVER_ERROR",
+      detail: data.detail_en || null,
+      retryable: data.retryable != null ? !!data.retryable : r.status >= 500,
+    };
+  }
+  // No structured body — infer from the HTTP status (e.g. a proxy 503).
+  if (r.status === 503) return { message: "Serwer chwilowo niedostępny (503). Spróbuj ponownie za chwilę.", code: "MODEL_OVERLOADED", retryable: true };
+  if (r.status === 429) return { message: "Zbyt wiele zapytań (429). Odczekaj chwilę i spróbuj ponownie.", code: "RATE_LIMITED", retryable: true };
+  return { message: `Błąd serwera (${r.status}).`, code: "SERVER_ERROR", retryable: r.status >= 500 };
+}
+
+// fetch() itself threw — network down, CORS, or an aborted (timed-out) request.
+function errorFromException(e) {
+  if (e && e.name === "AbortError") {
+    return { message: "Generowanie trwało zbyt długo i zostało przerwane. Spróbuj ponownie.", code: "CLIENT_TIMEOUT", retryable: true };
+  }
+  return { message: "Brak połączenia z serwerem. Sprawdź, czy aplikacja działa, i spróbuj ponownie.", code: "CLIENT_NETWORK", retryable: true };
+}
+
+// A local validation error raised before any request is sent.
+function mkErr(message, code = "VALIDATION") {
+  return { message, code, retryable: false };
+}
+
+// Typed error card. Accepts either a structured error object or a plain string
+// (back-compat for the per-variant simple cases). Offers contextual actions:
+// retry for transient failures, "fix key" for auth problems.
+function ErrorCard({ info, onRetry, onFixKey, compact }) {
+  if (!info) return null;
+  const msg = typeof info === "string" ? { message: info } : info;
+  const code = msg.code || "";
+  const isAuth = code === "AUTH_INVALID_KEY" || code === "MISSING_API_KEY";
+  const showRetry = msg.retryable && onRetry;
+  const showFixKey = isAuth && onFixKey;
+  return (
+    <div style={{
+      margin: compact ? "6px 0 0" : "0 0 14px 0",
+      padding: compact ? "8px 10px" : "10px 14px",
+      borderRadius: 10, background: "rgba(163,58,46,.08)",
+      border: "1px solid rgba(163,58,46,.3)", color: "#A33A2E",
+      fontSize: compact ? 11 : 13,
+    }}>
+      <div style={{ fontWeight: 600 }}>{msg.message}</div>
+      {msg.detail && <div style={{ opacity: .65, fontSize: 11, marginTop: 3 }}>{msg.detail}</div>}
+      {code === "SAFETY_NO_IMAGE" && (
+        <div style={{ opacity: .8, fontSize: 11, marginTop: 3 }}>
+          Wskazówka: zmień zdjęcie bazowe, prompt lub referencje.
+        </div>
+      )}
+      {(showRetry || showFixKey) && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {showRetry && <button type="button" onClick={onRetry} style={ERR_BTN}>Spróbuj ponownie</button>}
+          {showFixKey && <button type="button" onClick={onFixKey} style={ERR_BTN}>Popraw klucz API</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- helpers ---------- */
 function LegGlyph({ id }) {
   const ink = "#3A3B37";
@@ -154,17 +228,27 @@ function App({ t }) {
   const [stageTab, setStageTab] = useState("mockup");
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // When true, the next /api/generate call attaches the most recent gallery
+  // image as scene_image — locking the backdrop pixel-perfectly across
+  // re-renders. Same mechanism the Warianty tab uses for cross-variant
+  // background consistency. Disabled until at least one render exists.
+  const [lockBackground, setLockBackground] = useState(false);
   const [genError, setGenError] = useState("");
   const [gallery, setGallery] = useState([]); // {url, color, tag, cost}
   const [activeGallery, setActiveGallery] = useState(-1);
 
   // Color-variant set state. variantColors is the user's multi-pick of color
-  // ids (first = anchor). variantSet is the result strip after the server
-  // returns { anchor, variants[] } from /api/generate-set.
-  const [variantColors, setVariantColors] = useState([]);   // English color ids
-  const [variantSet, setVariantSet]       = useState(null); // { anchor, variants, total_cost }
-  const [variantBusy, setVariantBusy]     = useState(false);
-  const [variantError, setVariantError]   = useState("");
+  // ids (first = anchor). variantMaterials is paired positionally — empty
+  // means every variant uses the shared section-04 material; otherwise each
+  // entry overrides the material for the corresponding color index. If
+  // shorter than variantColors, the last material extends to remaining slots
+  // (matches the server's fill-with-last fallback). variantSet is the result
+  // strip after the server returns { anchor, variants[] } from /api/generate-set.
+  const [variantColors, setVariantColors]       = useState([]);   // English color ids
+  const [variantMaterials, setVariantMaterials] = useState([]);   // English material ids, paired positionally
+  const [variantSet, setVariantSet]             = useState(null); // { anchor, variants, total_cost }
+  const [variantBusy, setVariantBusy]           = useState(false);
+  const [variantError, setVariantError]         = useState("");
 
   // Photoshoot session state. Sources are the user's uploaded angle photos;
   // each has a role: "packshot" | "lifestyle" | "skip". Backdrop is the
@@ -275,8 +359,8 @@ function App({ t }) {
 
   const handleGenerate = async () => {
     setGenError("");
-    if (!apiKey.trim()) { setGenError("Wklej klucz Gemini API u góry sceny."); setShowKeyEdit(true); return; }
-    if (!st.baseFile) { setGenError("Wgraj zdjęcie bazowe (sekcja 02)."); return; }
+    if (!apiKey.trim()) { setGenError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!st.baseFile) { setGenError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
@@ -304,7 +388,27 @@ function App({ t }) {
     fd.append("res", st.res);
     fd.append("seed", st.seed || "");
     fd.append("base_image", st.baseFile);
-    if (st.envFile && st.envFile instanceof File) {
+    // Background lock: when active, fetch the most recent gallery render and
+    // attach it as scene_image. The server's packshot SCENE block instructs
+    // Gemini to copy backdrop tone, top-light gradient, and contact-shadow
+    // quality from the attached cyclorama reference, so the second render
+    // lands on the same backdrop pixels as the first. Overrides any
+    // env=custom upload — the lock takes priority.
+    let backgroundLocked = false;
+    if (lockBackground && gallery[0]?.url) {
+      try {
+        const prev = await fetch(gallery[0].url);
+        const blob = await prev.blob();
+        const ext = (gallery[0].url.split(".").pop() || "png").split("?")[0];
+        const file = new File([blob], `prev-render.${ext}`, { type: blob.type || "image/png" });
+        fd.append("scene_image", file);
+        backgroundLocked = true;
+      } catch (e) {
+        // If fetch fails fall back to the user's env upload (if any).
+        console.warn("Background lock failed, continuing without it:", e);
+      }
+    }
+    if (!backgroundLocked && st.envFile && st.envFile instanceof File) {
       fd.append("scene_image", st.envFile);
     }
     // Section 09 "Referencje" — moodboard uploads. Send each picked file as a
@@ -331,9 +435,10 @@ function App({ t }) {
     setGenerating(true);
     try {
       const r = await fetch("/api/generate", { method: "POST", body: fd });
-      const data = await r.json();
-      if (!r.ok || data.error) {
-        setGenError(data.error || `Błąd serwera (${r.status})`);
+      let data = null;
+      try { data = await r.json(); } catch { /* non-JSON body (proxy error page) */ }
+      if (!r.ok || !data || data.error) {
+        setGenError(errorFromResponse(r, data));
       } else {
         setGallery(g => [
           { url: data.image_url, color: colorObj?.hex || "#5C7A56", tag: "v" + (g.length + 1), cost: data.cost },
@@ -342,7 +447,7 @@ function App({ t }) {
         setActiveGallery(0);
       }
     } catch (e) {
-      setGenError(String(e && e.message ? e.message : e));
+      setGenError(errorFromException(e));
     } finally {
       setGenerating(false);
     }
@@ -358,6 +463,16 @@ function App({ t }) {
   const toggleVariantColor = (cid) => {
     setVariantColors(prev =>
       prev.includes(cid) ? prev.filter(c => c !== cid) : [...prev, cid]
+    );
+  };
+  // Toggle a material in the per-variant material list. Pick order is
+  // paired positionally with the colors list — picking 3 materials in a
+  // batch of 3 colors means color[i] uses material[i]. Picking fewer
+  // materials than colors lets the server reuse the last material for
+  // remaining slots, so a single-material pick stays the simplest path.
+  const toggleVariantMaterial = (mid) => {
+    setVariantMaterials(prev =>
+      prev.includes(mid) ? prev.filter(m => m !== mid) : [...prev, mid]
     );
   };
 
@@ -431,10 +546,10 @@ function App({ t }) {
   const handleGenerateShoot = async () => {
     setShootError("");
     setShootResult(null);
-    if (!apiKey.trim()) { setShootError("Wklej klucz Gemini API u góry sceny."); setShowKeyEdit(true); return; }
+    if (!apiKey.trim()) { setShootError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
     const usable = shootSources.filter(s => s.role !== "skip");
-    if (usable.length === 0) { setShootError("Dodaj co najmniej jedno zdjęcie źródłowe."); return; }
-    if (usable.length > 10) { setShootError("Limit sesji: max 10 zdjęć źródłowych."); return; }
+    if (usable.length === 0) { setShootError(mkErr("Dodaj co najmniej jedno zdjęcie źródłowe.", "MISSING_SOURCES")); return; }
+    if (usable.length > 10) { setShootError(mkErr("Limit sesji: max 10 zdjęć źródłowych.", "TOO_MANY_SOURCES")); return; }
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
@@ -476,14 +591,15 @@ function App({ t }) {
     setShootBusy(true);
     try {
       const resp = await fetch("/api/generate-photoshoot", { method: "POST", body: fd });
-      const data = await resp.json();
-      if (!resp.ok || data.error) {
-        setShootError(data.error || `Błąd serwera (${resp.status})`);
+      let data = null;
+      try { data = await resp.json(); } catch { /* non-JSON body */ }
+      if (!resp.ok || !data || data.error) {
+        setShootError(errorFromResponse(resp, data));
       } else {
         setShootResult(data);
       }
     } catch (e) {
-      setShootError(String(e && e.message ? e.message : e));
+      setShootError(errorFromException(e));
     } finally {
       setShootBusy(false);
     }
@@ -492,14 +608,16 @@ function App({ t }) {
   const handleGenerateSet = async () => {
     setVariantError("");
     setVariantSet(null);
-    if (!apiKey.trim()) { setVariantError("Wklej klucz Gemini API u góry sceny."); setShowKeyEdit(true); return; }
-    if (!st.baseFile)   { setVariantError("Wgraj zdjęcie bazowe (sekcja 02)."); return; }
-    if (variantColors.length < 2) { setVariantError("Wybierz co najmniej 2 kolory."); return; }
+    if (!apiKey.trim()) { setVariantError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!st.baseFile)   { setVariantError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
+    if (variantColors.length < 2) { setVariantError(mkErr("Wybierz co najmniej 2 kolory.", "TOO_FEW_COLORS")); return; }
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
     fd.append("kind", st.kind);
     fd.append("colors_csv", variantColors.join(","));
+    // Empty materials_csv → server reuses single `mat` for every variant.
+    fd.append("materials_csv", variantMaterials.join(","));
     fd.append("color_custom", st.colorCustom || "");
     fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
@@ -517,6 +635,17 @@ function App({ t }) {
     fd.append("env", st.env || "");
     fd.append("env_note", st.envNote || "");
     fd.append("env_mode", st.envMode || "");
+    // Bed-styling block. Same payload shape as /api/generate so the variant
+    // set inherits the textile arrangement chosen in section 10.
+    if (st.kind === "bed") {
+      fd.append("bedding", st.bedding || "");
+      fd.append("bedding_custom", st.beddingCustom || "");
+      fd.append("throw", st.throw || "");
+      fd.append("tidy", st.tidy || "");
+      fd.append("density", st.density || "");
+      fd.append("accents", (st.accents || []).join(","));
+      fd.append("bed_note", st.bedNote || "");
+    }
     fd.append("model", st.model);
     fd.append("aspect", st.aspect);
     fd.append("res", st.res);
@@ -527,14 +656,15 @@ function App({ t }) {
     setVariantBusy(true);
     try {
       const r = await fetch("/api/generate-set", { method: "POST", body: fd });
-      const data = await r.json();
-      if (!r.ok || data.error) {
-        setVariantError(data.error || `Błąd serwera (${r.status})`);
+      let data = null;
+      try { data = await r.json(); } catch { /* non-JSON body */ }
+      if (!r.ok || !data || data.error) {
+        setVariantError(errorFromResponse(r, data));
       } else {
         setVariantSet(data);
       }
     } catch (e) {
-      setVariantError(String(e && e.message ? e.message : e));
+      setVariantError(errorFromException(e));
     } finally {
       setVariantBusy(false);
     }
@@ -698,22 +828,39 @@ function App({ t }) {
               overflow:"auto",
               zIndex: 2,
             }}>
-              {/* Locked-setup summary — keep on one line; no wrap into tabs row */}
-              <div style={{
-                display:"flex", flexWrap:"wrap", alignItems:"baseline",
-                gap: "4px 10px", fontSize: 11,
-                color:"var(--ink-3)", fontFamily:"Geist Mono",
-                lineHeight: 1.5,
-              }}>
-                <span style={{color:"var(--ink-4, #888)"}}>Zablokowane:</span>
-                <span><b style={{color:"var(--ink)"}}>{matObj?.name}</b></span>
-                <span>· {sizeObj?.name} ({sizeObj?.dim})</span>
-                <span>· {envObj?.name}</span>
-                <span>· {camObj?.name}</span>
-                <span>· {lensObj?.name?.split(" — ")[0]}</span>
-                <span>· {todObj?.name?.split(" — ")[0]}</span>
-                <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
-              </div>
+              {/* Locked-setup summary — keep on one line; no wrap into tabs row.
+                  Reflects the new section-08 structured fields (shot type +
+                  region) and, for beds, the textile arrangement from section 10. */}
+              {(() => {
+                const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
+                let regionTable = null;
+                if (st.shot === "detail_fabric") regionTable = DETAIL_REGIONS_FABRIC;
+                else if (st.shot === "detail_corner") regionTable = DETAIL_REGIONS_CORNER;
+                else if (st.shot === "close_up") regionTable = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
+                const regionObj = regionTable ? regionTable.find(r => r.id === st.detailRegion) : null;
+                const beddingObj = st.kind === "bed" ? BEDDING_PRESETS.find(b => b.id === st.bedding) : null;
+                const sharedMat = variantMaterials.length === 0;
+                return (
+                  <div style={{
+                    display:"flex", flexWrap:"wrap", alignItems:"baseline",
+                    gap: "4px 10px", fontSize: 11,
+                    color:"var(--ink-3)", fontFamily:"Geist Mono",
+                    lineHeight: 1.5,
+                  }}>
+                    <span style={{color:"var(--ink-4, #888)"}}>Zablokowane:</span>
+                    {sharedMat && <span><b style={{color:"var(--ink)"}}>{matObj?.name}</b></span>}
+                    {!sharedMat && <span style={{color:"var(--ink)"}}>{variantMaterials.length}×material</span>}
+                    <span>· {sizeObj?.name} ({sizeObj?.dim})</span>
+                    <span>· {envObj?.name}</span>
+                    <span>· {shotObj?.name || camObj?.name}</span>
+                    {regionObj && <span style={{color:"var(--ink)"}}>· {regionObj.name}</span>}
+                    <span>· {lensObj?.name?.split(" — ")[0]}</span>
+                    <span>· {todObj?.name?.split(" — ")[0]}</span>
+                    {beddingObj && <span>· {beddingObj.name}</span>}
+                    <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
+                  </div>
+                );
+              })()}
 
               <div>
                 <div style={{fontSize: 13, marginBottom: 6}}>Wybierz kolory (pierwszy = anchor, reszta dziedziczy scenę)</div>
@@ -756,6 +903,60 @@ function App({ t }) {
                 </div>
               </div>
 
+              {/* Materials row — optional. Picking nothing reuses the shared
+                  section-04 material for every variant. Picking one or more
+                  pairs them positionally with colors; if fewer than colors,
+                  the last material extends to the remaining slots. */}
+              <div>
+                <div style={{fontSize: 13, marginBottom: 6, display:"flex", alignItems:"baseline", gap:8}}>
+                  <span>Materiały (opcjonalne — paruj pozycyjnie z kolorami)</span>
+                  {variantMaterials.length === 0 && (
+                    <span style={{fontSize:11, color:"var(--ink-3)", fontFamily:"Geist Mono"}}>
+                      → wszystkie warianty: <b>{matObj?.name}</b>
+                    </span>
+                  )}
+                </div>
+                <div style={{display:"flex", flexWrap:"wrap", gap: 8}}>
+                  {MATERIALS.map(m => {
+                    const picked = variantMaterials.includes(m.id);
+                    const idx = variantMaterials.indexOf(m.id);
+                    return (
+                      <button key={m.id} type="button"
+                        onClick={() => toggleVariantMaterial(m.id)}
+                        disabled={variantBusy}
+                        style={{
+                          position:"relative",
+                          padding:"7px 14px 7px 14px",
+                          borderRadius: 999,
+                          fontSize: 12.5, lineHeight: 1.2,
+                          border: picked ? "1.5px solid var(--ink)" : "1px solid var(--line-2)",
+                          background: picked ? "var(--bg-1)" : "transparent",
+                          cursor: variantBusy ? "wait" : "pointer",
+                          opacity: variantBusy ? 0.5 : 1,
+                          fontWeight: picked ? 600 : 400,
+                        }}>
+                        {picked && (
+                          <span style={{
+                            background: "var(--ink)", color: "var(--paper)",
+                            fontSize: 10, padding: "1px 6px", borderRadius: 999,
+                            fontFamily: "Geist Mono", marginRight: 6,
+                          }}>{idx === 0 ? "anchor" : idx + 1}</span>
+                        )}
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {variantMaterials.length > 0 && variantColors.length > 0 && variantMaterials.length < variantColors.length && (
+                  <div style={{
+                    fontSize: 11, color: "var(--ink-3)", fontFamily: "Geist Mono",
+                    marginTop: 6,
+                  }}>
+                    {variantColors.length - variantMaterials.length} warianty bez własnego materiału użyją: <b style={{color:"var(--ink)"}}>{MATERIALS.find(m => m.id === variantMaterials[variantMaterials.length - 1])?.name}</b>
+                  </div>
+                )}
+              </div>
+
               <div style={{display:"flex", alignItems:"center", gap: 12, paddingTop: 4}}>
                 <button onClick={handleGenerateSet}
                         disabled={variantBusy || variantColors.length < 2}
@@ -783,9 +984,7 @@ function App({ t }) {
                   </button>
                 )}
                 {variantError && (
-                  <div style={{color:"var(--danger, #c0392b)", fontSize: 11}}>
-                    {variantError}
-                  </div>
+                  <ErrorCard info={variantError} onRetry={handleGenerateSet} onFixKey={() => setShowKeyEdit(true)} compact />
                 )}
               </div>
 
@@ -805,18 +1004,23 @@ function App({ t }) {
                   <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap: 10}}>
                     {[variantSet.anchor, ...variantSet.variants].map((v, i) => {
                       const cObj = COLORS.find(c => c.id === v.color);
+                      // v.material is set when the server received a per-variant
+                      // material (positional pairing). Falls back to the shared
+                      // section-04 material when materials_csv was empty.
+                      const vMatId = v.material || matObj?.id;
+                      const vMatObj = MATERIALS.find(m => m.id === vMatId);
                       if (v.error) {
                         return (
                           <div key={i} style={{
                             padding: 12, borderRadius: 10, fontSize: 11,
                             background: "rgba(192, 57, 43, 0.08)", color: "#c0392b",
                           }}>
-                            <div style={{fontWeight: 600}}>{cObj?.name || v.color}</div>
+                            <div style={{fontWeight: 600}}>{cObj?.name || v.color} · {vMatObj?.name}</div>
                             <div style={{marginTop: 4}}>{v.error}</div>
                           </div>
                         );
                       }
-                      const slug = [v.color, matObj?.id, envObj?.id].filter(Boolean).join("-");
+                      const slug = [v.color, vMatId, envObj?.id].filter(Boolean).join("-");
                       const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
                       const dlName = `nano-sofa-${i === 0 ? "anchor" : "v" + (i + 1)}-${slug}.${ext}`;
                       return (
@@ -836,11 +1040,14 @@ function App({ t }) {
                             )}
                           </div>
                           <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", gap: 6}}>
-                            <div style={{display:"flex", alignItems:"center", gap: 6}}>
-                              <span style={{width: 12, height: 12, borderRadius: 999,
+                            <div style={{display:"flex", alignItems:"center", gap: 6, minWidth:0, flex:1}}>
+                              <span style={{width: 12, height: 12, borderRadius: 999, flexShrink:0,
                                             background: cObj?.hex || "#888",
                                             border:"0.5px solid rgba(0,0,0,.18)"}}></span>
-                              <span style={{fontSize: 11, fontFamily:"Geist"}}>{cObj?.name || v.color}</span>
+                              <span style={{fontSize: 11, fontFamily:"Geist", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                                {cObj?.name || v.color}
+                                <span style={{color:"var(--ink-3)", marginLeft: 4}}>· {vMatObj?.name}</span>
+                              </span>
                             </div>
                             <a href={v.image_url} download={dlName} title="Pobierz PNG"
                                style={{
@@ -1018,7 +1225,7 @@ function App({ t }) {
                   }}>{shootCounts.packshot} tło + {shootCounts.lifestyle} pokój · ${shootCost}</span>
                 </button>
                 {shootError && (
-                  <div style={{color:"#c0392b", fontSize: 11}}>{shootError}</div>
+                  <ErrorCard info={shootError} onRetry={handleGenerateShoot} onFixKey={() => setShowKeyEdit(true)} compact />
                 )}
               </div>
 
@@ -1785,11 +1992,7 @@ function App({ t }) {
 
         {/* end */}
         {genError && (
-          <div style={{margin:"0 0 14px 0", padding:"10px 14px", borderRadius:10,
-                       background:"rgba(163,58,46,.08)", border:"1px solid rgba(163,58,46,.3)",
-                       color:"#A33A2E", fontSize:13}}>
-            {genError}
-          </div>
+          <ErrorCard info={genError} onRetry={handleGenerate} onFixKey={() => setShowKeyEdit(true)} />
         )}
         <div className="form-foot">
           <div className="foot-summary">
@@ -1807,6 +2010,26 @@ function App({ t }) {
             </div>
           </div>
           <div className="foot-actions">
+            {/* Background lock — appears once at least one render exists.
+                When ON, the next Generate re-uses that render's image as the
+                packshot SCENE reference so the backdrop stays pixel-stable
+                across angle / lens / color changes. */}
+            {gallery.length > 0 && (
+              <label title="Następna generacja użyje ostatniego renderu jako referencji tła — kąt i kolor mogą się zmieniać, tło zostaje."
+                style={{
+                  display:"inline-flex", alignItems:"center", gap: 6,
+                  padding:"6px 10px", borderRadius: 999,
+                  border: lockBackground ? "1.5px solid var(--ink)" : "1px solid var(--line-2)",
+                  background: lockBackground ? "var(--bg-1)" : "transparent",
+                  fontSize: 11.5, fontFamily: "Geist Mono", cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}>
+                <input type="checkbox" checked={lockBackground}
+                  onChange={e => setLockBackground(e.target.checked)}
+                  style={{margin:0}} />
+                <span>{lockBackground ? "🔒 tło z poprzedniego" : "zablokuj tło"}</span>
+              </label>
+            )}
             <button className="copy" onClick={() => {
               navigator.clipboard?.writeText(JSON.stringify(jsonPayload, null, 2));
             }}>
