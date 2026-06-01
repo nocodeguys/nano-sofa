@@ -764,6 +764,22 @@ def api_config():
     }
 
 
+@app.get("/api/eta")
+def api_eta(model: str, resolution: str = "1K", refs: int = 0):
+    """
+    Estimated generation time for the given model/resolution/ref-count, so the
+    frontend can show an honest ETA instead of a hardcoded constant. Returns
+    measured p50/p90 from real history once enough renders accrue, otherwise a
+    static seed estimate. Shape: {p50_s, p90_s, source, n}.
+    """
+    from app.core.cost_tracker import eta_for
+    try:
+        return eta_for(model, (resolution or "1K").split(" ")[0].strip().upper(), max(0, int(refs)))
+    except Exception as exc:
+        logger.warning("ETA lookup failed: %s", exc)
+        return {"p50_s": 12.0, "p90_s": 24.0, "source": "fallback", "n": 0}
+
+
 @app.get("/api/outputs/{name}")
 def get_output(name: str):
     candidate = _OUTPUT_DIR / name
@@ -1191,6 +1207,7 @@ async def api_generate(
         "cost": result.actual_cost,
         "model": result.model_id,
         "resolution": result.resolution,
+        "elapsed_ms": result.elapsed_ms,
     }
 
 

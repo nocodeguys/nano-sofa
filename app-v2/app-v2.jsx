@@ -229,6 +229,8 @@ function App({ t }) {
   const [stageTab, setStageTab] = useState("mockup");
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [genElapsed, setGenElapsed] = useState(0);   // seconds, live while generating
+  const [eta, setEta] = useState({ p50_s: 12, p90_s: 24, source: "estimate", n: 0 });
   // When true, the next /api/generate call attaches the most recent gallery
   // image as scene_image — locking the backdrop pixel-perfectly across
   // re-renders. Same mechanism the Warianty tab uses for cross-variant
@@ -357,6 +359,30 @@ function App({ t }) {
     const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
     return (base * refMult * resMult).toFixed(3);
   }, [st.model, st.refs, st.res]);
+
+  // Honest ETA: ask the server for a measured-or-estimated duration whenever the
+  // model / resolution / reference-count changes. Debounced so dragging controls
+  // doesn't spam the endpoint. Replaces the old hardcoded "~12 s".
+  useEffect(() => {
+    const refs = st.refs.filter(Boolean).length;
+    const res = (st.res || "1K").split(" ")[0];
+    const t = setTimeout(() => {
+      fetch(`/api/eta?model=${encodeURIComponent(st.model)}&resolution=${encodeURIComponent(res)}&refs=${refs}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d && d.p50_s) setEta(d); })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [st.model, st.res, st.refs]);
+
+  // Live elapsed timer while a single render is in flight ("is it stuck?").
+  useEffect(() => {
+    if (!generating) { setGenElapsed(0); return; }
+    const start = Date.now();
+    setGenElapsed(0);
+    const id = setInterval(() => setGenElapsed((Date.now() - start) / 1000), 250);
+    return () => clearInterval(id);
+  }, [generating]);
 
   const handleGenerate = async () => {
     setGenError("");
@@ -1360,18 +1386,35 @@ function App({ t }) {
             </div>
           )}
 
-          {generating && (
-            <div className="gen-overlay">
-              <div className="gen-card">
-                <div className="lead">
-                  <span className="ico">{Ic.sparkle}</span>
-                  Renderuję wariant…
+          {generating && (() => {
+            const p50 = eta.p50_s || 12;
+            const p90 = eta.p90_s || p50 * 2;
+            const over = genElapsed > p90;
+            const pct = Math.min(genElapsed / p50, 0.97) * 100;
+            const phase =
+              genElapsed < 2 ? "Przygotowuję prompt…" :
+              genElapsed < p50 * 0.7 ? "Generuję obraz…" :
+              over ? "Trwa dłużej niż zwykle — czekam na model…" :
+              "Finalizuję render…";
+            return (
+              <div className="gen-overlay">
+                <div className="gen-card">
+                  <div className="lead">
+                    <span className="ico">{Ic.sparkle}</span>
+                    {phase}
+                  </div>
+                  <div className="gen-bar">
+                    <div style={over ? undefined : { width: pct + "%", transition: "width .3s linear" }}></div>
+                  </div>
+                  <div className="meta">
+                    {st.model.includes("pro") ? "pro" : "flash"} · {st.aspect} · {st.res.split(" ")[0]} · {genElapsed.toFixed(0)} s
+                    {over ? "" : ` / ~${Math.round(p50)} s`}
+                    {eta.source === "measured" ? " · zmierzone" : ""}
+                  </div>
                 </div>
-                <div className="gen-bar"><div></div></div>
-                <div className="meta">{st.model} · {st.aspect} · {st.res.split(" ")[0]} · ~12 s</div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </section>
 

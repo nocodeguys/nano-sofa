@@ -227,6 +227,7 @@ class GenerationResult:
     error_detail: Optional[str] = None
     retryable: bool = False
     http_status: int = 500
+    elapsed_ms: Optional[int] = None   # measured wall-clock of this call
 
 
 @dataclass
@@ -981,6 +982,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
     Saves the output image to disk and records cost.
     """
     generation_id = new_generation_id()
+    _t0 = time.monotonic()
     num_refs = _count_active_refs(req)
     cost_est = estimate_cost(req.model_id, req.resolution, num_refs)
 
@@ -1173,6 +1175,8 @@ def generate(req: GenerationRequest) -> GenerationResult:
         else:
             err_info = _err("SAFETY_NO_IMAGE")
 
+    elapsed_ms = int((time.monotonic() - _t0) * 1000)
+
     # Extend the chain only if we got a usable response. On failure, return the
     # caller's prior_history unchanged so the next retry doesn't pollute the
     # conversation with a failed turn.
@@ -1198,6 +1202,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
             upholstery_material=req.upholstery_material,
             camera_angle=req.camera_angle,
             turn_number=req.turn_number,
+            elapsed_ms=elapsed_ms,
         )
     )
 
@@ -1215,6 +1220,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
         error_detail=(last_error or err_info.message_en) if err_info else None,
         retryable=err_info.retryable if err_info else False,
         http_status=err_info.http_status if err_info else 500,
+        elapsed_ms=elapsed_ms,
         model_id=req.model_id,
         resolution=req.resolution,
     )

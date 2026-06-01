@@ -174,6 +174,75 @@ class GenerationRecord:
     camera_angle: str
     turn_number: int = 1
     thinking_tokens_billed: Optional[int] = None
+    elapsed_ms: Optional[int] = None   # measured wall-clock of the generate() call
+
+
+# --------------------------------------------------------------------------- #
+# Duration / ETA estimation
+# --------------------------------------------------------------------------- #
+# Rough per-image wall-clock seeds (seconds) by tier × resolution: (p50, p90).
+# p50 = typical, p90 = the "taking longer than usual" threshold. These are
+# starting estimates only — measured_eta() refines them from real history once
+# enough successful renders accrue.
+_DURATION_SEED: dict[str, dict[str, tuple[float, float]]] = {
+    "flash": {"1K": (8.0, 16.0),  "2K": (13.0, 26.0), "4K": (20.0, 38.0)},
+    "pro":   {"1K": (18.0, 34.0), "2K": (26.0, 50.0), "4K": (40.0, 72.0)},
+}
+
+
+def estimate_duration(model_id: str, resolution: str, num_ref_images: int = 0) -> dict:
+    """Static ETA seed for a single render. Returns {p50_s, p90_s, source, n}."""
+    tier = "pro" if "pro" in (model_id or "") else "flash"
+    res = (resolution or "1K").upper()
+    if res not in ("1K", "2K", "4K"):
+        res = "1K"
+    p50, p90 = _DURATION_SEED[tier].get(res, _DURATION_SEED[tier]["1K"])
+    p50 += 1.2 * max(0, num_ref_images)   # each extra reference adds a little
+    p90 += 2.0 * max(0, num_ref_images)
+    return {"p50_s": round(p50, 1), "p90_s": round(p90, 1), "source": "estimate", "n": 0}
+
+
+def _percentile(sorted_vals: list[float], pct: float) -> float:
+    if not sorted_vals:
+        return 0.0
+    k = (len(sorted_vals) - 1) * (pct / 100.0)
+    f = int(k)
+    c = min(f + 1, len(sorted_vals) - 1)
+    if f == c:
+        return sorted_vals[f]
+    return sorted_vals[f] + (sorted_vals[c] - sorted_vals[f]) * (k - f)
+
+
+def measured_eta(model_id: str, resolution: str, limit: int = 80, min_samples: int = 4) -> Optional[dict]:
+    """Measured p50/p90 (seconds) from recent successful renders of this exact
+    model+resolution, or None if there isn't enough history yet."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT elapsed_ms FROM generations WHERE model_id = ? AND resolution = ? "
+            "AND status = 'success' AND elapsed_ms IS NOT NULL "
+            "ORDER BY timestamp DESC LIMIT ?",
+            (model_id, resolution, limit),
+        ).fetchall()
+    except Exception:
+        return None
+    finally:
+        conn.close()
+    vals = sorted(float(r["elapsed_ms"]) / 1000.0 for r in rows if r["elapsed_ms"])
+    if len(vals) < min_samples:
+        return None
+    return {
+        "p50_s": round(_percentile(vals, 50), 1),
+        "p90_s": round(_percentile(vals, 90), 1),
+        "source": "measured",
+        "n": len(vals),
+    }
+
+
+def eta_for(model_id: str, resolution: str, num_ref_images: int = 0) -> dict:
+    """Best available ETA: measured history if we have enough samples, else the
+    static seed. Always returns {p50_s, p90_s, source, n}."""
+    return measured_eta(model_id, resolution) or estimate_duration(model_id, resolution, num_ref_images)
 
 
 def estimate_cost(
@@ -246,6 +315,11 @@ def _init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Additive migration: add elapsed_ms to pre-existing DBs (CREATE TABLE IF
+    # NOT EXISTS won't add new columns to a table that already exists).
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(generations)").fetchall()}
+    if "elapsed_ms" not in cols:
+        conn.execute("ALTER TABLE generations ADD COLUMN elapsed_ms INTEGER")
     conn.commit()
 
 
@@ -259,13 +333,13 @@ def record_generation(rec: GenerationRecord) -> None:
                 num_ref_images, actual_cost, status, output_path,
                 error_message, prompt_summary, leg_id,
                 upholstery_color, upholstery_material, camera_angle,
-                turn_number, thinking_tokens_billed
+                turn_number, thinking_tokens_billed, elapsed_ms
             ) VALUES (
                 :generation_id, :timestamp, :model_id, :resolution,
                 :num_ref_images, :actual_cost, :status, :output_path,
                 :error_message, :prompt_summary, :leg_id,
                 :upholstery_color, :upholstery_material, :camera_angle,
-                :turn_number, :thinking_tokens_billed
+                :turn_number, :thinking_tokens_billed, :elapsed_ms
             )
             """,
             {
@@ -285,6 +359,7 @@ def record_generation(rec: GenerationRecord) -> None:
                 "camera_angle": rec.camera_angle,
                 "turn_number": rec.turn_number,
                 "thinking_tokens_billed": rec.thinking_tokens_billed,
+                "elapsed_ms": rec.elapsed_ms,
             },
         )
         conn.commit()
