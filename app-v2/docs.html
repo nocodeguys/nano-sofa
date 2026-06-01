@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nano Sofa — Dokumentacja parametrów</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles-v2.css">
+
+  <style>
+    :root { --doc-ink:#2b2c28; --doc-ink-2:#6b6d64; --doc-ink-3:#9a9c90;
+            --doc-paper:#f4f1ea; --doc-card:#fffefb; --doc-line:rgba(0,0,0,.10);
+            --doc-accent:#5f7a56; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--doc-paper); color:var(--doc-ink);
+           font-family:'Geist',system-ui,sans-serif; line-height:1.5;
+           -webkit-font-smoothing:antialiased; }
+    a { color:var(--doc-accent); }
+    .doc-wrap { max-width:980px; margin:0 auto; padding:0 24px 96px; }
+    .doc-top { position:sticky; top:0; z-index:5; background:rgba(244,241,234,.92);
+               backdrop-filter:blur(8px); border-bottom:1px solid var(--doc-line);
+               padding:14px 0; margin-bottom:32px; }
+    .doc-top .inner { max-width:980px; margin:0 auto; padding:0 24px;
+                      display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .doc-top .mark { font-family:'Instrument Serif',serif; font-size:20px; letter-spacing:-.01em; }
+    .doc-top a.back { font-size:13px; text-decoration:none; padding:7px 14px; border-radius:999px;
+                      border:.5px solid var(--doc-line); background:var(--doc-card); color:var(--doc-ink); }
+    h1 { font-family:'Instrument Serif',serif; font-weight:400; font-size:40px;
+         letter-spacing:-.02em; margin:8px 0 6px; }
+    .lede { font-size:16px; color:var(--doc-ink-2); max-width:62ch; margin:0 0 28px; }
+    h2 { font-family:'Instrument Serif',serif; font-weight:400; font-size:26px;
+         margin:40px 0 6px; scroll-margin-top:80px; }
+    .sec-note { font-size:13px; color:var(--doc-ink-2); margin:0 0 14px; max-width:64ch; }
+    .card { background:var(--doc-card); border:.5px solid var(--doc-line); border-radius:14px;
+            padding:6px 0; overflow:hidden; }
+    table { width:100%; border-collapse:collapse; }
+    td { padding:11px 18px; vertical-align:top; border-top:.5px solid var(--doc-line); font-size:13.5px; }
+    tr:first-child td { border-top:0; }
+    td.opt { width:34%; font-weight:500; white-space:nowrap; }
+    td.opt .id { font-family:'Geist Mono',monospace; font-size:10px; color:var(--doc-ink-3);
+                 margin-left:6px; font-weight:400; }
+    td.clause { color:var(--doc-ink-2); }
+    .sw { display:inline-block; width:13px; height:13px; border-radius:4px; margin-right:7px;
+          vertical-align:-2px; border:.5px solid rgba(0,0,0,.18); }
+    .toc { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 28px; }
+    .toc a { font-size:12px; text-decoration:none; padding:5px 11px; border-radius:999px;
+             background:var(--doc-card); border:.5px solid var(--doc-line); color:var(--doc-ink-2); }
+    .how { background:var(--doc-card); border:.5px solid var(--doc-line); border-radius:14px;
+           padding:18px 22px; margin:0 0 8px; }
+    .how ol { margin:8px 0 0; padding-left:20px; } .how li { margin:6px 0; color:var(--doc-ink-2); font-size:14px; }
+    .how b { color:var(--doc-ink); font-weight:600; }
+    .callout { border-left:3px solid var(--doc-accent); background:rgba(95,122,86,.06);
+               padding:12px 16px; border-radius:0 10px 10px 0; font-size:13.5px; color:var(--doc-ink-2);
+               margin:14px 0; }
+    .matrix-soon { border:1px dashed var(--doc-line); border-radius:14px; padding:26px;
+                   text-align:center; color:var(--doc-ink-3); font-size:13.5px; }
+    .loading { color:var(--doc-ink-3); font-size:14px; padding:24px 0; }
+    code { font-family:'Geist Mono',monospace; font-size:12px; background:rgba(0,0,0,.05);
+           padding:1px 5px; border-radius:5px; }
+  </style>
+</head>
+<body>
+  <div class="doc-top">
+    <div class="inner">
+      <span class="mark">Nano Sofa · dokumentacja</span>
+      <a class="back" href="/">← powrót do studia</a>
+    </div>
+  </div>
+
+  <div class="doc-wrap">
+    <h1>Jak działa każdy parametr</h1>
+    <p class="lede">
+      Nano Sofa bierze <b>jedno zdjęcie bazowe</b> mebla i przekształca je według ustawień
+      kreatora. Każdy parametr dokłada do promptu konkretne zdanie wysyłane do modelu Gemini.
+      Poniżej, dla każdej opcji, masz dokładny opis (po angielsku — tak jak trafia do modelu),
+      czyli to, co realnie zmienia w finalnym obrazie. Najlepsza metoda nauki: weź jedno
+      zdjęcie łóżka lub sofy i zmieniaj <b>po jednym</b> parametrze naraz.
+    </p>
+
+    <div class="how">
+      <b>Pipeline w skrócie</b>
+      <ol>
+        <li>Wgrywasz <b>zdjęcie bazowe</b> (sekcja 02) — punkt startowy geometrii i kadru.</li>
+        <li>Kreator składa <b>prompt</b> z wybranych opcji (kolor, materiał, tło, kamera, światło…).</li>
+        <li>Model Gemini renderuje obraz; wariantowe tryby blokują tło/kadr referencją w pikselach.</li>
+        <li>Pobierasz wynik w wybranym formacie (domyślnie <code>JPG</code>).</li>
+      </ol>
+    </div>
+    <div class="callout">
+      Wskazówka: opcje są addytywne. Im więcej zmieniasz naraz, tym trudniej ocenić, który
+      parametr odpowiada za efekt. Do testów zmieniaj jedną rzecz i porównuj.
+    </div>
+
+    <div class="toc" id="toc"></div>
+    <div id="doc-body"><div class="loading">Ładuję opisy parametrów…</div></div>
+
+    <h2 id="matrix">Galeria wariantów na jednym łóżku</h2>
+    <p class="sec-note">Wizualna matryca „jedno zdjęcie → po jednym parametrze” jest w przygotowaniu.</p>
+    <div class="matrix-soon">
+      Wkrótce: jedno bazowe zdjęcie łóżka wyrenderowane dla każdej wartości parametru,
+      żebyś widział/a efekt obok opisu. Na razie korzystaj z opisów powyżej.
+    </div>
+  </div>
+
+  <!-- Reuse the app's data layer (NS_DATA = Polish labels) so this page can't drift. -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+  <script type="text/babel" src="data.jsx"></script>
+  <script type="text/babel">
+    // Runs after data.jsx (Babel executes text/babel scripts in document order),
+    // so window.NS_DATA is populated. Joins Polish labels (NS_DATA) with the
+    // English prompt clauses from /api/param-docs by shared id.
+    (async () => {
+      const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g,
+        c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const D = window.NS_DATA || {};
+      const body = document.getElementById("doc-body");
+      const toc = document.getElementById("toc");
+      let groups;
+      try {
+        const r = await fetch("/api/param-docs");
+        ({ groups } = await r.json());
+      } catch (e) {
+        body.innerHTML = '<div class="loading">Nie udało się wczytać opisów parametrów. Odśwież stronę.</div>';
+        return;
+      }
+      body.innerHTML = "";
+      groups.forEach(g => {
+        const table = D[g.table] || [];
+        const rows = table.map(item => {
+          const clause = g.clauses[item.id];
+          if (!clause) return "";
+          const sw = item.hex ? `<span class="sw" style="background:${esc(item.hex)}"></span>` : "";
+          return `<tr><td class="opt">${sw}${esc(item.name || item.id)}<span class="id">${esc(item.id)}</span></td>`
+               + `<td class="clause">${esc(clause)}</td></tr>`;
+        }).filter(Boolean).join("");
+        if (!rows) return;
+        const sec = document.createElement("section");
+        sec.innerHTML = `<h2 id="g-${esc(g.key)}">${esc(g.title)}</h2>`
+                      + `<div class="card"><table><tbody>${rows}</tbody></table></div>`;
+        body.appendChild(sec);
+        const a = document.createElement("a");
+        a.href = `#g-${g.key}`; a.textContent = g.title;
+        toc.appendChild(a);
+      });
+      // Add the matrix anchor to the TOC too.
+      const m = document.createElement("a");
+      m.href = "#matrix"; m.textContent = "Galeria (wkrótce)";
+      toc.appendChild(m);
+    })();
+  </script>
+</body>
+</html>

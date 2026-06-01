@@ -1421,7 +1421,7 @@ function App({ t }) {
       {/* ============= RIGHT — scrolling form ============= */}
       <section className="form-pane">
         <div className="form-intro">
-          <div className="eyebrow">Studio · v2 · konfigurator</div>
+          <div className="eyebrow">Studio · v2 · konfigurator · <a href="/help" target="_blank" rel="noopener" style={{color:"inherit", textDecoration:"underline", textUnderlineOffset:"2px"}}>dokumentacja parametrów ↗</a></div>
           <h1>Złóż wariant zdjęcia produktu — <em>pojedynczy formularz, jeden render.</em></h1>
           <p>Wszystkie ustawienia widoczne na raz, żywy podgląd po lewej. Przewiń od góry, ustaw co chcesz, naciśnij Generuj.</p>
         </div>

@@ -715,6 +715,12 @@ def index_v1():
     return FileResponse(_STATIC_DIR / "Nano Sofa Studio.html")
 
 
+@app.get("/help")
+def help_page():
+    # /docs is taken by FastAPI's Swagger UI, so the user guide lives at /help.
+    return FileResponse(_STATIC_DIR / "docs.html")
+
+
 @app.get("/healthz")
 def healthz():
     """
@@ -778,6 +784,43 @@ def api_eta(model: str, resolution: str = "1K", refs: int = 0):
     except Exception as exc:
         logger.warning("ETA lookup failed: %s", exc)
         return {"p50_s": 12.0, "p90_s": 24.0, "source": "fallback", "n": 0}
+
+
+@app.get("/api/param-docs")
+def api_param_docs():
+    """
+    Serialize the prompt mapping tables (the single source of truth for what
+    each wizard parameter does) so the /help docs page can render, per option,
+    the exact English clause the model receives. Keyed by the same id as the
+    data.jsx NS_DATA tables, so the docs page joins these clauses with the
+    Polish labels the UI shows — docs can't drift from behavior.
+    """
+    lens = {k: f"{v['focal_mm']} mm — {v['descriptor']}" for k, v in _LENS_TO_PROMPT.items()}
+    shadow = {k: v["desc"] for k, v in _SHADOW_TO_PROMPT.items()}
+    yaw = {k: f"{label} ({deg}° od osi)" for k, (label, deg) in _YAW_TO_ANGLE.items()}
+    dof = {k: f"przysłona {v}" for k, v in _DOF_TO_APERTURE.items()}
+    env = {k: f"[{mode}] {desc}" for k, (mode, desc) in _ENV_TO_SCENE.items()}
+
+    groups = [
+        {"key": "color",    "title": "Kolor obicia",        "table": "COLORS",        "clauses": dict(_COLOR_PL_TO_EN)},
+        {"key": "material", "title": "Materiał",            "table": "MATERIALS",     "clauses": dict(_MATERIAL_PL_TO_EN)},
+        {"key": "env",      "title": "Tło / sceneria",      "table": "ENVIRONMENTS",  "clauses": env},
+        {"key": "shot",     "title": "Typ kadru",           "table": "SHOT_TYPES",    "clauses": dict(_SHOT_TYPE_TO_FRAMING)},
+        {"key": "yaw",      "title": "Obrót / kąt kamery",  "table": "CAMERA_YAWS",   "clauses": yaw},
+        {"key": "height",   "title": "Wysokość kamery",     "table": "CAMERA_HEIGHTS","clauses": dict(_HEIGHT_TO_PHRASE)},
+        {"key": "dof",      "title": "Głębia ostrości",     "table": "DEPTHS_OF_FIELD","clauses": dof},
+        {"key": "lens",     "title": "Obiektyw",            "table": "LENSES",        "clauses": lens},
+        {"key": "tod",      "title": "Pora dnia / światło", "table": "TIMES_OF_DAY",  "clauses": dict(_TOD_TO_PROMPT)},
+        {"key": "shadow",   "title": "Cień",                "table": "SHADOWS",       "clauses": shadow},
+        {"key": "detail_fabric", "title": "Detal — makro tkaniny", "table": "DETAIL_REGIONS_FABRIC", "clauses": dict(_DETAIL_REGION_TO_PHRASE)},
+        {"key": "detail_corner", "title": "Detal — narożnik / szew", "table": "DETAIL_REGIONS_CORNER", "clauses": dict(_DETAIL_REGION_TO_PHRASE)},
+        {"key": "bedding",  "title": "Pościel (łóżka)",     "table": "BEDDING_PRESETS","clauses": dict(_BEDDING_TO_PROMPT)},
+        {"key": "throw",    "title": "Narzuta / koc",       "table": "THROW_PRESETS", "clauses": dict(_THROW_TO_PROMPT)},
+        {"key": "tidy",     "title": "Zaścielenie",         "table": "TIDY_LEVELS",   "clauses": dict(_TIDY_TO_PROMPT)},
+        {"key": "density",  "title": "Gęstość stylizacji",  "table": "DENSITY_LEVELS","clauses": dict(_DENSITY_TO_PROMPT)},
+        {"key": "accents",  "title": "Dodatki dekoracyjne", "table": "BED_ACCENTS",   "clauses": dict(_ACCENT_TO_PROMPT)},
+    ]
+    return {"groups": groups}
 
 
 @app.get("/api/outputs/{name}")
