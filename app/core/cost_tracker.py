@@ -395,6 +395,22 @@ def recent_generations(limit: int = 50) -> list[dict]:
         conn.close()
 
 
+def output_path_for_generation(generation_id: str) -> Optional[str]:
+    """Return the on-disk output_path for a successful generation_id (PK lookup),
+    or None. Used to resolve a client-supplied anchor reference back to its
+    master image for variant-set re-rendering."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT output_path FROM generations "
+            "WHERE generation_id = ? AND status = 'success'",
+            (generation_id,),
+        ).fetchone()
+        return row["output_path"] if row and row["output_path"] else None
+    finally:
+        conn.close()
+
+
 def model_cost_summary() -> list[dict]:
     """Per-model cost and count summary."""
     conn = _get_conn()

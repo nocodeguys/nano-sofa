@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 from app.core.cost_tracker import (
     GenerationRecord,
@@ -155,6 +155,13 @@ class GenerationRequest:
     # "Zachowaj kąt z bazowego zdjęcia" toggle sets preserve_camera_from_base
     # but NOT this flag — so the wizard's chosen env still applies.
     strict_in_place_recolor: bool = False
+
+    # When True, the recolor keeps the SOURCE image's own background/scene
+    # verbatim: the SCENE backdrop block is suppressed and the prompt is told to
+    # preserve slot 1's exact environment. Used by Fotosesja v2 (recolor a user's
+    # existing photo, change only colour/material). Lets the strict-recolor mode
+    # activate independent of env_mode — see in_place_recolor in _build_prompt_text.
+    keep_source_scene: bool = False
 
     # When True AND extra_reference_images is non-empty, the prompt names the
     # first extra reference as the authoritative source of CAMERA, LIGHTING,
@@ -558,7 +565,7 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     in_place_recolor = (
         req.strict_in_place_recolor
         and req.preserve_camera_from_base
-        and req.env_mode == "packshot"
+        and (req.env_mode == "packshot" or req.keep_source_scene)
     )
 
     # ------------------------------------------------------------------ #
@@ -588,6 +595,14 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             f"\n\nThe output is a recolored version of slot 1's photograph, "
             f"not a re-shoot of the {product_noun}."
         )
+        if req.keep_source_scene:
+            lines.append(
+                f"\nBACKGROUND — IMPORTANT: Keep slot 1's EXACT background, "
+                f"environment, floor, walls, surfaces, props, and lighting. Do NOT "
+                f"restage the scene, do NOT swap to a studio cyclorama or any new "
+                f"backdrop, do NOT add or remove props. The background pixels must "
+                f"match slot 1 — only the {product_noun}'s upholstery changes."
+            )
     else:
         lines.append(
             f"Edit the {product_noun} in the first reference image to produce a product "
@@ -620,9 +635,18 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # Upholstery / surface
     # ------------------------------------------------------------------ #
     surface_noun = "UPHOLSTERY / FRAME FINISH" if is_bed else "UPHOLSTERY"
-    lines.append(
-        f"\n{surface_noun}: {req.upholstery_color} {req.upholstery_material}."
-    )
+    if in_place_recolor:
+        lines.append(
+            f"\n{surface_noun}: Replace the upholstery COMPLETELY with "
+            f"{req.upholstery_color} {req.upholstery_material}. None of slot 1's "
+            f"original upholstery colour may remain — recolor every cushion and "
+            f"upholstered surface of the {product_noun}. Keep the fabric weave and "
+            f"sheen consistent with {req.upholstery_material}."
+        )
+    else:
+        lines.append(
+            f"\n{surface_noun}: {req.upholstery_color} {req.upholstery_material}."
+        )
     if req.texture_notes:
         lines.append(f"Texture detail: {req.texture_notes}")
 
@@ -839,7 +863,10 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # Skipped entirely under reference_locked: the moodboard reference is
     # the authoritative scene/backdrop source.
     # ------------------------------------------------------------------ #
-    if not reference_locked:
+    # keep_source_scene suppresses the backdrop block entirely — the BACKGROUND
+    # paragraph above already tells the model to preserve slot 1's own scene, and
+    # a packshot/lifestyle backdrop description here would directly fight it.
+    if not reference_locked and not req.keep_source_scene:
         lines.append(_build_scene_block(req, product_noun))
 
     # ------------------------------------------------------------------ #
@@ -974,6 +1001,29 @@ def _is_retryable_error(exc: Exception) -> bool:
     not — retrying them just burns ~14s of backoff before the identical
     failure."""
     return classify_exception(exc).retryable
+
+
+def _png_text_metadata(req: GenerationRequest, generation_id: str, ts: int) -> dict[str, str]:
+    """tEXt entries embedded into every master PNG so the file is self-identifying.
+
+    The filename only carries the first 8 hex chars of the generation_id; these
+    chunks carry the FULL id plus the variant attributes, so a render can be
+    traced back and reused as an anchor for a variant set without a DB round-trip
+    (and survives being downloaded / re-imported). All values must be str — the
+    PNG tEXt chunk format is text-only.
+    """
+    return {
+        "nano_sofa_schema": "1",
+        "nano_sofa_generation_id": generation_id,
+        "nano_sofa_ts": str(ts),
+        "nano_sofa_model": req.model_id or "",
+        "nano_sofa_resolution": req.resolution or "",
+        "nano_sofa_color": req.upholstery_color or "",
+        "nano_sofa_material": req.upholstery_material or "",
+        "nano_sofa_leg_id": req.leg_id or "",
+        "nano_sofa_camera_angle": req.camera_angle or "",
+        "nano_sofa_prompt_summary": _build_prompt_summary(req),
+    }
 
 
 def generate(req: GenerationRequest) -> GenerationResult:
@@ -1161,7 +1211,15 @@ def generate(req: GenerationRequest) -> GenerationResult:
         # lossless. optimize=True is a free, lossless size reduction. The
         # user-facing download (JPG/WebP) is derived from this master by the
         # server layer — never the other way round.
-        output_image.save(str(output_path), format="PNG", optimize=True)
+        #
+        # Embed identity metadata as PNG tEXt chunks: the full generation_id +
+        # variant attributes travel WITH the file, so it can be traced and
+        # reused as a variant-set anchor (the filename only holds an 8-char id
+        # prefix). tEXt is lossless and ignored by viewers.
+        _pnginfo = PngImagePlugin.PngInfo()
+        for _meta_k, _meta_v in _png_text_metadata(req, generation_id, ts).items():
+            _pnginfo.add_text(_meta_k, _meta_v)
+        output_image.save(str(output_path), format="PNG", optimize=True, pnginfo=_pnginfo)
         status = "success"
         actual_cost = cost_est.total_low  # use conservative (low) estimate as actual
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import sys
@@ -35,7 +36,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
@@ -46,6 +47,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.core.generator import GenerationRequest, classify_exception, generate  # noqa: E402
+from app.core.cost_tracker import (  # noqa: E402
+    output_path_for_generation,
+    recent_generations,
+)
 from app.core.schema_loader import schema  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -825,8 +830,11 @@ def api_param_docs():
 
 @app.get("/api/outputs/{name}")
 def get_output(name: str):
-    candidate = _OUTPUT_DIR / name
-    if not candidate.exists() or not candidate.is_file():
+    # Basename-only + parent check prevents path traversal (e.g. "../../etc/..."
+    # or an absolute name) — this route only ever serves files that live
+    # directly in _OUTPUT_DIR.
+    candidate = (_OUTPUT_DIR / Path(name).name).resolve()
+    if candidate.parent != _OUTPUT_DIR or not candidate.is_file():
         raise HTTPException(404, "Not found")
     return FileResponse(candidate, media_type=_MEDIA_TYPES.get(candidate.suffix.lower()))
 
@@ -847,6 +855,7 @@ def _build_generation_request(
     scene_image_path: Optional[Path],
     preserve_camera_from_base: bool = False,
     strict_in_place_recolor: bool = False,
+    keep_source_scene: bool = False,
     extra_reference_paths: Optional[list[Path]] = None,
     lock_to_reference: bool = False,
     bedding_description: str = "",
@@ -986,6 +995,7 @@ def _build_generation_request(
         env_description=env_description,
         preserve_camera_from_base=preserve_camera_from_base,
         strict_in_place_recolor=strict_in_place_recolor,
+        keep_source_scene=keep_source_scene,
         bedding_description=bedding_description.strip(),
         aspect_ratio=aspect,
         resolution=resolution,
@@ -1036,6 +1046,32 @@ def _parse_quality(raw: str, default: int = 82) -> int:
     return max(40, min(100, q))
 
 
+def _exif_bytes_from_png(img: Image.Image) -> Optional[bytes]:
+    """Pack a master PNG's nano_sofa_* tEXt metadata into an EXIF block so the
+    identity survives into the delivered JPEG/WebP (PNG text chunks don't carry
+    over to those formats). Stored as compact JSON in ImageDescription (0x010E),
+    with Software (0x0131) as a marker. Returns None when the master has no id."""
+    text = getattr(img, "text", None) or {}
+    gid = text.get("nano_sofa_generation_id")
+    if not gid:
+        return None
+    payload = {
+        "generation_id": gid,
+        "model": text.get("nano_sofa_model", ""),
+        "resolution": text.get("nano_sofa_resolution", ""),
+        "color": text.get("nano_sofa_color", ""),
+        "material": text.get("nano_sofa_material", ""),
+        "summary": text.get("nano_sofa_prompt_summary", ""),
+    }
+    exif = Image.Exif()
+    exif[0x010E] = "nano-sofa " + json.dumps(payload, ensure_ascii=False)
+    exif[0x0131] = "Nano Sofa Studio v2"
+    try:
+        return exif.tobytes()
+    except Exception:
+        return None
+
+
 def _derive_output(master: Path, fmt: str, quality: int, transparent: bool) -> tuple[Path, str, bool]:
     """
     From the lossless PNG `master`, write the user-facing delivery file in
@@ -1062,6 +1098,10 @@ def _derive_output(master: Path, fmt: str, quality: int, transparent: bool) -> t
 
     img = Image.open(master)
     img.load()
+    # Carry the master's embedded id into the delivery file (EXIF) so downloads
+    # and re-imports stay identifiable. Read before any mode conversion below.
+    meta_exif = _exif_bytes_from_png(img)
+    save_kwargs = {"exif": meta_exif} if meta_exif else {}
     out = master.with_suffix("." + fmt)
     if fmt == "jpg":
         # Flatten any alpha onto white before JPEG (no alpha channel in JPEG).
@@ -1070,9 +1110,9 @@ def _derive_output(master: Path, fmt: str, quality: int, transparent: bool) -> t
             rgba = img.convert("RGBA")
             bg.paste(rgba, mask=rgba.split()[-1])
             img = bg
-        img.convert("RGB").save(out, format="JPEG", quality=quality, optimize=True, progressive=True)
+        img.convert("RGB").save(out, format="JPEG", quality=quality, optimize=True, progressive=True, **save_kwargs)
     else:  # webp — keeps alpha if present
-        img.save(out, format="WEBP", quality=quality, method=6)
+        img.save(out, format="WEBP", quality=quality, method=6, **save_kwargs)
     return out, fmt, downgraded
 
 
@@ -1482,13 +1522,95 @@ async def api_generate_set(
     }
 
 
-@app.post("/api/generate-photoshoot")
-async def api_generate_photoshoot(
+def _read_png_meta(path: Path) -> dict:
+    """Read the nano_sofa_* tEXt chunks off a master PNG, best-effort."""
+    try:
+        with Image.open(path) as im:
+            return dict(getattr(im, "text", {}) or {})
+    except Exception:
+        return {}
+
+
+def _resolve_anchor_path(anchor_ref: str) -> Optional[Path]:
+    """Resolve a client-supplied anchor reference to an on-disk master image.
+
+    `anchor_ref` may be a full generation_id OR an /api/outputs basename (which
+    can be a derived .jpg/.webp). Returns the lossless .png master when present
+    (preferred for the pixel-lock), else the referenced file. Always constrained
+    to _OUTPUT_DIR by basename — no path traversal, no client-supplied dirs.
+    """
+    ref = (anchor_ref or "").strip()
+    if not ref:
+        return None
+
+    # 1. generation_id → look up the master in the cost DB, then re-home its
+    # basename into _OUTPUT_DIR (the DB may hold a path from the v1 layout).
+    db_path = output_path_for_generation(ref)
+    if db_path:
+        cand = (_OUTPUT_DIR / Path(db_path).name).resolve()
+        if cand.parent == _OUTPUT_DIR and cand.is_file():
+            return cand
+
+    # 2. looks like a generation_id (uuid, no dot/slash) → match the filename
+    # convention {ts}_{model}_{id[:8]}.png directly on disk, so a render still
+    # resolves even when the DB has no row for it (stale/foreign DB).
+    if "." not in ref and "/" not in ref and len(ref) >= 8:
+        for cand in sorted(_OUTPUT_DIR.glob(f"*_{ref[:8]}.png")):
+            cand = cand.resolve()
+            if cand.parent == _OUTPUT_DIR and cand.is_file():
+                return cand
+
+    # 3. basename → prefer the .png master over a .jpg/.webp derivative.
+    name = Path(ref).name
+    for cand in (_OUTPUT_DIR / f"{Path(name).stem}.png", _OUTPUT_DIR / name):
+        cand = cand.resolve()
+        if cand.parent == _OUTPUT_DIR and cand.is_file():
+            return cand
+    return None
+
+
+def _recolor_request(
+    *, api_key, kind, color, color_custom, mat, mat_notes, size, legs, cam, lens,
+    tod, shadow, shot, yaw, height, dof, detail_region, model, aspect, res, seed,
+    bedding_desc, source_path,
+):
+    """One in-place recolor of `source_path`: keep its EXACT angle + background,
+    change ONLY the upholstery colour/material. Drives the generator's
+    keep_source_scene recolor mode — base image only (no scene reference), and the
+    SCENE backdrop block is suppressed so the source's own background is preserved.
+    This is the consistency fix for the old flow's colour-miss + background-drift."""
+    return _build_generation_request(
+        api_key=api_key, kind=kind,
+        color=color, color_custom=color_custom,
+        mat=mat, mat_notes=mat_notes,
+        size=size, legs=legs, cam=cam,
+        lens=lens, tod=tod, shadow=shadow,
+        shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
+        env="", env_note="", env_mode="",
+        model=model, aspect=aspect, res=res, seed=seed,
+        base_image_path=source_path,
+        scene_image_path=None,                  # NO scene ref → model can't copy the old colour
+        preserve_camera_from_base=True,
+        strict_in_place_recolor=True,
+        keep_source_scene=True,                 # keep the source photo's own background
+        bedding_description=bedding_desc,
+    )
+
+
+# Fotosesja v2 grid limits (single-user localhost tool; bound cost + fan-out).
+_MAX_SOURCES = 8
+_MAX_PAIRS = 8
+_MAX_GRID_RENDERS = 48
+
+
+@app.post("/api/generate-variants")
+async def api_generate_variants(
     api_key: str = Form(""),
     kind: str = Form("sofa"),
-    color: str = Form("saliw"),
+    # Shared colour+material PAIRS applied to EVERY source.
+    # JSON: [{"color": "<chip id>", "material": "<chip id>"}, ...]
+    pairs_json: str = Form(""),
     color_custom: str = Form(""),
-    mat: str = Form("boucle"),
     mat_notes: str = Form(""),
     size: str = Form("3"),
     legs: str = Form("keep"),
@@ -1496,295 +1618,290 @@ async def api_generate_photoshoot(
     lens: str = Form("50mm_natural"),
     tod: str = Form("noon_neutral"),
     shadow: str = Form("soft_diffuse"),
-    backdrop: str = Form("cyclorama_warm"),      # packshot env id (locked profile)
-    lifestyle_env: str = Form("scandi"),         # lifestyle env id
-    env_note: str = Form(""),
+    shot: str = Form(""),
+    yaw: str = Form(""),
+    height: str = Form(""),
+    dof: str = Form(""),
+    detail_region: str = Form(""),
+    bedding: str = Form(""),
+    bedding_custom: str = Form(""),
+    throw: str = Form(""),
+    tidy: str = Form(""),
+    density: str = Form(""),
+    accents: str = Form(""),
+    bed_note: str = Form(""),
     model: str = Form("gemini-3.1-flash-image-preview"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
     output_format: str = Form("jpg"),
     output_quality: str = Form("82"),
-    # Source images + per-source role flags. Lengths must match.
-    # roles: "packshot" | "lifestyle" | "skip"
-    sources: list[UploadFile] = File(...),
-    source_roles_csv: str = Form(""),
+    # Sources = base photos. Uploaded files AND/OR refs to existing renders.
+    # Each carries a client sid (parallel csv) so results group back per source.
+    sources: list[UploadFile] = File(default_factory=list),
+    upload_sids_csv: str = Form(""),
+    source_refs_csv: str = Form(""),
+    ref_sids_csv: str = Form(""),
 ):
     """
-    Generate a full product photoshoot from user-supplied angle photos.
+    Fotosesja v2 — apply a shared set of colour+material PAIRS to MANY base photos.
 
-    Two passes:
-      Pass A (packshot batch) — for each source tagged "packshot":
-        - Render 1 (fabric anchor): full prompt on backdrop, no swatch.
-        - Renders 2..N: anchor PNG as swatch_reference_image (slot 2)
-          + use_swatch_for_fabric=True. Locks fabric color/texture exactly
-          across the batch. Each call uses its own source image as base
-          so the angle, frame geometry, and pose are preserved per shot.
+    For every (source × pair) it runs an in-place recolor that keeps the source
+    photo's exact angle and background (generator keep_source_scene mode), changing
+    only the upholstery colour/material. Sources may be freshly uploaded photos or
+    refs to existing renders (generation_id / output basename). Results are grouped
+    by source so the UI can show one row per photo.
 
-      Pass B (lifestyle pair) — for each source tagged "lifestyle":
-        - Render 1 (lifestyle anchor): full lifestyle prompt, establishes
-          the room.
-        - Render 2 (if present): anchor as scene_reference_image
-          + view_consistency=True + prior_history=anchor.next_history.
-          The room is locked; only the camera angle (from the second
-          source's base image) changes.
-
-    Returns:
-      {
-        "packshot": [ {label, image_url, anchor?, cost, ...}, ... ],
-        "lifestyle": [ {label, image_url, anchor?, cost, ...}, ... ],
-        "errors":   [ {label, role, error}, ... ],
-        "total_cost": float,
-      }
+    Streams NDJSON (application/x-ndjson), one JSON object per line:
+      {"type":"meta","total":N,"model":..,"sources":[{sid,source_kind,source_ref,source_url,error?}]}
+      {"type":"tile","sid":..,"color":..,"material":..,"image_url"/"generation_id"/"cost" | "error"}  (one per completed render)
+      {"type":"done","total_cost":..}
+    Pre-flight validation errors are returned as a normal JSON 4xx BEFORE the stream starts.
     """
     if not api_key.strip():
         return _validation_error("Brak klucza API.", "MISSING_API_KEY")
 
-    if not sources:
-        return _validation_error("Brak zdjęć źródłowych.", "MISSING_SOURCES")
-
-    roles = [r.strip().lower() for r in source_roles_csv.split(",")]
-    while len(roles) < len(sources):
-        roles.append("packshot")   # default any unflagged source to packshot
-
-    # Save all uploads to disk first; collect (path, role) tuples.
-    saved: list[tuple[Path, str, str]] = []   # (path, role, original_filename)
-    for upload, role in zip(sources, roles):
-        if role == "skip":
+    # ---- parse the shared colour+material pairs ------------------------- #
+    try:
+        raw_pairs = json.loads(pairs_json) if pairs_json.strip() else []
+    except Exception:
+        raw_pairs = []
+    pairs = []
+    for p in raw_pairs if isinstance(raw_pairs, list) else []:
+        if not isinstance(p, dict):
             continue
-        if role not in ("packshot", "lifestyle"):
-            role = "packshot"
+        c = str(p.get("color", "")).strip()
+        m = str(p.get("material", "")).strip() or "boucle"
+        if c:
+            pairs.append({"color": c, "material": m})
+    if not pairs:
+        return _validation_error("Dodaj co najmniej 1 parę kolor + materiał.", "TOO_FEW_PAIRS")
+    if len(pairs) > _MAX_PAIRS:
+        return _validation_error(f"Limit par kolor/materiał: {_MAX_PAIRS}.", "TOO_MANY_PAIRS")
+
+    # ---- assemble the ordered source list (uploads, then refs) --------- #
+    upload_sids = [s.strip() for s in upload_sids_csv.split(",")]
+    ref_items = [r.strip() for r in source_refs_csv.split(",") if r.strip()]
+    ref_sids = [s.strip() for s in ref_sids_csv.split(",")]
+
+    resolved: list[dict] = []   # {sid, kind, ref, path|None, url|None, error?}
+    for i, up in enumerate(sources or []):
+        sid = upload_sids[i] if i < len(upload_sids) and upload_sids[i] else f"u{i}"
         try:
-            p = await _save_upload(upload, suffix=f"_src_{role}")
-            saved.append((p, role, upload.filename or ""))
+            p = await _save_upload(up, suffix="_src")
+            resolved.append({"sid": sid, "kind": "upload", "ref": up.filename or "", "path": p, "url": None})
         except Exception as exc:
-            logger.warning("Skipping unreadable source %s: %s", upload.filename, exc)
+            resolved.append({"sid": sid, "kind": "upload", "ref": up.filename or "", "path": None,
+                             "url": None, "error": f"Nie udało się odczytać zdjęcia: {exc}"})
+    for j, ref in enumerate(ref_items):
+        sid = ref_sids[j] if j < len(ref_sids) and ref_sids[j] else f"r{j}"
+        path = _resolve_anchor_path(ref)
+        if path is None:
+            resolved.append({"sid": sid, "kind": "ref", "ref": ref, "path": None, "url": None,
+                             "error": "Nie znaleziono zdjęcia (mogło zostać usunięte)."})
+        else:
+            resolved.append({"sid": sid, "kind": "ref", "ref": ref, "path": path,
+                             "url": f"/api/outputs/{path.name}"})
 
-    packshot_sources = [(p, fn) for (p, r, fn) in saved if r == "packshot"]
-    lifestyle_sources = [(p, fn) for (p, r, fn) in saved if r == "lifestyle"]
-
-    if not packshot_sources and not lifestyle_sources:
+    if not resolved:
+        return _validation_error("Wybierz co najmniej 1 zdjęcie bazowe.", "MISSING_SOURCES")
+    if len(resolved) > _MAX_SOURCES:
+        return _validation_error(f"Limit zdjęć bazowych: {_MAX_SOURCES}.", "TOO_MANY_SOURCES")
+    usable = [s for s in resolved if s.get("path")]
+    if not usable:
+        return _validation_error("Żadnego zdjęcia bazowego nie udało się wczytać.", "BAD_INPUT_IMAGE")
+    if len(usable) * len(pairs) > _MAX_GRID_RENDERS:
         return _validation_error(
-            "Brak czytelnych zdjęć źródłowych po dekodowaniu.", "BAD_INPUT_IMAGE"
-        )
-    if len(packshot_sources) + len(lifestyle_sources) > 10:
-        return _validation_error(
-            "Limit sesji: max 10 zdjęć źródłowych (packshot + lifestyle).", "TOO_MANY_SOURCES"
+            f"Za dużo renderów ({len(usable)}×{len(pairs)}). Limit to {_MAX_GRID_RENDERS} na run.",
+            "TOO_MANY_RENDERS",
         )
 
-    logger.info(
-        "Photoshoot: %d packshot + %d lifestyle sources",
-        len(packshot_sources), len(lifestyle_sources),
-    )
-
-    # ------------------------------------------------------------------ #
-    # Pass A — Packshot batch
-    # ------------------------------------------------------------------ #
-    packshot_results: list[dict] = []
-    errors: list[dict] = []
-    packshot_anchor_path: Optional[Path] = None
-    # Output-format derivation params, computed once for the whole session.
-    # Only packshots can be transparent (the cyclorama backdrop); lifestyle
-    # envs always have a room, so their derive is never alpha-coerced.
+    bedding_desc = ""
+    if kind == "bed":
+        bedding_desc = _compose_bedding_description(
+            bedding=bedding, bedding_custom=bedding_custom, throw=throw,
+            tidy=tidy, density=density, accents_csv=accents, bed_note=bed_note,
+        )
     qual = _parse_quality(output_quality)
-    transparent_pack = backdrop in _TRANSPARENT_ENVS
-    # Look up the curated cyclorama reference once — used by both the anchor
-    # and every variant so the backdrop look is locked pixel-level across
-    # the whole batch.
-    backdrop_ref_path = _scene_reference_path(backdrop)
+    logger.info("Variant grid: %d sources × %d pairs", len(usable), len(pairs))
 
-    if packshot_sources:
-        # 1. Anchor — first packshot source. The curated cyclorama reference
-        # (if present) locks the backdrop look at pixel level.
-        anchor_src_path, anchor_src_fn = packshot_sources[0]
-        anchor_req = _build_generation_request(
+    # ---- stream every (source × pair) recolor as NDJSON ---------------- #
+    # Pre-flight passed; now emit  meta → one `tile` per completed render → done.
+    # The client fills the grid live and drives a real X/N progress bar so the
+    # user sees first results immediately instead of waiting for the whole batch.
+    def _render(src_path, pair):
+        return generate(_recolor_request(
             api_key=api_key, kind=kind,
-            color=color, color_custom=color_custom,
-            mat=mat, mat_notes=mat_notes,
-            size=size, legs=legs, cam=cam,
-            lens=lens, tod=tod, shadow=shadow,
-            env=backdrop, env_note=env_note, env_mode="",
+            color=pair["color"], color_custom=color_custom,
+            mat=pair["material"], mat_notes=mat_notes,
+            size=size, legs=legs, cam=cam, lens=lens, tod=tod, shadow=shadow,
+            shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
             model=model, aspect=aspect, res=res, seed=seed,
-            base_image_path=anchor_src_path,
-            scene_image_path=backdrop_ref_path,    # locks cyclorama look pixel-level
-            preserve_camera_from_base=True,
-            strict_in_place_recolor=True,
+            bedding_desc=bedding_desc, source_path=src_path,
+        ))
+
+    async def _job(s, pair):
+        # Never raises — failures become an error tile so the stream stays intact.
+        try:
+            r = await _capped(_render, s["path"], pair)
+        except Exception as exc:
+            return s, _item_error({"color": pair["color"], "material": pair["material"]}, exc)
+        if not r.success or r.output_path is None:
+            return s, _item_error({"color": pair["color"], "material": pair["material"]}, r)
+        v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, False)
+        return s, {"color": pair["color"], "material": pair["material"],
+                   "image_url": v_url, "generation_id": r.generation_id, "cost": r.actual_cost}
+
+    total = len(usable) * len(pairs)
+
+    async def _stream():
+        meta = {
+            "type": "meta", "total": total, "model": model,
+            "sources": [{"sid": s["sid"], "source_kind": s["kind"], "source_ref": s["ref"],
+                         "source_url": s.get("url"), "error": s.get("error")} for s in resolved],
+        }
+        yield json.dumps(meta) + "\n"
+        total_cost = 0.0
+        coros = [_job(s, pair) for s in usable for pair in pairs]
+        for fut in asyncio.as_completed(coros):
+            s, tile = await fut
+            if "cost" in tile:
+                total_cost += tile.get("cost", 0)
+            yield json.dumps({"type": "tile", "sid": s["sid"], **tile}) + "\n"
+        await asyncio.to_thread(_prune_storage)
+        yield json.dumps({"type": "done", "total_cost": total_cost}) + "\n"
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")
+
+
+@app.post("/api/regenerate-variant")
+async def api_regenerate_variant(
+    api_key: str = Form(""),
+    kind: str = Form("sofa"),
+    color: str = Form(""),
+    material: str = Form("boucle"),
+    color_custom: str = Form(""),
+    mat_notes: str = Form(""),
+    size: str = Form("3"),
+    legs: str = Form("keep"),
+    cam: str = Form("studio"),
+    lens: str = Form("50mm_natural"),
+    tod: str = Form("noon_neutral"),
+    shadow: str = Form("soft_diffuse"),
+    shot: str = Form(""),
+    yaw: str = Form(""),
+    height: str = Form(""),
+    dof: str = Form(""),
+    detail_region: str = Form(""),
+    bedding: str = Form(""),
+    bedding_custom: str = Form(""),
+    throw: str = Form(""),
+    tidy: str = Form(""),
+    density: str = Form(""),
+    accents: str = Form(""),
+    bed_note: str = Form(""),
+    model: str = Form("gemini-3.1-flash-image-preview"),
+    aspect: str = Form("4:3"),
+    res: str = Form("1K"),
+    seed: str = Form(""),
+    output_format: str = Form("jpg"),
+    output_quality: str = Form("82"),
+    # Source: a ref to an existing render OR a re-uploaded base photo.
+    source_ref: str = Form(""),
+    source_image: Optional[UploadFile] = File(None),
+):
+    """Re-render ONE (source × colour+material) tile in the same keep-scene recolor
+    mode. Backs the per-tile 'regeneruj' button so a single bad render can be fixed
+    without re-running the whole grid."""
+    if not api_key.strip():
+        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    if not color.strip():
+        return _validation_error("Brak koloru wariantu.", "TOO_FEW_PAIRS")
+
+    src_path: Optional[Path] = None
+    if source_ref.strip():
+        src_path = _resolve_anchor_path(source_ref)
+        if src_path is None:
+            return _validation_error("Nie znaleziono zdjęcia bazowego.", "ANCHOR_NOT_FOUND", status=404)
+    elif source_image is not None:
+        try:
+            src_path = await _save_upload(source_image, suffix="_src")
+        except Exception as exc:
+            return _validation_error(f"Nie udało się odczytać zdjęcia: {exc}", "BAD_INPUT_IMAGE")
+    else:
+        return _validation_error("Brak zdjęcia bazowego.", "MISSING_SOURCES")
+
+    bedding_desc = ""
+    if kind == "bed":
+        bedding_desc = _compose_bedding_description(
+            bedding=bedding, bedding_custom=bedding_custom, throw=throw,
+            tidy=tidy, density=density, accents_csv=accents, bed_note=bed_note,
         )
-        if backdrop_ref_path:
-            logger.info("Packshot anchor: using curated cyclorama reference %s", backdrop_ref_path.name)
-        anchor_result = await asyncio.to_thread(generate, anchor_req)
-
-        if not anchor_result.success or anchor_result.output_path is None:
-            errors.append(_item_error({
-                "label": "v1",
-                "source_filename": anchor_src_fn,
-                "role": "packshot",
-            }, anchor_result))
-        else:
-            packshot_anchor_path = anchor_result.output_path
-            a_url, _, _ = await _derived_url(anchor_result.output_path, output_format, qual, transparent_pack)
-            packshot_results.append({
-                "label": "v1",
-                "source_filename": anchor_src_fn,
-                "image_url": a_url,
-                "anchor": True,
-                "cost": anchor_result.actual_cost,
-            })
-
-        # 2. Remaining packshot variants — fan out in parallel.
-        #
-        # Earlier design used the anchor render as a fabric swatch reference
-        # to lock cross-variant color consistency. That approach broke
-        # framing fidelity: the model treated the anchor (a wide hero shot)
-        # as a composition reference and collapsed every variant toward that
-        # framing regardless of source angle — even with "slot 1 is framing
-        # authority" repeated four times in the prompt. Visual references
-        # outweigh text instructions in the model's attention.
-        #
-        # New design: variants render solo from their own source. The
-        # backdrop is still locked via the curated cyclorama reference
-        # (same as the anchor), which provides backdrop continuity without
-        # leaking framing. Fabric/color consistency now comes from the
-        # identical text prompt across variants (Gemini's color-name
-        # interpretation is deterministic enough — drift is minimal vs.
-        # the framing collapse the swatch caused).
-        if packshot_anchor_path and len(packshot_sources) > 1:
-
-            def _render_packshot_variant(idx: int, src_path: Path, src_fn: str):
-                req = _build_generation_request(
-                    api_key=api_key, kind=kind,
-                    color=color, color_custom=color_custom,
-                    mat=mat, mat_notes=mat_notes,
-                    size=size, legs=legs, cam=cam,
-                    lens=lens, tod=tod, shadow=shadow,
-                    env=backdrop, env_note=env_note, env_mode="",
-                    model=model, aspect=aspect, res=res, seed=seed,
-                    base_image_path=src_path,
-                    scene_image_path=backdrop_ref_path,  # same cyclorama lock as anchor
-                    preserve_camera_from_base=True,
-                    strict_in_place_recolor=True,
-                )
-                return idx, src_fn, generate(req)
-
-            variant_jobs = [
-                (i + 2, p, fn) for i, (p, fn) in enumerate(packshot_sources[1:])
-            ]
-            results = await asyncio.gather(
-                *(_capped(_render_packshot_variant, idx, p, fn) for idx, p, fn in variant_jobs),
-                return_exceptions=True,
-            )
-            for r in results:
-                if isinstance(r, Exception):
-                    errors.append(_item_error({"label": "v?", "role": "packshot"}, r))
-                    continue
-                idx, src_fn, gen_result = r
-                if not gen_result.success or gen_result.output_path is None:
-                    errors.append(_item_error({
-                        "label": f"v{idx}", "source_filename": src_fn,
-                        "role": "packshot",
-                    }, gen_result))
-                    continue
-                pv_url, _, _ = await _derived_url(gen_result.output_path, output_format, qual, transparent_pack)
-                packshot_results.append({
-                    "label": f"v{idx}",
-                    "source_filename": src_fn,
-                    "image_url": pv_url,
-                    "cost": gen_result.actual_cost,
-                })
-            packshot_results.sort(key=lambda x: int(x["label"][1:]))
-
-    # ------------------------------------------------------------------ #
-    # Pass B — Lifestyle pair (up to 2 shots sharing a room)
-    # ------------------------------------------------------------------ #
-    lifestyle_results: list[dict] = []
-    if lifestyle_sources:
-        # 1. Lifestyle anchor — establishes the room.
-        anchor_src_path, anchor_src_fn = lifestyle_sources[0]
-        # Labels continue from the packshot numbering so the user sees
-        # a single coherent v1..vN sequence across the whole session.
-        anchor_label = f"v{len(packshot_results) + len(errors) + 1}"
-        anchor_req = _build_generation_request(
-            api_key=api_key, kind=kind,
-            color=color, color_custom=color_custom,
-            mat=mat, mat_notes=mat_notes,
-            size=size, legs=legs, cam=cam,
-            lens=lens, tod=tod, shadow=shadow,
-            env=lifestyle_env, env_note=env_note, env_mode="",
-            model=model, aspect=aspect, res=res, seed=seed,
-            base_image_path=anchor_src_path,
-            scene_image_path=None,
-            preserve_camera_from_base=True,
-        )
-        ls_anchor = await asyncio.to_thread(generate, anchor_req)
-
-        if not ls_anchor.success or ls_anchor.output_path is None:
-            errors.append(_item_error({
-                "label": anchor_label, "source_filename": anchor_src_fn,
-                "role": "lifestyle",
-            }, ls_anchor))
-        else:
-            la_url, _, _ = await _derived_url(ls_anchor.output_path, output_format, qual, False)
-            lifestyle_results.append({
-                "label": anchor_label,
-                "source_filename": anchor_src_fn,
-                "image_url": la_url,
-                "anchor": True,
-                "cost": ls_anchor.actual_cost,
-            })
-
-            # 2. Lifestyle variant 2 (if a second lifestyle source exists).
-            if len(lifestyle_sources) >= 2:
-                src2_path, src2_fn = lifestyle_sources[1]
-                v2_label = f"v{len(packshot_results) + len(errors) + 2}"
-                v2_req = _build_generation_request(
-                    api_key=api_key, kind=kind,
-                    color=color, color_custom=color_custom,
-                    mat=mat, mat_notes=mat_notes,
-                    size=size, legs=legs, cam=cam,
-                    lens=lens, tod=tod, shadow=shadow,
-                    env=lifestyle_env, env_note=env_note, env_mode="",
-                    model=model, aspect=aspect, res=res, seed=seed,
-                    base_image_path=src2_path,
-                    scene_image_path=ls_anchor.output_path,
-                    preserve_camera_from_base=True,
-                )
-                v2_req = dataclass_replace(
-                    v2_req,
-                    view_consistency=True,
-                    prior_history=list(ls_anchor.next_history),
-                    turn_number=2,
-                )
-                v2_result = await asyncio.to_thread(generate, v2_req)
-                if not v2_result.success or v2_result.output_path is None:
-                    errors.append(_item_error({
-                        "label": v2_label, "source_filename": src2_fn,
-                        "role": "lifestyle",
-                    }, v2_result))
-                else:
-                    lv_url, _, _ = await _derived_url(v2_result.output_path, output_format, qual, False)
-                    lifestyle_results.append({
-                        "label": v2_label,
-                        "source_filename": src2_fn,
-                        "image_url": lv_url,
-                        "cost": v2_result.actual_cost,
-                    })
-
-    await asyncio.to_thread(_prune_storage)
-    total_cost = (
-        sum(p.get("cost", 0) for p in packshot_results)
-        + sum(l.get("cost", 0) for l in lifestyle_results)
+    req = _recolor_request(
+        api_key=api_key, kind=kind, color=color, color_custom=color_custom,
+        mat=material, mat_notes=mat_notes, size=size, legs=legs, cam=cam,
+        lens=lens, tod=tod, shadow=shadow, shot=shot, yaw=yaw, height=height,
+        dof=dof, detail_region=detail_region, model=model, aspect=aspect, res=res,
+        seed=seed, bedding_desc=bedding_desc, source_path=src_path,
     )
+    result = await asyncio.to_thread(generate, req)
+    if not result.success or result.output_path is None:
+        return _result_error(result)
+    qual = _parse_quality(output_quality)
+    url, _f, _d = await _derived_url(result.output_path, output_format, qual, False)
+    await asyncio.to_thread(_prune_storage)
+    return {"success": True, "color": color, "material": material, "image_url": url,
+            "generation_id": result.generation_id, "cost": result.actual_cost}
 
-    return {
-        "success": True,
-        "packshot": packshot_results,
-        "lifestyle": lifestyle_results,
-        "errors": errors,
-        "total_cost": total_cost,
-        "model": model,
-        "backdrop": backdrop,
-        "lifestyle_env": lifestyle_env,
-    }
+
+@app.get("/api/history")
+def api_history(limit: int = 60):
+    """Past renders on disk (newest first), self-describing via embedded metadata.
+
+    Powers the Fotosesja "Historia" anchor browser. Read-only; no API key needed.
+    Lists the master PNGs under _OUTPUT_DIR and reads each one's identity straight
+    from its tEXt chunks (the embed written at generate time), enriching from the
+    cost DB only for older files that predate the embed. This is robust to a
+    stale/foreign cost DB — every file the user can see is pickable as an anchor.
+    Each item is reusable via /api/generate-variants by its generation_id.
+    """
+    limit = max(1, min(int(limit or 60), 200))
+
+    # Index the cost DB by output basename to enrich files lacking embedded meta.
+    db_by_name: dict = {}
+    try:
+        for rec in recent_generations(800):
+            op = rec.get("output_path")
+            if op:
+                db_by_name.setdefault(Path(op).name, rec)
+    except Exception:
+        pass
+
+    # Master PNGs live directly under _OUTPUT_DIR (uploads are in a subdir;
+    # derived jpg/webp aren't .png). Newest first by mtime.
+    try:
+        masters = [p for p in _OUTPUT_DIR.glob("*.png") if p.is_file()]
+    except Exception:
+        masters = []
+    masters.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    items: list[dict] = []
+    for p in masters[:limit]:
+        meta = _read_png_meta(p)
+        rec = db_by_name.get(p.name, {})
+        ts_raw = meta.get("nano_sofa_ts", "")
+        items.append({
+            "generation_id": meta.get("nano_sofa_generation_id") or rec.get("generation_id"),
+            "image_url": f"/api/outputs/{p.name}",
+            "color": meta.get("nano_sofa_color") or rec.get("upholstery_color"),
+            "material": meta.get("nano_sofa_material") or rec.get("upholstery_material"),
+            "model": meta.get("nano_sofa_model") or rec.get("model_id"),
+            "resolution": meta.get("nano_sofa_resolution") or rec.get("resolution"),
+            "camera_angle": meta.get("nano_sofa_camera_angle") or rec.get("camera_angle"),
+            "prompt_summary": meta.get("nano_sofa_prompt_summary") or rec.get("prompt_summary"),
+            "ts": int(ts_raw) if ts_raw.isdigit() else rec.get("timestamp"),
+        })
+    return {"items": items}
 
 
 # Static files for the prototype JS / CSS — mounted last so dynamic routes win.

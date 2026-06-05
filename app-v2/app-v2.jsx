@@ -144,6 +144,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key";
 const PRESETS_STORAGE = "nano-sofa-v2-presets";
+// Cross-tab render gallery (server urls + generation ids), persisted so prior
+// renders survive a reload and stay pickable as Fotosesja anchors.
+const GALLERY_STORAGE = "nano-sofa-v2-gallery";
 
 // The form fields a preset captures. Deliberately a whitelist (NOT a spread of
 // st) so the base image (baseFile/basePreviewUrl/uploaded/alpha — File handles
@@ -334,7 +337,22 @@ function App({ t }) {
   // background consistency. Disabled until at least one render exists.
   const [lockBackground, setLockBackground] = useState(false);
   const [genError, setGenError] = useState("");
-  const [gallery, setGallery] = useState([]); // {url, color, tag, cost}
+  // Each item: {url, generation_id, color(hex), material(id), tag, cost, ts}.
+  // generation_id lets any render be reused as a Fotosesja anchor; the list is
+  // persisted (durable fields only — all urls are stable /api/outputs paths).
+  const [gallery, setGallery] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(GALLERY_STORAGE) || "[]"); } catch { return []; }
+  });
+  useEffect(() => {
+    try {
+      const slim = gallery.slice(0, 60).map(g => ({
+        url: g.url, generation_id: g.generation_id || null,
+        color: g.color || null, material: g.material || null,
+        tag: g.tag || null, cost: g.cost ?? null, ts: g.ts || null,
+      }));
+      localStorage.setItem(GALLERY_STORAGE, JSON.stringify(slim));
+    } catch {}
+  }, [gallery]);
   const [activeGallery, setActiveGallery] = useState(-1);
 
   // Color-variant set state. variantColors is the user's multi-pick of color
@@ -350,15 +368,22 @@ function App({ t }) {
   const [variantBusy, setVariantBusy]           = useState(false);
   const [variantError, setVariantError]         = useState("");
 
-  // Photoshoot session state. Sources are the user's uploaded angle photos;
-  // each has a role: "packshot" | "lifestyle" | "skip". Backdrop is the
-  // locked cyclorama profile id. Result is { packshot[], lifestyle[], errors[] }.
-  const [shootSources, setShootSources] = useState([]);  // [{file, role, previewUrl, name}]
-  const [shootBackdrop, setShootBackdrop] = useState("cyclorama_warm");
-  const [shootLifestyleEnv, setShootLifestyleEnv] = useState("scandi");
-  const [shootResult, setShootResult] = useState(null);
+  // Fotosesja v2 = apply a shared set of colour+material PAIRS to MANY base
+  // photos. Sources are uploaded photos and/or picks from this session's gallery
+  // / server history. Each (source × pair) is an in-place recolor that keeps the
+  // source photo's exact angle + background and changes only colour/material.
+  const [shootSources, setShootSources] = useState([]);        // [{sid, kind:'upload'|'ref', file?, ref?, url, color?, material?}]
+  const [shootSourceTab, setShootSourceTab] = useState("session"); // grid picker: "session" | "history"
+  const [historyItems, setHistoryItems] = useState(null);      // null = not loaded yet, [] = loaded empty
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [shootPairs, setShootPairs] = useState([]);            // [{color, material}] shared across all sources
+  const [shootPairDraft, setShootPairDraft] = useState({ color: null, material: null });
+  const [shootGrid, setShootGrid] = useState(null);            // { sources:[{sid,...,variants}], total_cost }
+  const [shootRegen, setShootRegen] = useState({});            // { "<sid>|<color>|<material>": true } in-flight tiles
   const [shootBusy, setShootBusy] = useState(false);
   const [shootError, setShootError] = useState("");
+  const [shootProgress, setShootProgress] = useState(null);    // { done, total } while a grid run streams
+  const [shootElapsed, setShootElapsed] = useState(0);         // seconds, live while the grid streams
 
   const colorObj = useMemo(() => COLORS.find(c => c.id === st.color), [st.color]);
   const matObj   = useMemo(() => MATERIALS.find(m => m.id === st.mat), [st.mat]);
@@ -484,6 +509,15 @@ function App({ t }) {
     return () => clearInterval(id);
   }, [generating]);
 
+  // Live elapsed timer for the Fotosesja grid run (streamed, tiles fill in).
+  useEffect(() => {
+    if (!shootBusy) { setShootElapsed(0); return; }
+    const start = Date.now();
+    setShootElapsed(0);
+    const id = setInterval(() => setShootElapsed((Date.now() - start) / 1000), 250);
+    return () => clearInterval(id);
+  }, [shootBusy]);
+
   const handleGenerate = async () => {
     setGenError("");
     if (!apiKey.trim()) { setGenError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
@@ -570,7 +604,9 @@ function App({ t }) {
         setGenError(errorFromResponse(r, data));
       } else {
         setGallery(g => [
-          { url: data.image_url, color: colorObj?.hex || "#5C7A56", tag: "v" + (g.length + 1), cost: data.cost },
+          { url: data.image_url, generation_id: data.generation_id || null,
+            color: colorObj?.hex || "#5C7A56", material: matObj?.id || null,
+            tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
           ...g,
         ]);
         setActiveGallery(0);
@@ -617,75 +653,86 @@ function App({ t }) {
     return (anchorCost + variantCost * Math.max(0, variantColors.length - 1)).toFixed(3);
   }, [st.model, st.res, variantColors.length]);
 
-  // -------- Fotosesja (photoshoot session) handlers --------
-  const onShootPickFiles = (files) => {
+  // -------- Fotosesja v2 (variant grid from many base photos) handlers ------
+  const SID = () => "s" + Math.random().toString(36).slice(2, 10);
+
+  // Add uploaded base photos (capped at 8 sources total).
+  const addUploadSources = (files) => {
     const arr = Array.from(files || []);
     if (!arr.length) return;
     setShootSources(prev => {
       const next = [...prev];
-      arr.forEach((f, i) => {
-        // Default the first 6 to packshot, anything after to lifestyle.
-        const idx = next.length;
-        next.push({
-          file: f,
-          role: idx < 6 ? "packshot" : "lifestyle",
-          previewUrl: URL.createObjectURL(f),
-          name: f.name,
-        });
-      });
+      for (const f of arr) {
+        if (next.length >= 8) break;
+        next.push({ sid: SID(), kind: "upload", file: f, url: URL.createObjectURL(f), name: f.name });
+      }
       return next;
     });
   };
-
-  const setShootSourceRole = (i, role) => {
-    setShootSources(prev => prev.map((s, idx) => idx === i ? { ...s, role } : s));
-  };
-  const removeShootSource = (i) => {
+  // Add an existing render (from session gallery or server history) as a source.
+  const addRefSource = (it) => {
+    const ref = it.generation_id || (it.image_url || "").split("/").pop();
+    if (!ref) return;
     setShootSources(prev => {
-      const removed = prev[i];
-      if (removed?.previewUrl) try { URL.revokeObjectURL(removed.previewUrl); } catch {}
-      return prev.filter((_, idx) => idx !== i);
+      if (prev.some(s => s.kind === "ref" && s.ref === ref)) return prev;   // dedupe
+      if (prev.length >= 8) return prev;
+      return [...prev, { sid: "r_" + ref, kind: "ref", ref, url: it.image_url,
+                         color: it.color || null, material: it.material || null }];
+    });
+  };
+  const removeSource = (sid) => {
+    setShootSources(prev => {
+      const s = prev.find(x => x.sid === sid);
+      if (s?.kind === "upload" && s.url) { try { URL.revokeObjectURL(s.url); } catch {} }
+      return prev.filter(x => x.sid !== sid);
     });
   };
 
-  const shootCounts = useMemo(() => {
-    const p = shootSources.filter(s => s.role === "packshot").length;
-    const l = shootSources.filter(s => s.role === "lifestyle").length;
-    return { packshot: p, lifestyle: Math.min(l, 2), skipped: shootSources.filter(s => s.role === "skip").length, lifestyleExtra: Math.max(0, l - 2) };
-  }, [shootSources]);
+  // Lazy-load the server-side history of all past renders (across sessions).
+  const loadHistory = async () => {
+    setHistoryBusy(true);
+    try {
+      const r = await fetch("/api/history?limit=60");
+      const data = await r.json();
+      setHistoryItems(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      setHistoryItems([]);
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (shootSourceTab === "history" && historyItems === null && !historyBusy) loadHistory();
+    // eslint-disable-next-line
+  }, [shootSourceTab]);
 
-  const shootCost = useMemo(() => {
+  // Colour+material PAIR builder. The draft is one colour + one material;
+  // "Dodaj parę" appends it to the shared list applied to every source.
+  const addPair = () => {
+    const { color, material } = shootPairDraft;
+    if (!color || !material) return;
+    setShootPairs(prev => {
+      if (prev.some(p => p.color === color && p.material === material)) return prev;
+      if (prev.length >= 8) return prev;
+      return [...prev, { color, material }];
+    });
+  };
+  const removePair = (idx) => setShootPairs(prev => prev.filter((_, i) => i !== idx));
+
+  // Total renders = sources × pairs; each carries the source as a reference (1.15×).
+  const shootGridCost = useMemo(() => {
     const base = st.model.includes("pro") ? 0.12 : 0.067;
-    const r = (st.res || "").split(" ")[0];
-    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
-    // Packshot variants 2..N add ~15% for the swatch reference image; lifestyle variant 2 adds ~15% for scene ref.
-    const packshotAnchor = base * resMult;
-    const packshotVariant = base * 1.15 * resMult;
-    const lifestyleAnchor = base * resMult;
-    const lifestyleVariant = base * 1.15 * resMult;
-    const total = (
-      (shootCounts.packshot > 0 ? packshotAnchor : 0)
-      + packshotVariant * Math.max(0, shootCounts.packshot - 1)
-      + (shootCounts.lifestyle > 0 ? lifestyleAnchor : 0)
-      + lifestyleVariant * Math.max(0, shootCounts.lifestyle - 1)
-    );
-    return total.toFixed(3);
-  }, [st.model, st.res, shootCounts]);
+    const rr = (st.res || "").split(" ")[0];
+    const resMult = rr === "4K" ? 2.4 : rr === "2K" ? 1.6 : 1;
+    return (base * 1.15 * resMult * shootSources.length * shootPairs.length).toFixed(3);
+  }, [st.model, st.res, shootSources.length, shootPairs.length]);
 
-  const handleGenerateShoot = async () => {
-    setShootError("");
-    setShootResult(null);
-    if (!apiKey.trim()) { setShootError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
-    const usable = shootSources.filter(s => s.role !== "skip");
-    if (usable.length === 0) { setShootError(mkErr("Dodaj co najmniej jedno zdjęcie źródłowe.", "MISSING_SOURCES")); return; }
-    if (usable.length > 10) { setShootError(mkErr("Limit sesji: max 10 zdjęć źródłowych.", "TOO_MANY_SOURCES")); return; }
-
-    const fd = new FormData();
+  // Shared scene/model/output config sent with both grid + per-tile regen.
+  // Note: no `mat`/colour here — those come from the pairs (grid) or the tile (regen).
+  const appendShootConfig = (fd) => {
     fd.append("api_key", apiKey.trim());
     fd.append("kind", st.kind);
-    fd.append("color", st.color);
     fd.append("color_custom", st.colorCustom || "");
-    fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
     fd.append("legs", st.legs);
@@ -698,41 +745,165 @@ function App({ t }) {
     fd.append("height", st.height || "");
     fd.append("dof", st.dof || "");
     fd.append("detail_region", st.detailRegion || "");
-    fd.append("backdrop", shootBackdrop);
-    fd.append("lifestyle_env", shootLifestyleEnv);
-    fd.append("env_note", st.envNote || "");
+    if (st.kind === "bed") {
+      fd.append("bedding", st.bedding || "");
+      fd.append("bedding_custom", st.beddingCustom || "");
+      fd.append("throw", st.throw || "");
+      fd.append("tidy", st.tidy || "");
+      fd.append("density", st.density || "");
+      fd.append("accents", (st.accents || []).join(","));
+      fd.append("bed_note", st.bedNote || "");
+    }
     fd.append("model", st.model);
     fd.append("aspect", st.aspect);
     fd.append("res", st.res);
     fd.append("seed", st.seed || "");
     fd.append("output_format", st.outputFormat || "jpg");
     fd.append("output_quality", String(st.outputQuality || 82));
-    // Sources + roles arrays are positionally paired on the server side.
-    const roles = [];
+  };
+
+  const handleGenerateGrid = async () => {
+    setShootError("");
+    setShootGrid(null);
+    if (!apiKey.trim()) { setShootError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!shootSources.length) { setShootError(mkErr("Dodaj co najmniej 1 zdjęcie bazowe (wgraj lub wybierz z sesji/historii).", "MISSING_SOURCES")); return; }
+    if (!shootPairs.length) { setShootError(mkErr("Dodaj co najmniej 1 parę kolor + materiał.", "TOO_FEW_PAIRS")); return; }
+    if (shootSources.length * shootPairs.length > 48) { setShootError(mkErr("Za dużo renderów (limit 48). Zmniejsz liczbę zdjęć lub par.", "TOO_MANY_RENDERS")); return; }
+
+    // Snapshot the run so later edits to sources/pairs don't disturb it.
+    const runSources = shootSources.map(s => ({ sid: s.sid, source_kind: s.kind, source_ref: s.ref || null, source_url: s.url || null }));
+    const runPairs = shootPairs.map(p => ({ ...p }));
+
+    // Show the full grid skeleton immediately — every cell starts "pending" and
+    // fills in as its tile streams back.
+    setShootGrid({
+      total_cost: 0,
+      sources: runSources.map(s => ({ ...s, error: null,
+        variants: runPairs.map(p => ({ color: p.color, material: p.material, pending: true })) })),
+    });
+    setShootProgress({ done: 0, total: runSources.length * runPairs.length });
+
+    const fd = new FormData();
+    appendShootConfig(fd);
+    fd.append("pairs_json", JSON.stringify(runPairs));
+    const uploadSids = [], refList = [], refSids = [];
     for (const s of shootSources) {
-      if (s.role === "skip") continue;
-      // Cap lifestyle uses to 2 — the rest become packshot extras.
-      let r = s.role;
-      if (r === "lifestyle" && roles.filter(x => x === "lifestyle").length >= 2) r = "packshot";
-      fd.append("sources", s.file);
-      roles.push(r);
+      if (s.kind === "upload" && s.file) { fd.append("sources", s.file); uploadSids.push(s.sid); }
+      else if (s.kind === "ref" && s.ref) { refList.push(s.ref); refSids.push(s.sid); }
     }
-    fd.append("source_roles_csv", roles.join(","));
+    fd.append("upload_sids_csv", uploadSids.join(","));
+    fd.append("source_refs_csv", refList.join(","));
+    fd.append("ref_sids_csv", refSids.join(","));
+
+    // --- stream message handlers (NDJSON: meta → tile* → done) ---
+    const onMeta = (msg) => {
+      const errBySid = {};
+      (msg.sources || []).forEach(ms => { if (ms.error) errBySid[ms.sid] = ms.error; });
+      if (Object.keys(errBySid).length) {
+        setShootGrid(prev => prev ? ({ ...prev, sources: prev.sources.map(sg =>
+          errBySid[sg.sid] ? ({ ...sg, error: errBySid[sg.sid], variants: [] }) : sg) }) : prev);
+      }
+      if (typeof msg.total === "number") setShootProgress(p => p ? ({ ...p, total: msg.total }) : { done: 0, total: msg.total });
+    };
+    const onTile = (msg) => {
+      setShootGrid(prev => {
+        if (!prev) return prev;
+        const sources = prev.sources.map(sg => {
+          if (sg.sid !== msg.sid) return sg;
+          const variants = sg.variants.map(v =>
+            (v.color === msg.color && (v.material || "") === (msg.material || ""))
+              ? (msg.error
+                  ? { color: msg.color, material: msg.material, error: msg.error }
+                  : { color: msg.color, material: msg.material, image_url: msg.image_url, generation_id: msg.generation_id, cost: msg.cost })
+              : v);
+          return { ...sg, variants };
+        });
+        return { ...prev, sources, total_cost: (prev.total_cost || 0) + (msg.cost || 0) };
+      });
+      setShootProgress(p => p ? ({ ...p, done: p.done + 1 }) : p);
+      if (msg.image_url && msg.generation_id) {
+        setGallery(g => [{ url: msg.image_url, generation_id: msg.generation_id,
+          color: COLORS.find(c => c.id === msg.color)?.hex || null, material: msg.material || null,
+          tag: "fs", cost: msg.cost, ts: Date.now() }, ...g]);
+      }
+    };
+    const onDone = (msg) => {
+      if (typeof msg.total_cost === "number") setShootGrid(prev => prev ? ({ ...prev, total_cost: msg.total_cost }) : prev);
+    };
 
     setShootBusy(true);
     try {
-      const resp = await fetch("/api/generate-photoshoot", { method: "POST", body: fd });
-      let data = null;
-      try { data = await resp.json(); } catch { /* non-JSON body */ }
-      if (!resp.ok || !data || data.error) {
+      const resp = await fetch("/api/generate-variants", { method: "POST", body: fd });
+      if (!resp.ok || !resp.body) {
+        // Pre-flight validation error arrives as normal JSON before the stream.
+        let data = null; try { data = await resp.json(); } catch { /* non-JSON */ }
         setShootError(errorFromResponse(resp, data));
-      } else {
-        setShootResult(data);
+        setShootGrid(null);
+        return;
+      }
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let msg; try { msg = JSON.parse(line); } catch { continue; }
+          if (msg.type === "meta") onMeta(msg);
+          else if (msg.type === "tile") onTile(msg);
+          else if (msg.type === "done") onDone(msg);
+        }
       }
     } catch (e) {
       setShootError(errorFromException(e));
     } finally {
       setShootBusy(false);
+      setShootProgress(null);
+    }
+  };
+
+  // Re-render ONE tile (source × colour+material) — fixes a single bad render.
+  const regenerateTile = async (source, color, material) => {
+    if (!apiKey.trim()) { setShootError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    const key = source.sid + "|" + color + "|" + (material || "");
+    setShootRegen(prev => ({ ...prev, [key]: true }));
+    try {
+      const fd = new FormData();
+      appendShootConfig(fd);
+      fd.append("color", color);
+      fd.append("material", material || "boucle");
+      if (source.kind === "ref" && source.ref) fd.append("source_ref", source.ref);
+      else if (source.kind === "upload" && source.file) fd.append("source_image", source.file);
+      const resp = await fetch("/api/regenerate-variant", { method: "POST", body: fd });
+      let data = null;
+      try { data = await resp.json(); } catch { /* non-JSON */ }
+      if (resp.ok && data && !data.error && data.image_url) {
+        setShootGrid(prev => {
+          if (!prev) return prev;
+          const sources = prev.sources.map(sg => {
+            if (sg.sid !== source.sid) return sg;
+            const variants = sg.variants.map(v =>
+              (v.color === color && (v.material || "") === (material || ""))
+                ? { color, material, image_url: data.image_url, generation_id: data.generation_id, cost: data.cost }
+                : v);
+            return { ...sg, variants };
+          });
+          return { ...prev, sources };
+        });
+        if (data.generation_id) setGallery(g => [{ url: data.image_url, generation_id: data.generation_id,
+          color: COLORS.find(c => c.id === color)?.hex || null, material: material || null, tag: "fs", cost: data.cost, ts: Date.now() }, ...g]);
+      } else {
+        setShootError(errorFromResponse(resp, data));
+      }
+    } catch (e) {
+      setShootError(errorFromException(e));
+    } finally {
+      setShootRegen(prev => { const n = { ...prev }; delete n[key]; return n; });
     }
   };
 
@@ -795,6 +966,14 @@ function App({ t }) {
         setVariantError(errorFromResponse(r, data));
       } else {
         setVariantSet(data);
+        // Surface the whole set in the cross-tab gallery so any of these
+        // renders can later be picked as a Fotosesja anchor.
+        const fresh = [data.anchor, ...(data.variants || [])]
+          .filter(v => v && v.image_url && v.generation_id)
+          .map(v => ({ url: v.image_url, generation_id: v.generation_id,
+                       color: COLORS.find(c => c.id === v.color)?.hex || null,
+                       material: v.material || null, tag: "set", cost: v.cost, ts: Date.now() }));
+        if (fresh.length) setGallery(g => [...fresh, ...g]);
       }
     } catch (e) {
       setVariantError(errorFromException(e));
@@ -1207,280 +1386,305 @@ function App({ t }) {
           {stageTab === "photoshoot" && (
             <div className="stage-photoshoot" style={{
               position:"absolute", top: 100, left: 0, right: 0, bottom: 0,
-              display:"flex", flexDirection:"column", gap: 14,
+              display:"flex", flexDirection:"column", gap: 16,
               background:"var(--paper, #f4f0e5)",
               padding: "8px 24px 24px",
               overflow:"auto",
               zIndex: 2,
             }}>
-              {/* Locked-variant summary — show what's being applied to the whole session */}
+              {/* Purpose sub-header */}
               <div style={{
                 display:"flex", flexWrap:"wrap", alignItems:"baseline",
                 gap: "4px 10px", fontSize: 11,
-                color:"var(--ink-3)", fontFamily:"Geist Mono",
-                lineHeight: 1.5,
+                color:"var(--ink-3)", fontFamily:"Geist Mono", lineHeight: 1.5,
               }}>
-                <span style={{color:"var(--ink-4, #888)"}}>Wariant:</span>
-                <span><b style={{color:"var(--ink)"}}>{colorObj?.name || st.color}</b></span>
-                <span>· <b style={{color:"var(--ink)"}}>{matObj?.name || st.mat}</b></span>
-                <span>· {sizeObj?.name} ({sizeObj?.dim})</span>
-                <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
-                <span>· {st.aspect} · {(st.res || "").split(" ")[0]}</span>
+                <span style={{color:"var(--ink-4, #888)"}}>Warianty dla wielu zdjęć:</span>
+                <span>wgraj / wybierz zdjęcia → dodaj pary kolor+materiał → ten sam kąt i tło każdego zdjęcia</span>
               </div>
 
-              {/* Backdrop + lifestyle env pickers */}
-              <div style={{display:"grid", gridTemplateColumns: "1fr 1fr", gap: 10}}>
-                <div>
-                  <div style={{fontSize: 11, color:"var(--ink-3)", marginBottom: 4, fontFamily:"Geist Mono"}}>tło packshot (locked cyclorama)</div>
-                  <select className="select" value={shootBackdrop}
-                          onChange={e => setShootBackdrop(e.target.value)}
-                          disabled={shootBusy}
-                          style={{width:"100%"}}>
-                    <option value="cyclorama_warm">Cyklorama ciepła #F4F0E5 (catalog)</option>
-                    <option value="cyclorama_neutral">Cyklorama neutralna #FAFAFA (clean white)</option>
-                    <option value="cyclorama_grey">Cyklorama szara #DCDCDC (packshot grey)</option>
-                    <option value="cyclorama_transparent">Bez tła (alpha PNG)</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{fontSize: 11, color:"var(--ink-3)", marginBottom: 4, fontFamily:"Geist Mono"}}>scena lifestyle (1-2 zdjęć)</div>
-                  <select className="select" value={shootLifestyleEnv}
-                          onChange={e => setShootLifestyleEnv(e.target.value)}
-                          disabled={shootBusy}
-                          style={{width:"100%"}}>
-                    {ENVIRONMENTS.filter(e => !e.id.startsWith("cyclorama") && !["studio_white","studio_grey","transparent","custom"].includes(e.id)).map(e =>
-                      <option key={e.id} value={e.id}>{e.name}</option>
-                    )}
-                  </select>
-                </div>
-              </div>
-
-              {/* Upload zone + thumbnails */}
+              {/* ============ 1 — Zdjęcia bazowe (wiele) ============ */}
               <div>
-                <div style={{fontSize: 13, marginBottom: 4}}>Zdjęcia źródłowe (kąty kamery — dodaj 6-8, pierwsze 6 = packshot, ostatnie 1-2 = lifestyle)</div>
-                <div style={{fontSize: 10, marginBottom: 8, color:"var(--ink-3)", fontFamily:"Geist Mono"}}>
-                  <b style={{color:"var(--ink)"}}>Tło</b> = na cykloramie (packshot) ·
-                  <b style={{color:"var(--ink)"}}> Pokój</b> = wnętrze lifestyle (max 2) ·
-                  <b style={{color:"var(--ink)"}}> Pomiń</b> = nie używaj
+                <div style={{fontSize: 13, marginBottom: 6, display:"flex", alignItems:"center", gap: 10, flexWrap:"wrap"}}>
+                  <span>1 · Zdjęcia bazowe <span style={{color:"var(--ink-3)", fontFamily:"Geist Mono", fontSize: 11}}>({shootSources.length}/8)</span></span>
+                  <label style={{
+                    display:"inline-flex", alignItems:"center", gap: 6, cursor: shootBusy ? "not-allowed" : "pointer",
+                    fontSize: 11, fontFamily:"Geist Mono", padding:"4px 10px", borderRadius: 999,
+                    background:"var(--ink)", color:"var(--paper)", opacity: shootBusy || shootSources.length >= 8 ? 0.5 : 1,
+                  }}>
+                    <input type="file" accept="image/*" multiple style={{display:"none"}}
+                           disabled={shootBusy || shootSources.length >= 8}
+                           onChange={e => { addUploadSources(e.target.files); e.target.value = ""; }} />
+                    <span style={{display:"inline-flex"}}>{Ic.upload}</span> Wgraj
+                  </label>
                 </div>
-                <label style={{
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  padding: "16px 20px", border: "1px dashed rgba(0,0,0,.25)",
-                  borderRadius: 10, cursor: shootBusy ? "not-allowed" : "pointer",
-                  fontSize: 12, color:"var(--ink-3)",
-                  background:"rgba(255,255,255,.5)",
-                  opacity: shootBusy ? 0.6 : 1,
-                }}>
-                  <input type="file" accept="image/*" multiple style={{display:"none"}}
-                         disabled={shootBusy}
-                         onChange={e => onShootPickFiles(e.target.files)} />
-                  <span style={{display:"inline-flex", marginRight: 8}}>{Ic.upload}</span>
-                  Wybierz wiele zdjęć albo upuść tutaj
-                </label>
+
+                {/* selected sources */}
                 {shootSources.length > 0 && (
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(120px, 1fr))", gap: 8, marginTop: 8}}>
-                    {shootSources.map((s, i) => (
-                      <div key={i} style={{
-                        position:"relative",
-                        background:"#fff", borderRadius: 10, overflow:"hidden",
-                        border: "0.5px solid rgba(0,0,0,.1)",
-                      }}>
+                  <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(100px, 1fr))", gap: 8, marginBottom: 10}}>
+                    {shootSources.map(s => (
+                      <div key={s.sid} style={{position:"relative", background:"#fff", borderRadius: 10, overflow:"hidden", border:"1px solid var(--ink)"}}>
                         <div style={{aspectRatio:"1/1", background:"#f2f0e9"}}>
-                          <img src={s.previewUrl} alt={s.name}
-                               style={{width:"100%", height:"100%", objectFit:"cover"}} />
-                          <span style={{
-                            position:"absolute", top: 4, left: 4,
-                            background:"var(--ink)", color:"var(--paper)",
-                            fontSize: 9, padding: "1px 5px", borderRadius: 999,
-                            fontFamily:"Geist Mono",
-                          }}>v{i + 1}</span>
-                          <button onClick={() => removeShootSource(i)}
-                                  disabled={shootBusy}
-                                  style={{
-                                    position:"absolute", top: 4, right: 4,
-                                    width: 18, height: 18, borderRadius: 999,
-                                    background: "rgba(0,0,0,.5)", color:"#fff",
-                                    border: 0, cursor:"pointer", fontSize: 10, padding: 0, lineHeight: 1,
-                                  }} title="usuń">×</button>
-                        </div>
-                        <div style={{padding: "5px 6px"}}>
-                          <div style={{fontSize: 9, color:"var(--ink-3)", fontFamily:"Geist Mono",
-                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom: 3}}
-                               title={s.name}>{s.name}</div>
-                          <div style={{display:"flex", gap: 2}}>
-                            {[
-                              {id:"packshot", label:"Tło",   title:"Tło — wariant na cykloramie (packshot)"},
-                              {id:"lifestyle",label:"Pokój", title:"Pokój — wariant w wnętrzu lifestyle (max 2)"},
-                              {id:"skip",     label:"Pomiń", title:"Pomiń — nie używaj tego zdjęcia"},
-                            ].map(role => (
-                              <button key={role.id}
-                                      onClick={() => setShootSourceRole(i, role.id)}
-                                      disabled={shootBusy}
-                                      title={role.title}
-                                      style={{
-                                        flex: 1, padding: "3px 0",
-                                        fontSize: 10, fontFamily:"Geist Mono",
-                                        background: s.role === role.id ? "var(--ink)" : "rgba(0,0,0,.05)",
-                                        color: s.role === role.id ? "var(--paper)" : "var(--ink-3)",
-                                        border: 0, borderRadius: 4, cursor: "pointer",
-                                      }}>{role.label}</button>
-                            ))}
-                          </div>
+                          <img src={s.url} alt="" style={{width:"100%", height:"100%", objectFit:"cover"}} />
+                          <button onClick={() => removeSource(s.sid)} disabled={shootBusy} title="usuń"
+                            style={{position:"absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 999,
+                              background:"rgba(0,0,0,.55)", color:"#fff", border: 0, cursor:"pointer", fontSize: 11, lineHeight: 1, padding: 0}}>×</button>
+                          <span style={{position:"absolute", bottom: 4, left: 4, fontSize: 8, color:"rgba(255,255,255,.95)",
+                            textShadow:"0 1px 1px rgba(0,0,0,.5)", fontFamily:"Geist Mono"}}>{s.kind === "upload" ? "wgrane" : "render"}</span>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-                {shootCounts.lifestyleExtra > 0 && (
-                  <div style={{fontSize: 11, color: "#c0392b", marginTop: 6}}>
-                    Uwaga: tylko 2 pierwsze zdjęcia oznaczone „Pokój" zostaną wyrenderowane jako lifestyle; pozostałe {shootCounts.lifestyleExtra} → tło.
+
+                {/* picker: session / history */}
+                <div style={{display:"flex", alignItems:"center", gap: 8, marginBottom: 6}}>
+                  <span style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono"}}>albo dodaj z:</span>
+                  {[{id:"session", label:"Tej sesji"}, {id:"history", label:"Historii"}].map(tb => (
+                    <button key={tb.id} onClick={() => setShootSourceTab(tb.id)} disabled={shootBusy}
+                      style={{padding:"3px 10px", fontSize: 11, fontFamily:"Geist Mono", borderRadius: 999, border: 0, cursor:"pointer",
+                        background: shootSourceTab === tb.id ? "var(--ink)" : "rgba(0,0,0,.05)",
+                        color: shootSourceTab === tb.id ? "var(--paper)" : "var(--ink-3)"}}>{tb.label}</button>
+                  ))}
+                  {shootSourceTab === "history" && (
+                    <button onClick={loadHistory} disabled={historyBusy} title="odśwież"
+                      style={{padding:"3px 10px", fontSize: 11, fontFamily:"Geist Mono", borderRadius: 999, border: 0, cursor:"pointer", background:"rgba(0,0,0,.05)", color:"var(--ink-3)"}}>
+                      {historyBusy ? "…" : "odśwież"}</button>
+                  )}
+                </div>
+                {(() => {
+                  let items = [];
+                  if (shootSourceTab === "session") {
+                    items = (gallery || []).filter(g => g && g.url).map((g, i) => ({
+                      key: (g.generation_id || g.url) + "_" + i,
+                      ref: g.generation_id || (g.url || "").split("/").pop(),
+                      it: { generation_id: g.generation_id, image_url: g.url, color: null, material: g.material || null },
+                      label: g.tag || "",
+                    }));
+                  } else {
+                    items = (historyItems || []).map((h, i) => ({
+                      key: h.generation_id || (h.image_url + "_" + i),
+                      ref: h.generation_id || (h.image_url || "").split("/").pop(),
+                      it: { generation_id: h.generation_id, image_url: h.image_url, color: h.color || null, material: h.material || null },
+                      label: (h.model || "").includes("pro") ? "pro" : "flash",
+                    }));
+                  }
+                  if (shootSourceTab === "history" && historyItems === null) {
+                    return <div style={{fontSize: 12, color:"var(--ink-3)", padding:"6px 0"}}>{historyBusy ? "Ładuję historię…" : "—"}</div>;
+                  }
+                  if (!items.length) {
+                    return <div style={{fontSize: 12, color:"var(--ink-3)", padding:"6px 0"}}>
+                      {shootSourceTab === "session" ? "Brak renderów w tej sesji." : "Brak renderów w historii."}
+                    </div>;
+                  }
+                  return (
+                    <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(92px, 1fr))", gap: 8, maxHeight: 210, overflow:"auto", padding: 2}}>
+                      {items.map(item => {
+                        const added = shootSources.some(s => s.kind === "ref" && s.ref === item.ref);
+                        return (
+                          <button key={item.key} disabled={shootBusy || added || shootSources.length >= 8}
+                            onClick={() => addRefSource(item.it)} title={added ? "już dodane" : "dodaj"}
+                            style={{position:"relative", padding: 0, border: 0, cursor: added ? "default" : "pointer",
+                              borderRadius: 10, overflow:"hidden", aspectRatio:"1/1", background:"#f2f0e9",
+                              outline: added ? "2.5px solid var(--ink)" : "0.5px solid rgba(0,0,0,.15)",
+                              opacity: added ? 0.55 : 1}}>
+                            <img src={item.it.image_url} alt="" style={{width:"100%", height:"100%", objectFit:"cover"}} />
+                            <span style={{position:"absolute", top: 4, left: 4, background: added ? "var(--ink)" : "rgba(0,0,0,.5)", color:"#fff",
+                              fontSize: 9, padding:"1px 6px", borderRadius: 999, fontFamily:"Geist Mono"}}>{added ? "dodane" : "+"}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* ============ 2 — Pary kolor + materiał ============ */}
+              <div>
+                <div style={{fontSize: 13, marginBottom: 6}}>2 · Pary kolor + materiał <span style={{color:"var(--ink-3)", fontFamily:"Geist Mono", fontSize: 11}}>({shootPairs.length}/8) — stosowane do każdego zdjęcia</span></div>
+
+                {/* added pairs */}
+                {shootPairs.length > 0 && (
+                  <div style={{display:"flex", flexWrap:"wrap", gap: 6, marginBottom: 10}}>
+                    {shootPairs.map((p, idx) => {
+                      const cObj = COLORS.find(c => c.id === p.color);
+                      const mObj = MATERIALS.find(m => m.id === p.material);
+                      return (
+                        <span key={idx} style={{display:"inline-flex", alignItems:"center", gap: 6, padding:"5px 10px",
+                          borderRadius: 999, background:"var(--bg-1)", border:"1.5px solid var(--ink)", fontSize: 12}}>
+                          <span style={{width: 12, height: 12, borderRadius: 999, background: cObj?.hex || "#888", border:"0.5px solid rgba(0,0,0,.18)"}}></span>
+                          {cObj?.name || p.color} · {mObj?.name || p.material}
+                          <button onClick={() => removePair(idx)} disabled={shootBusy} title="usuń parę"
+                            style={{border: 0, background:"transparent", cursor:"pointer", color:"var(--ink-3)", fontSize: 13, lineHeight: 1, padding: 0, marginLeft: 2}}>×</button>
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
+
+                {/* draft builder: colour + material + add */}
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(64px, 1fr))", gap: 6, marginBottom: 8}}>
+                  {COLORS.map(c => {
+                    const sel = shootPairDraft.color === c.id;
+                    return (
+                      <button key={c.id} onClick={() => setShootPairDraft(d => ({ ...d, color: c.id }))} disabled={shootBusy}
+                        title={c.name}
+                        style={{position:"relative", padding: 0, border: 0, cursor:"pointer", borderRadius: 9, overflow:"hidden",
+                          aspectRatio:"1/1", background: c.hex,
+                          outline: sel ? "2.5px solid var(--ink)" : "0.5px solid rgba(0,0,0,.15)", outlineOffset: sel ? 1 : 0}}>
+                        <span style={{position:"absolute", bottom: 3, left: 3, right: 3, fontSize: 8, color:"rgba(255,255,255,.95)",
+                          textShadow:"0 1px 1px rgba(0,0,0,.4)", fontFamily:"Geist Mono", textAlign:"left"}}>{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex", flexWrap:"wrap", gap: 6, alignItems:"center"}}>
+                  {MATERIALS.map(m => {
+                    const sel = shootPairDraft.material === m.id;
+                    return (
+                      <button key={m.id} type="button" onClick={() => setShootPairDraft(d => ({ ...d, material: m.id }))} disabled={shootBusy}
+                        style={{padding:"6px 12px", borderRadius: 999, fontSize: 12.5, lineHeight: 1.2,
+                          border: sel ? "1.5px solid var(--ink)" : "1px solid var(--line-2)",
+                          background: sel ? "var(--bg-1)" : "transparent", cursor:"pointer", fontWeight: sel ? 600 : 400}}>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                  <button onClick={addPair} disabled={shootBusy || !shootPairDraft.color || !shootPairDraft.material || shootPairs.length >= 8}
+                    style={{marginLeft: 4, padding:"6px 14px", borderRadius: 999, border: 0, fontSize: 12, fontWeight: 600,
+                      background:"var(--ink)", color:"var(--paper)", cursor:"pointer",
+                      opacity: (!shootPairDraft.color || !shootPairDraft.material || shootPairs.length >= 8) ? 0.5 : 1}}>
+                    + Dodaj parę
+                  </button>
+                </div>
               </div>
 
-              {/* Submit row */}
-              <div style={{display:"flex", alignItems:"center", gap: 12, paddingTop: 4}}>
-                <button onClick={handleGenerateShoot}
-                        disabled={shootBusy || shootSources.length === 0}
-                        style={{
-                          display:"flex", alignItems:"center", gap: 10,
-                          padding: "11px 18px", borderRadius: 999,
-                          background: "var(--ink)", color: "var(--paper)",
-                          border: 0, cursor: shootBusy ? "wait" : "pointer",
-                          fontSize: 13, letterSpacing: "-0.005em",
-                          opacity: (shootSources.length === 0 || shootBusy) ? 0.5 : 1,
-                        }}>
+              {/* ============ Submit ============ */}
+              <div style={{display:"flex", alignItems:"center", gap: 12, paddingTop: 2}}>
+                <button onClick={handleGenerateGrid} disabled={shootBusy || !shootSources.length || !shootPairs.length}
+                  style={{display:"flex", alignItems:"center", gap: 10, padding:"11px 18px", borderRadius: 999,
+                    background:"var(--ink)", color:"var(--paper)", border: 0, cursor: shootBusy ? "wait" : "pointer",
+                    fontSize: 13, letterSpacing:"-0.005em",
+                    opacity: (!shootSources.length || !shootPairs.length || shootBusy) ? 0.5 : 1}}>
                   <span style={{display:"inline-flex"}}>{Ic.sparkle}</span>
-                  <span>{shootBusy ? "Generuję sesję…" : "Generuj fotosesję"}</span>
-                  <span style={{
-                    fontFamily:"Geist Mono", fontSize: 11,
-                    background:"rgba(255,255,255,.10)", padding:"3px 8px",
-                    borderRadius: 999, color:"rgba(255,255,255,.75)",
-                  }}>{shootCounts.packshot} tło + {shootCounts.lifestyle} pokój · ${shootCost}</span>
+                  <span>{shootBusy ? "Generuję…" : "Generuj warianty"}</span>
+                  <span style={{fontFamily:"Geist Mono", fontSize: 11, background:"rgba(255,255,255,.10)", padding:"3px 8px", borderRadius: 999, color:"rgba(255,255,255,.75)"}}>
+                    {shootSources.length}×{shootPairs.length} = {shootSources.length * shootPairs.length} · ${shootGridCost}
+                  </span>
                 </button>
-                {shootError && (
-                  <ErrorCard info={shootError} onRetry={handleGenerateShoot} onFixKey={() => setShowKeyEdit(true)} compact />
-                )}
+                {shootError && <ErrorCard info={shootError} onRetry={handleGenerateGrid} onFixKey={() => setShowKeyEdit(true)} compact />}
               </div>
 
-              {shootBusy && (
-                <div style={{display:"flex", alignItems:"center", gap: 10, padding: 10,
-                              background:"rgba(0,0,0,.04)", borderRadius: 10, fontSize: 12}}>
-                  <span className="ico">{Ic.sparkle}</span>
-                  <span>
-                    Pass A: każdy packshot solo z lockedym tłem (cyklorama ref) · Pass B: lifestyle anchor + scene-ref dla 2. shot
-                  </span>
+              {/* Live progress bar — fills as tiles stream back */}
+              {shootProgress && (
+                <div style={{display:"flex", flexDirection:"column", gap: 8, padding: 12, background:"rgba(0,0,0,.04)", borderRadius: 10}}>
+                  <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap: 10, fontSize: 12}}>
+                    <span style={{display:"flex", alignItems:"center", gap: 8}}>
+                      <span className="ico">{Ic.sparkle}</span>
+                      {shootBusy
+                        ? "Generuję warianty — pierwsze efekty pojawiają się na bieżąco, daj mi chwilę…"
+                        : "Gotowe"}
+                    </span>
+                    <span style={{fontFamily:"Geist Mono", color:"var(--ink-3)"}}>
+                      {shootProgress.done}/{shootProgress.total} gotowe · {Math.floor(shootElapsed)}s
+                    </span>
+                  </div>
+                  <div style={{height: 6, borderRadius: 999, background:"rgba(0,0,0,.08)", overflow:"hidden"}}>
+                    <div style={{height:"100%", borderRadius: 999, background:"var(--ink)",
+                      width: (shootProgress.total ? Math.round(100 * shootProgress.done / shootProgress.total) : 0) + "%",
+                      transition:"width .3s ease"}}></div>
+                  </div>
                 </div>
               )}
 
-              {shootResult && (
-                <div style={{display:"flex", flexDirection:"column", gap: 14}}>
-                  <div style={{fontSize: 12, color:"var(--ink-3)"}}>
-                    Sesja gotowa · ${shootResult.total_cost?.toFixed(3)} łącznie
-                    {shootResult.errors?.length > 0 && ` · ${shootResult.errors.length} błędów`}
-                  </div>
-
-                  {shootResult.packshot?.length > 0 && (
-                    <div>
-                      <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
-                        TŁO / CYKLORAMA ({shootResult.packshot.length}) — każdy ze swojego kąta źródłowego, wspólne tło z referencji
-                      </div>
-                      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap: 10}}>
-                        {shootResult.packshot.map((r, i) => {
-                          const slug = [st.color, st.mat, shootBackdrop].filter(Boolean).join("-");
-                          const ext = (r.image_url.split(".").pop() || "png").split("?")[0];
-                          const dlName = `nano-sofa-${r.label}-${slug}.${ext}`;
-                          return (
-                            <div key={i} style={{
-                              display:"flex", flexDirection:"column",
-                              background:"#fff", borderRadius: 10, overflow:"hidden",
-                              border: "0.5px solid rgba(0,0,0,.08)",
-                            }}>
-                              <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative"}}>
-                                <img src={r.image_url} alt={r.label}
-                                     style={{position:"absolute", inset: 0, width:"100%", height:"100%", objectFit:"cover"}} />
-                                {r.anchor && (
-                                  <span style={{position:"absolute", top: 6, left: 6,
-                                                background:"var(--ink)", color:"var(--paper)",
-                                                fontSize: 9, padding: "2px 6px", borderRadius: 999,
-                                                fontFamily:"Geist Mono"}}>anchor</span>
-                                )}
-                              </div>
-                              <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-                                <span style={{fontSize: 11, fontFamily:"Geist Mono"}}>{r.label}</span>
-                                <a href={r.image_url} download={dlName}
-                                   style={{display:"inline-flex", alignItems:"center", gap: 4,
-                                           fontSize: 10, fontFamily:"Geist Mono",
-                                           color:"var(--ink)", textDecoration:"none",
-                                           padding:"3px 7px", borderRadius: 999, background:"rgba(0,0,0,.04)"}}>
-                                  <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
-                                  PNG
-                                </a>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {shootResult.lifestyle?.length > 0 && (
-                    <div>
-                      <div style={{fontSize: 11, color:"var(--ink-3)", fontFamily:"Geist Mono", marginBottom: 6}}>
-                        POKÓJ / LIFESTYLE ({shootResult.lifestyle.length}) — wspólne wnętrze, drugi shot dziedziczy scenę z anchora
-                      </div>
-                      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px, 1fr))", gap: 10}}>
-                        {shootResult.lifestyle.map((r, i) => {
-                          const slug = [st.color, st.mat, shootLifestyleEnv].filter(Boolean).join("-");
-                          const ext = (r.image_url.split(".").pop() || "png").split("?")[0];
-                          const dlName = `nano-sofa-${r.label}-lifestyle-${slug}.${ext}`;
-                          return (
-                            <div key={i} style={{
-                              display:"flex", flexDirection:"column",
-                              background:"#fff", borderRadius: 10, overflow:"hidden",
-                              border: "0.5px solid rgba(0,0,0,.08)",
-                            }}>
-                              <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative"}}>
-                                <img src={r.image_url} alt={r.label}
-                                     style={{position:"absolute", inset: 0, width:"100%", height:"100%", objectFit:"cover"}} />
-                                {r.anchor && (
-                                  <span style={{position:"absolute", top: 6, left: 6,
-                                                background:"var(--ink)", color:"var(--paper)",
-                                                fontSize: 9, padding: "2px 6px", borderRadius: 999,
-                                                fontFamily:"Geist Mono"}}>anchor</span>
-                                )}
-                              </div>
-                              <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-                                <span style={{fontSize: 11, fontFamily:"Geist Mono"}}>{r.label}</span>
-                                <a href={r.image_url} download={dlName}
-                                   style={{display:"inline-flex", alignItems:"center", gap: 4,
-                                           fontSize: 10, fontFamily:"Geist Mono",
-                                           color:"var(--ink)", textDecoration:"none",
-                                           padding:"3px 7px", borderRadius: 999, background:"rgba(0,0,0,.04)"}}>
-                                  <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
-                                  PNG
-                                </a>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {shootResult.errors?.length > 0 && (
-                    <div>
-                      <div style={{fontSize: 11, color:"#c0392b", fontFamily:"Geist Mono", marginBottom: 6}}>BŁĘDY</div>
-                      <div style={{display:"flex", flexDirection:"column", gap: 4}}>
-                        {shootResult.errors.map((e, i) => (
-                          <div key={i} style={{fontSize: 11, color:"#c0392b", padding: "6px 10px",
-                                               background:"rgba(192,57,43,.08)", borderRadius: 6}}>
-                            <b>{e.label}</b> ({e.role}{e.source_filename ? `, ${e.source_filename}` : ""}): {e.error}
+              {/* ============ Wyniki — pogrupowane po zdjęciu ============ */}
+              {shootGrid && (
+                <div style={{display:"flex", flexDirection:"column", gap: 18}}>
+                  {!shootBusy && <div style={{fontSize: 12, color:"var(--ink-3)"}}>Gotowe · ${shootGrid.total_cost?.toFixed(3)} łącznie</div>}
+                  {shootGrid.sources.map(group => {
+                    const src = shootSources.find(s => s.sid === group.sid);
+                    return (
+                      <div key={group.sid} style={{display:"flex", flexDirection:"column", gap: 8}}>
+                        <div style={{display:"flex", alignItems:"center", gap: 10}}>
+                          <div style={{width: 44, height: 44, borderRadius: 8, overflow:"hidden", background:"#f2f0e9", flexShrink: 0, border:"0.5px solid rgba(0,0,0,.12)"}}>
+                            {(src?.url || group.source_url) && <img src={src?.url || group.source_url} alt="" style={{width:"100%", height:"100%", objectFit:"cover"}} />}
                           </div>
-                        ))}
+                          <div style={{fontSize: 11, fontFamily:"Geist Mono", color:"var(--ink-3)"}}>
+                            {group.source_kind === "upload" ? "Wgrane zdjęcie" : "Render"}
+                            {group.error && <span style={{color:"#c0392b"}}> · {group.error}</span>}
+                          </div>
+                        </div>
+                        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(170px, 1fr))", gap: 10}}>
+                          {(group.variants || []).map((v, i) => {
+                            const cObj = COLORS.find(c => c.id === v.color);
+                            const vMatObj = MATERIALS.find(m => m.id === v.material);
+                            const regenKey = group.sid + "|" + v.color + "|" + (v.material || "");
+                            const regening = !!shootRegen[regenKey];
+                            const RegenBtn = (
+                              <button onClick={() => src && regenerateTile(src, v.color, v.material)} disabled={regening || !src}
+                                title="Wygeneruj ten kafelek ponownie"
+                                style={{display:"inline-flex", alignItems:"center", gap: 4, fontSize: 10, fontFamily:"Geist Mono",
+                                  color:"var(--ink)", border: 0, cursor: regening ? "wait" : "pointer", padding:"3px 7px",
+                                  borderRadius: 999, background:"rgba(0,0,0,.06)"}}>
+                                {regening ? "…" : "↻"} regeneruj
+                              </button>
+                            );
+                            if (v.pending) {
+                              return (
+                                <div key={i} style={{display:"flex", flexDirection:"column", gap: 6, background:"#fff", borderRadius: 10, overflow:"hidden", border:"0.5px solid rgba(0,0,0,.08)"}}>
+                                  <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative", display:"flex", alignItems:"center", justifyContent:"center"}}>
+                                    <span className="ico" style={{opacity: .45}}>{Ic.sparkle}</span>
+                                  </div>
+                                  <div style={{padding:"6px 10px", display:"flex", alignItems:"center", gap: 6}}>
+                                    <span style={{width: 12, height: 12, borderRadius: 999, flexShrink: 0, background: cObj?.hex || "#888", border:"0.5px solid rgba(0,0,0,.18)"}}></span>
+                                    <span style={{fontSize: 11, fontFamily:"Geist", color:"var(--ink-3)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                                      {cObj?.name || v.color}<span style={{marginLeft: 4}}>· {vMatObj?.name || v.material} · renderuję…</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            if (v.error) {
+                              return (
+                                <div key={i} style={{padding: 10, borderRadius: 10, fontSize: 11, background:"rgba(192,57,43,.08)", color:"#c0392b",
+                                  display:"flex", flexDirection:"column", gap: 6}}>
+                                  <div style={{fontWeight: 600}}>{cObj?.name || v.color} · {vMatObj?.name || v.material}</div>
+                                  <div>{v.error}</div>
+                                  <div>{RegenBtn}</div>
+                                </div>
+                              );
+                            }
+                            const slug = [v.color, v.material].filter(Boolean).join("-");
+                            const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
+                            const dlName = `nano-sofa-${slug}.${ext}`;
+                            return (
+                              <div key={i} style={{display:"flex", flexDirection:"column", gap: 6, background:"#fff", borderRadius: 10, overflow:"hidden", border:"0.5px solid rgba(0,0,0,.08)"}}>
+                                <div style={{aspectRatio:"4/3", background:"#f2f0e9", position:"relative", opacity: regening ? 0.5 : 1}}>
+                                  <img src={v.image_url} alt={v.color} style={{position:"absolute", inset: 0, width:"100%", height:"100%", objectFit:"cover"}} />
+                                </div>
+                                <div style={{padding:"6px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", gap: 6}}>
+                                  <div style={{display:"flex", alignItems:"center", gap: 6, minWidth: 0, flex: 1}}>
+                                    <span style={{width: 12, height: 12, borderRadius: 999, flexShrink: 0, background: cObj?.hex || "#888", border:"0.5px solid rgba(0,0,0,.18)"}}></span>
+                                    <span style={{fontSize: 11, fontFamily:"Geist", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                                      {cObj?.name || v.color}<span style={{color:"var(--ink-3)", marginLeft: 4}}>· {vMatObj?.name || v.material}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                                <div style={{padding:"0 10px 8px", display:"flex", alignItems:"center", justifyContent:"space-between", gap: 6}}>
+                                  {RegenBtn}
+                                  <a href={v.image_url} download={dlName} title={"Pobierz " + ext.toUpperCase()}
+                                    style={{display:"inline-flex", alignItems:"center", gap: 4, fontSize: 10, fontFamily:"Geist Mono",
+                                      color:"var(--ink)", textDecoration:"none", padding:"3px 7px", borderRadius: 999, background:"rgba(0,0,0,.04)"}}>
+                                    <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
+                                    {ext.toUpperCase()}
+                                  </a>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })}
                 </div>
               )}
             </div>
