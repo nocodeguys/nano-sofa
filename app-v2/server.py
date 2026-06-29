@@ -60,20 +60,25 @@ logger = logging.getLogger("nano-sofa-v2")
 # Mappings: React state → GenerationRequest
 # ---------------------------------------------------------------------------
 
-# Polish color name (from data.jsx COLORS) → English term the prompt uses.
+# Color group id (from data.jsx COLORS / Generator AI matrix) → English term
+# the prompt uses. Kept as a short adjective phrase so it slots into the
+# "{upholstery_color} {upholstery_material}" clause in generator.py.
 _COLOR_PL_TO_EN = {
-    "saliw": "sage green",
-    "ecru": "ecru off-white",
-    "carmel": "warm caramel brown",
-    "graphi": "graphite charcoal",
-    "rust": "rust orange",
-    "cream": "cream",
-    "navy": "deep navy blue",
-    "moos": "moss green",
-    "rose": "dusty powder pink",
-    "stone": "warm stone beige",
-    "choc": "chocolate brown",
-    "blush": "peach blush",
+    "cream": "soft creamy off-white",
+    "sand": "light sandy beige",
+    "greige": "neutral greige",
+    "cappuc": "warm cappuccino beige",
+    "taupe": "medium taupe grey-brown",
+    "carmel": "warm caramel walnut brown",
+    "choc": "dark chocolate brown",
+    "ash": "light ash grey",
+    "steel": "medium steel grey",
+    "graphi": "dark graphite grey",
+    "olive": "muted olive sage green",
+    "forest": "deep bottle green",
+    "rose": "dusty muted pink",
+    "bluesteel": "muted steel blue",
+    "black": "deep solid black",
 }
 
 _MATERIAL_PL_TO_EN = {
@@ -1166,7 +1171,7 @@ def _prune_storage() -> None:
 async def api_generate(
     api_key: str = Form(""),
     kind: str = Form("sofa"),
-    color: str = Form("saliw"),
+    color: str = Form("cream"),
     color_custom: str = Form(""),
     mat: str = Form("boucle"),
     mat_notes: str = Form(""),

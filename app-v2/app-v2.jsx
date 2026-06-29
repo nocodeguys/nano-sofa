@@ -206,7 +206,7 @@ function App({ t }) {
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
     alpha: false, kind: "sofa",
-    color: "saliw", colorCustom: "",
+    color: "cream", colorCustom: "",
     mat: "boucle", matNotes: "",
     size: "3",
     legs: "keep",
@@ -605,7 +605,7 @@ function App({ t }) {
       } else {
         setGallery(g => [
           { url: data.image_url, generation_id: data.generation_id || null,
-            color: colorObj?.hex || "#5C7A56", material: matObj?.id || null,
+            color: colorObj?.hex || "#E7E0D6", material: matObj?.id || null,
             tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
           ...g,
         ]);

@@ -30,7 +30,7 @@ function App() {
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
     alpha: false, kind: "sofa",
-    color: "saliw", colorCustom: "",
+    color: "cream", colorCustom: "",
     mat: "boucle", matNotes: "",
     size: "3",
     legs: "keep",
@@ -197,7 +197,7 @@ function App() {
         <div className="stepper-foot">
           <div style={{fontSize: 11, color: "var(--ink-3)", letterSpacing:"0.06em", textTransform:"uppercase"}}>Szybkie presety</div>
           <div className="preset-row">
-            <button className="preset-pill" onClick={() => set({color:"saliw", mat:"boucle", cam:"studio"})}>katalog ↗</button>
+            <button className="preset-pill" onClick={() => set({color:"cream", mat:"boucle", cam:"studio"})}>katalog ↗</button>
             <button className="preset-pill" onClick={() => set({color:"carmel", mat:"velvet", cam:"lounge"})}>lifestyle ↗</button>
             <button className="preset-pill" onClick={() => set({color:"cream", mat:"linen", cam:"loft"})}>skandyn. ↗</button>
           </div>

@@ -4,19 +4,24 @@ const { useState, useMemo, useEffect, useCallback } = React;
 /* ======================================================
    Data — colors, materials, sizes, cameras, legs
    ====================================================== */
+// Matryca kolorów tkanin TreeTale (Generator AI). Każda grupa ma reprezentatywny
+// HEX i mapuje się na angielski termin promptu w server.py (_COLOR_PL_TO_EN).
 const COLORS = [
-  { id: "saliw",   name: "szałwiowy",     hex: "#6F8C68", fabric: true },
-  { id: "ecru",    name: "ecru",          hex: "#E4DBC6", fabric: true },
-  { id: "carmel",  name: "karmelowy",     hex: "#9B7048", fabric: true },
-  { id: "graphi",  name: "grafitowy",     hex: "#3B3D3F", fabric: true },
-  { id: "rust",    name: "rdzawy",        hex: "#A85B36", fabric: true },
-  { id: "cream",   name: "kremowy",       hex: "#F2E8D2", fabric: true },
-  { id: "navy",    name: "granatowy",     hex: "#2A3A52", fabric: true },
-  { id: "moos",    name: "mech",          hex: "#4F6440", fabric: true },
-  { id: "rose",    name: "pudrowy róż",   hex: "#D6B4A8", fabric: true },
-  { id: "stone",   name: "kamień",        hex: "#8E8773", fabric: true },
-  { id: "choc",    name: "czekolada",     hex: "#4D352A", fabric: true },
-  { id: "blush",   name: "morela",        hex: "#D69874", fabric: true },
+  { id: "cream",     name: "śmietankowy",     hex: "#E7E0D6", fabric: true },
+  { id: "sand",      name: "piaskowy beż",    hex: "#D9D4CD", fabric: true },
+  { id: "greige",    name: "greige",          hex: "#C3BEB6", fabric: true },
+  { id: "cappuc",    name: "cappuccino",      hex: "#B4A799", fabric: true },
+  { id: "taupe",     name: "taupe",           hex: "#938A83", fabric: true },
+  { id: "carmel",    name: "karmelowy",       hex: "#9F693D", fabric: true },
+  { id: "choc",      name: "czekoladowy",     hex: "#4E3E2F", fabric: true },
+  { id: "ash",       name: "popielaty",       hex: "#BCBCBC", fabric: true },
+  { id: "steel",     name: "stalowy szary",   hex: "#908F8B", fabric: true },
+  { id: "graphi",    name: "grafitowy",       hex: "#656F70", fabric: true },
+  { id: "olive",     name: "oliwkowy",        hex: "#6A7763", fabric: true },
+  { id: "forest",    name: "butelkowa zieleń",hex: "#2E3B2C", fabric: true },
+  { id: "rose",      name: "brudny róż",      hex: "#D4BABA", fabric: true },
+  { id: "bluesteel", name: "stalowy błękit",  hex: "#8A979D", fabric: true },
+  { id: "black",     name: "czarny",          hex: "#17161A", fabric: true },
 ];
 
 const MATERIALS = [
