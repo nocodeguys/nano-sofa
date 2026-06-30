@@ -150,17 +150,29 @@ function App() {
         </div>
         <div style={{display:"flex", alignItems:"center", gap: 8}}>
           {showKeyEdit ? (
-            <input
-              autoFocus
-              type="password"
-              className="input"
-              placeholder="AIza..."
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              onBlur={() => setShowKeyEdit(false)}
-              onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setShowKeyEdit(false); }}
-              style={{width: 280, padding: "8px 12px", fontSize: 12, fontFamily: "Geist Mono"}}
-            />
+            <div style={{display:"flex", gap:6, alignItems:"center"}}>
+              <input
+                autoFocus
+                type="password"
+                className="input"
+                placeholder="AIza... (wklej nowy klucz)"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                onFocus={e => e.target.select()}
+                onBlur={() => setShowKeyEdit(false)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setShowKeyEdit(false); }}
+                style={{width: 250, padding: "8px 12px", fontSize: 12, fontFamily: "Geist Mono"}}
+              />
+              {apiKey && (
+                <button
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setApiKey(""); try { localStorage.removeItem(API_KEY_STORAGE); } catch {} }}
+                  title="usuń zapisany klucz, żeby wpisać nowy"
+                  style={{padding:"8px 10px", fontSize: 11, fontFamily:"Geist Mono", cursor:"pointer", whiteSpace:"nowrap", borderRadius: 6, border:"1px solid rgba(0,0,0,.15)", background:"#fff"}}
+                >wyczyść</button>
+              )}
+            </div>
           ) : (
             <button className="api-status" onClick={() => setShowKeyEdit(true)} title="kliknij aby wkleić / zmienić klucz">
               <span className={"dot " + (apiKey ? "" : "off")}></span>

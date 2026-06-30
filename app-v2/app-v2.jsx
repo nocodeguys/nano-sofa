@@ -991,17 +991,29 @@ function App({ t }) {
           <span className="name">Nano Sofa <span className="light">studio</span></span>
         </div>
         {showKeyEdit ? (
-          <input
-            autoFocus
-            type="password"
-            className="input"
-            placeholder="AIza..."
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            onBlur={() => setShowKeyEdit(false)}
-            onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setShowKeyEdit(false); }}
-            style={{position:"absolute", top:18, right:18, width: 260, padding: "6px 10px", fontSize: 12, fontFamily: "Geist Mono"}}
-          />
+          <div style={{position:"absolute", top:18, right:18, display:"flex", gap:6, alignItems:"center"}}>
+            <input
+              autoFocus
+              type="password"
+              className="input"
+              placeholder="AIza... (wklej nowy klucz)"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              onFocus={e => e.target.select()}
+              onBlur={() => setShowKeyEdit(false)}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setShowKeyEdit(false); }}
+              style={{width: 230, padding: "6px 10px", fontSize: 12, fontFamily: "Geist Mono"}}
+            />
+            {apiKey && (
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => { setApiKey(""); try { localStorage.removeItem(API_KEY_STORAGE); } catch {} }}
+                title="usuń zapisany klucz, żeby wpisać nowy"
+                style={{padding:"6px 9px", fontSize: 11, fontFamily:"Geist Mono", cursor:"pointer", whiteSpace:"nowrap", borderRadius: 6, border:"1px solid rgba(0,0,0,.15)", background:"#fff"}}
+              >wyczyść</button>
+            )}
+          </div>
         ) : (
           <div className="stage-status" onClick={() => setShowKeyEdit(true)} style={{cursor:"pointer"}} title="kliknij aby wkleić / zmienić klucz">
             <span className="dot" style={apiKey ? {} : {background:"#B5663A"}}></span>
