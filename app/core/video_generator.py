@@ -90,7 +90,27 @@ VIDEO_MODELS: list[dict[str, Any]] = [
         "audio": True,
         "notes": "Najtańszy, do dużej ilości materiału. Bez 4K.",
     },
+    {
+        # EXPERIMENTAL — a different engine (Interactions API / client.interactions,
+        # NOT generate_videos). Editing-first, 720p-only, accepts an input image.
+        "id": "gemini-omni-flash-preview",
+        "label": "Gemini Omni Flash",
+        "tier": "omni",
+        "engine": "omni",
+        "experimental": True,
+        "price_per_second_usd": 0.05,
+        "price_by_resolution": {"720p": 0.05},
+        "resolutions": ["720p"],
+        "aspect_ratios": ["16:9", "9:16"],
+        "durations_seconds": [],   # Omni decides the clip length; no duration control
+        "audio": True,
+        "notes": "Eksperymentalny · 720p · szybki, konwersacyjny. Obsługuje obraz wejściowy.",
+    },
 ]
+
+# Veo models drive the generate_videos long-running API; Omni uses Interactions.
+for _m in VIDEO_MODELS:
+    _m.setdefault("engine", "veo")
 
 # 1080p and 4k are only produced at 16:9 / 8 s (portrait 9:16 is 720p-only).
 # Enforced server-side in _validate() and mirrored in the UI so the user can't
@@ -147,8 +167,11 @@ def list_video_models(api_key: str = "") -> dict[str, Any]:
                 available.add(name)
         if not available:
             return base
-        # Keep curated order; match by exact id, tolerating a "models/" prefix.
-        filtered = [m for m in VIDEO_MODELS if m["id"] in available]
+        # Keep curated order; match by exact id. Experimental / Omni models are
+        # kept regardless — they live on the Interactions API and may not appear
+        # in models.list(), but the user explicitly opted into trying them.
+        filtered = [m for m in VIDEO_MODELS
+                    if m["id"] in available or m.get("experimental") or m.get("engine") == "omni"]
         if not filtered:
             # The account has models but none of our curated ids surfaced (e.g.
             # list() doesn't enumerate preview video models). Don't hide the tab.
@@ -171,11 +194,14 @@ class VideoRequest:
     negative_prompt: str = ""
     # Native audio is always on for Veo 3.1 (kept for forward-compat / API req).
     generate_audio: bool = True
-    # "allow_adult" is the Gemini API default and the only value accepted in
-    # EU/UK/CH/MENA — safe everywhere (allows adult humans, blocks minors).
-    # "allow_all" would be rejected in those regions, so we don't default to it.
-    person_generation: str = "allow_adult"
+    # Empty = DON'T send person_generation; let the API apply its per-mode default
+    # (text-to-video wants "allow_all", image-to-video "allow_adult"). Sending the
+    # wrong value for the mode causes a 400 INVALID_ARGUMENT, so omitting is safest.
+    person_generation: str = ""
     seed: Optional[int] = None
+    # Optional first-frame / reference image (image-to-video). Raw bytes + mime.
+    image_bytes: Optional[bytes] = None
+    image_mime: str = "image/png"
 
 
 @dataclass
@@ -189,6 +215,7 @@ class VideoResult:
     resolution: str = ""
     aspect_ratio: str = ""
     audio: bool = False
+    engine: str = "veo"
     estimated_cost_usd: float = 0.0
     error_message: str = ""
     error_code: str = ""
@@ -236,6 +263,9 @@ def _validate(req: VideoRequest) -> Optional[VideoResult]:
             f"Model {m['label']} nie obsługuje proporcji {req.aspect_ratio}.",
             "aspect ratio not supported by model",
         )
+    # Omni sets its own clip length and has no HD/duration matrix — stop here.
+    if m.get("engine") == "omni":
+        return None
     if req.duration_seconds not in m["durations_seconds"]:
         allowed = ", ".join(f"{d}s" for d in m["durations_seconds"])
         return bad(
@@ -274,11 +304,112 @@ def _operation_error(op: Any) -> Optional[VideoResult]:
     )
 
 
+def _generate_omni(req: "VideoRequest", client: Any, gtypes: Any, model: dict) -> "VideoResult":
+    """
+    EXPERIMENTAL — Gemini Omni Flash via the Interactions API (client.interactions),
+    a different surface from Veo's generate_videos. Text (+ optional input image)
+    → one 720p clip. Video bytes come back base64-encoded in a VideoContent step
+    (or as a uri to download). Untested against a live key; fails soft.
+    """
+    import base64
+
+    def fail(msg_pl: str, code: str, detail: str = "", retry: bool = False, status: int = 502) -> VideoResult:
+        return VideoResult(
+            success=False, model_id=req.model_id, prompt=req.prompt, engine="omni",
+            error_message=msg_pl, error_code=code, error_detail=detail,
+            retryable=retry, http_status=status,
+        )
+
+    # Multimodal input: prompt text (+ aspect hint, since the SDK can't set aspect
+    # on Omni directly) and an optional base64 input image.
+    text = req.prompt.strip()
+    if req.aspect_ratio:
+        text += f"\n\n(Preferowane proporcje kadru: {req.aspect_ratio}.)"
+    parts: list = [{"type": "text", "text": text}]
+    if req.image_bytes:
+        parts.append({
+            "type": "image",
+            "data": base64.b64encode(req.image_bytes).decode("ascii"),
+            "mime_type": req.image_mime or "image/png",
+        })
+
+    try:
+        interaction = client.interactions.create(
+            model=req.model_id,
+            input=parts,
+            response_modalities=["video"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        info = classify_exception(exc)
+        logger.warning("Omni create failed: %s (%s)", info.error_code, exc)
+        return fail(info.message_pl, info.error_code, str(exc), info.retryable, info.http_status)
+
+    terminal = {"completed", "failed", "cancelled", "incomplete"}
+    waited = 0.0
+    try:
+        while getattr(interaction, "status", "") not in terminal:
+            if waited >= _MAX_WAIT_S:
+                return fail("Generowanie Omni trwało zbyt długo. Spróbuj ponownie.",
+                            "NETWORK_TIMEOUT", "omni poll timeout", True, 504)
+            time.sleep(_POLL_INTERVAL_S)
+            waited += _POLL_INTERVAL_S
+            interaction = client.interactions.get(interaction.id)
+    except Exception as exc:  # noqa: BLE001
+        info = classify_exception(exc)
+        return fail(info.message_pl, info.error_code, str(exc), info.retryable, info.http_status)
+
+    status = getattr(interaction, "status", "")
+    if status != "completed":
+        failed = status == "failed"
+        return fail(f"Omni nie ukończyło generowania (status: {status}).",
+                    "UPSTREAM_ERROR" if failed else "SAFETY_NO_IMAGE",
+                    f"omni status={status}", failed, 502 if failed else 422)
+
+    # Walk steps for a VideoContent → decode base64 data (or download the uri).
+    data_bytes: Optional[bytes] = None
+    mime = "video/mp4"
+    for step in (getattr(interaction, "steps", None) or []):
+        content = getattr(step, "content", None)
+        if content is None:
+            continue
+        items = content if isinstance(content, (list, tuple)) else [content]
+        for c in items:
+            if getattr(c, "type", "") != "video":
+                continue
+            mime = getattr(c, "mime_type", None) or mime
+            raw = getattr(c, "data", None)
+            if raw:
+                try:
+                    data_bytes = base64.b64decode(raw)
+                except Exception:  # noqa: BLE001
+                    data_bytes = None
+            if not data_bytes and getattr(c, "uri", None):
+                try:
+                    data_bytes = client.files.download(file=c.uri)
+                except Exception:  # noqa: BLE001
+                    data_bytes = None
+            if data_bytes:
+                break
+        if data_bytes:
+            break
+
+    if not data_bytes:
+        return fail("Omni nie zwróciło wideo — prawdopodobnie blokada treści. Zmień prompt.",
+                    "SAFETY_NO_IMAGE", "omni: no VideoContent bytes", False, 422)
+
+    return VideoResult(
+        success=True, video_bytes=data_bytes, mime_type=mime,
+        model_id=req.model_id, prompt=req.prompt,
+        duration_seconds=0, resolution="720p", aspect_ratio=req.aspect_ratio,
+        audio=bool(model.get("audio")), engine="omni", estimated_cost_usd=0.0,
+    )
+
+
 def generate_video(req: VideoRequest) -> VideoResult:
     """
-    Generate one video with Veo and return its raw mp4 bytes. Synchronous /
-    blocking (polls in a loop) — call it via asyncio.to_thread from the server
-    so it never freezes the event loop.
+    Generate one video (Veo generate_videos, or Omni via Interactions) and return
+    its raw mp4 bytes. Synchronous / blocking (polls) — call via asyncio.to_thread
+    from the server so it never freezes the event loop.
     """
     invalid = _validate(req)
     if invalid is not None:
@@ -304,13 +435,18 @@ def generate_video(req: VideoRequest) -> VideoResult:
         http_options=gtypes.HttpOptions(timeout=_REQUEST_TIMEOUT_MS),
     )
 
+    # Experimental Omni takes a different engine (Interactions API).
+    if model.get("engine") == "omni":
+        return _generate_omni(req, client, gtypes, model)
+
     cfg_kwargs: dict[str, Any] = {
         "aspect_ratio": req.aspect_ratio,
         "resolution": req.resolution,
         "duration_seconds": int(req.duration_seconds),
         "number_of_videos": 1,  # fixed at 1 for the Veo 3.1 family
-        "person_generation": req.person_generation,
     }
+    if req.person_generation:  # only when explicitly set — else API decides
+        cfg_kwargs["person_generation"] = req.person_generation
     if req.negative_prompt.strip():
         cfg_kwargs["negative_prompt"] = req.negative_prompt.strip()
     if req.seed is not None:
@@ -318,11 +454,17 @@ def generate_video(req: VideoRequest) -> VideoResult:
 
     try:
         config = gtypes.GenerateVideosConfig(**cfg_kwargs)
-        logger.info("Veo generate_videos model=%s res=%s aspect=%s dur=%ss",
-                    req.model_id, req.resolution, req.aspect_ratio, req.duration_seconds)
+        # Optional first-frame image → image-to-video.
+        image_arg = None
+        if req.image_bytes:
+            image_arg = gtypes.Image(image_bytes=req.image_bytes, mime_type=req.image_mime or "image/png")
+        logger.info("Veo generate_videos model=%s res=%s aspect=%s dur=%ss img=%s",
+                    req.model_id, req.resolution, req.aspect_ratio, req.duration_seconds,
+                    bool(req.image_bytes))
         operation = client.models.generate_videos(
             model=req.model_id,
             prompt=req.prompt.strip(),
+            image=image_arg,
             config=config,
         )
 

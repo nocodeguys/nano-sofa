@@ -1947,6 +1947,42 @@ def api_video_models(api_key: str = ""):
     return list_video_models(api_key.strip())
 
 
+@app.get("/api/video-diagnose")
+def api_video_diagnose(api_key: str = ""):
+    """
+    Debug helper — what video models can this key actually see, and does a probe
+    succeed? Helps answer "does my key have Veo access / is billing enabled".
+    NOTE: models.list() usually lists models regardless of billing tier, so a
+    visible Veo model does NOT guarantee generation works on a free tier.
+    """
+    from app.core.video_generator import VIDEO_MODELS  # noqa: PLC0415
+    out: dict = {"probe_ok": False, "error": None, "total_models": 0,
+                 "video_models_visible": [], "targets": {}}
+    key = (api_key or "").strip()
+    if not key:
+        out["error"] = "Brak klucza."
+        return out
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        client = genai.Client(api_key=key, http_options=gtypes.HttpOptions(timeout=30000))
+        ids = []
+        for m in client.models.list():
+            nm = (getattr(m, "name", "") or "").split("/")[-1]
+            if nm:
+                ids.append(nm)
+        out["probe_ok"] = True
+        out["total_models"] = len(ids)
+        low = lambda s: s.lower()
+        out["video_models_visible"] = sorted(
+            i for i in ids if any(k in low(i) for k in ("veo", "omni", "video"))
+        )
+        out["targets"] = {m["id"]: (m["id"] in ids) for m in VIDEO_MODELS}
+    except Exception as exc:  # noqa: BLE001
+        out["error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
 @app.post("/api/generate-video")
 async def api_generate_video(
     api_key: str = Form(""),
@@ -1958,6 +1994,7 @@ async def api_generate_video(
     audio: str = Form("true"),
     negative_prompt: str = Form(""),
     seed: str = Form(""),
+    image: Optional[UploadFile] = File(None),   # first-frame / reference (image-to-video)
 ):
     if not api_key.strip():
         return _validation_error("Brak klucza API.", "MISSING_API_KEY")
@@ -1975,6 +2012,22 @@ async def api_generate_video(
         except ValueError:
             seed_i = None
 
+    # Optional starting-frame / reference image (image-to-video). Read the bytes
+    # off the event loop and only pass real image data through.
+    image_bytes: Optional[bytes] = None
+    image_mime = "image/png"
+    if image is not None and getattr(image, "filename", ""):
+        raw = await image.read()
+        if raw:
+            ctype = (image.content_type or "").lower()
+            if not ctype.startswith("image/"):
+                return _validation_error(
+                    "Klatka początkowa musi być obrazem (JPG / PNG / WebP).",
+                    "INVALID_REQUEST",
+                )
+            image_bytes = raw
+            image_mime = ctype or "image/png"
+
     req = VideoRequest(
         api_key=api_key.strip(),
         prompt=prompt.strip(),
@@ -1985,16 +2038,22 @@ async def api_generate_video(
         negative_prompt=negative_prompt.strip(),
         generate_audio=str(audio).strip().lower() in ("1", "true", "on", "yes"),
         seed=seed_i,
+        image_bytes=image_bytes,
+        image_mime=image_mime,
     )
 
     logger.info("Generating video: %s / %s / %ss", req.model_id, req.resolution, req.duration_seconds)
     result = await asyncio.to_thread(generate_video, req)
 
     if not result.success or not result.video_bytes:
+        # error_detail carries the raw Gemini message — invaluable for telling a
+        # bad param apart from a tier/access problem. Surfaced to the client.
+        logger.warning("Video gen failed: %s | %s", result.error_code, result.error_detail)
         return JSONResponse(
             {
                 "error": result.error_message or "Nie udało się wygenerować wideo.",
                 "error_code": result.error_code or "UNKNOWN",
+                "error_detail": result.error_detail or "",
                 "retryable": result.retryable,
             },
             status_code=result.http_status or 500,
@@ -2026,6 +2085,7 @@ async def api_generate_video(
         "aspect": result.aspect_ratio,
         "duration": result.duration_seconds,
         "audio": result.audio,
+        "engine": result.engine,
         "cost": result.estimated_cost_usd,
     }
 

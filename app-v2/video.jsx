@@ -40,11 +40,16 @@ function App() {
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
   const [seed, setSeed] = useState("");
+  const [imageFile, setImageFile] = useState(null);      // first-frame / reference
+  const [imagePreview, setImagePreview] = useState(null);
+  const imageInputRef = React.useRef(null);
 
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [diag, setDiag] = useState(null);
+  const [diagBusy, setDiagBusy] = useState(false);
 
   const loadModels = useCallback((key) => {
     const q = key ? ("?api_key=" + encodeURIComponent(key)) : "";
@@ -76,13 +81,16 @@ function App() {
   const model = cfg.models.find(m => m.id === modelId) || null;
   const hd = cfg.hd || { resolutions: ["1080p", "4k"], aspect_ratio: "16:9", duration_seconds: 8 };
   const hdRes = hd.resolutions || [];
+  // Omni is a different engine (Interactions API): 720p only, no duration matrix.
+  const isOmni = !!(model && model.engine === "omni");
 
   // When the model changes, clamp the format fields to what it supports.
   useEffect(() => {
     if (!model) return;
     if (!model.aspect_ratios.includes(aspect)) setAspect(model.aspect_ratios[0]);
     if (!model.resolutions.includes(resolution)) setResolution(model.resolutions[0]);
-    if (!model.durations_seconds.includes(duration)) {
+    // Some engines (Omni) don't expose a duration list — leave duration as-is.
+    if (model.durations_seconds.length && !model.durations_seconds.includes(duration)) {
       setDuration(model.durations_seconds[model.durations_seconds.length - 1]);
     }
     // eslint-disable-next-line
@@ -109,6 +117,36 @@ function App() {
     return (byRes[r] != null) ? byRes[r] : m.price_per_second_usd;
   };
   const cost = Number(rateFor(model, resolution)) * Number(duration);
+  // Omni sets its own length, so a per-second estimate is meaningless → "~".
+  const costLabel = isOmni ? "~" : ("$" + fmtCost(cost));
+
+  const onPickImage = (file) => {
+    if (!file) return;
+    if (imagePreview) { try { URL.revokeObjectURL(imagePreview); } catch {} }
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+  const clearImage = () => {
+    if (imagePreview) { try { URL.revokeObjectURL(imagePreview); } catch {} }
+    setImageFile(null);
+    setImagePreview(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  const runDiagnose = async () => {
+    if (!apiKey.trim()) { setShowKeyEdit(true); return; }
+    setDiagBusy(true);
+    setDiag(null);
+    try {
+      const r = await fetch("/api/video-diagnose?api_key=" + encodeURIComponent(apiKey.trim()));
+      const d = await r.json().catch(() => null);
+      setDiag(d || { error: "Brak odpowiedzi serwera." });
+    } catch (e) {
+      setDiag({ error: "Błąd sieci." });
+    } finally {
+      setDiagBusy(false);
+    }
+  };
 
   const handleGenerate = async () => {
     setError(null);
@@ -130,11 +168,16 @@ function App() {
       fd.append("duration", String(duration));
       if (negative.trim()) fd.append("negative_prompt", negative.trim());
       if (seed.trim()) fd.append("seed", seed.trim());
+      if (imageFile) fd.append("image", imageFile);
 
       const r = await fetch("/api/generate-video", { method: "POST", body: fd });
       const data = await r.json().catch(() => null);
       if (!r.ok || !data || !data.success) {
-        setError({ message: (data && data.error) || "Nie udało się wygenerować wideo.", code: data && data.error_code });
+        setError({
+          message: (data && data.error) || "Nie udało się wygenerować wideo.",
+          code: data && data.error_code,
+          detail: data && data.error_detail,
+        });
       } else {
         setResult(data);
       }
@@ -222,6 +265,11 @@ function App() {
         {error && (
           <div className="vid-err">
             <strong>{error.code || "Błąd"}</strong> — {error.message}
+            {error.detail && (
+              <div style={{ marginTop: 6, fontFamily: "'Geist Mono', monospace", fontSize: 11, opacity: .8, wordBreak: "break-word" }}>
+                Szczegóły od Google: {error.detail}
+              </div>
+            )}
           </div>
         )}
 
@@ -230,14 +278,16 @@ function App() {
           <div className="sec-head">
             <div className="num">01</div>
             <div className="title serif">Model</div>
-            {model && <div className="summary">${Number(model.price_per_second_usd).toFixed(2)}/s</div>}
+            {model && (isOmni
+              ? <div className="summary" style={{ color: "#B5663A" }}>eksperymentalny</div>
+              : <div className="summary">${Number(model.price_per_second_usd).toFixed(2)}/s</div>)}
           </div>
-          <p className="sec-help">Veo różnią się jakością, dźwiękiem i ceną za sekundę. Lista pochodzi z Twojego konta Google.</p>
+          <p className="sec-help">Modele różnią się jakością, dźwiękiem i ceną za sekundę. Lista pochodzi z Twojego konta Google.</p>
           <div className="sec-body">
             <select className="select" value={modelId} onChange={e => setModelId(e.target.value)}>
               {cfg.models.map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.label} · od ${Number(m.price_per_second_usd).toFixed(2)}/s · do {m.resolutions[m.resolutions.length - 1]}
+                  {m.label}{m.experimental ? " · eksperymentalny" : ""} · od ${Number(m.price_per_second_usd).toFixed(2)}/s · do {m.resolutions[m.resolutions.length - 1]}
                 </option>
               ))}
             </select>
@@ -245,6 +295,21 @@ function App() {
             {model && model.audio && (
               <div className="hint" style={{ marginTop: 12 }}>🔊 Natywny dźwięk zawsze włączony (wliczony w cenę).</div>
             )}
+            <div style={{ marginTop: 12 }}>
+              <button type="button" className="btn-mini" onClick={runDiagnose} disabled={diagBusy}>
+                {diagBusy ? "Sprawdzam…" : "Sprawdź dostęp klucza do modeli"}
+              </button>
+              {diag && (
+                <div className="hint" style={{ marginTop: 8, whiteSpace: "normal", lineHeight: 1.5 }}>
+                  {diag.error
+                    ? <span style={{ color: "#B5663A" }}>Próba nieudana: {diag.error}</span>
+                    : <>Klucz widzi <strong>{diag.total_models}</strong> modeli. Modele wideo/Veo w liście:{" "}
+                        {(diag.video_models_visible || []).length
+                          ? (diag.video_models_visible || []).join(", ")
+                          : "brak (uwaga: lista nie zawsze pokazuje modele preview — Veo może działać mimo to, o ile masz płatny tier)"}.</>}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -253,9 +318,11 @@ function App() {
           <div className="sec-head">
             <div className="num">02</div>
             <div className="title serif">Format</div>
-            <div className="summary">{aspect} · {resolution} · {duration}s</div>
+            <div className="summary">{aspect} · {resolution}{isOmni ? "" : " · " + duration + "s"}</div>
           </div>
-          <p className="sec-help">Proporcje, rozdzielczość i długość. 1080p / 4K tylko dla 16:9 i 8 s.</p>
+          <p className="sec-help">{isOmni
+            ? "Proporcje i rozdzielczość. Omni sam dobiera długość klipu (720p)."
+            : "Proporcje, rozdzielczość i długość. 1080p / 4K tylko dla 16:9 i 8 s."}</p>
           <div className="sec-body">
             <div className="field-lbl">proporcje</div>
             <div className="seg">
@@ -273,16 +340,21 @@ function App() {
               ))}
             </div>
 
-            <div className="field-lbl" style={{ marginTop: 16 }}>długość</div>
-            <div className="seg">
-              {(model ? model.durations_seconds : [4, 6, 8]).map(d => (
-                <button key={d}
-                  className={duration === d ? "on" : ""}
-                  disabled={isHd && d !== hd.duration_seconds}
-                  onClick={() => pickDuration(d)}>{d}s</button>
-              ))}
-            </div>
-            {isHd && <div className="hint">{resolution} ogranicza do 16:9 i 8 s.</div>}
+            {!isOmni && (
+              <>
+                <div className="field-lbl" style={{ marginTop: 16 }}>długość</div>
+                <div className="seg">
+                  {(model ? model.durations_seconds : [4, 6, 8]).map(d => (
+                    <button key={d}
+                      className={duration === d ? "on" : ""}
+                      disabled={isHd && d !== hd.duration_seconds}
+                      onClick={() => pickDuration(d)}>{d}s</button>
+                  ))}
+                </div>
+                {isHd && <div className="hint">{resolution} ogranicza do 16:9 i 8 s.</div>}
+              </>
+            )}
+            {isOmni && <div className="hint" style={{ marginTop: 16 }}>Długość dobiera model automatycznie.</div>}
           </div>
         </div>
 
@@ -292,8 +364,30 @@ function App() {
             <div className="num">03</div>
             <div className="title serif">Prompt</div>
           </div>
-          <p className="sec-help">Opisz scenę, ruch kamery, światło, nastrój. Możesz dodać opis dźwięku.</p>
+          <p className="sec-help">Opisz scenę, ruch kamery, światło, nastrój. Możesz dodać opis dźwięku. Opcjonalnie wgraj klatkę początkową / referencję.</p>
           <div className="sec-body">
+            <div className="field-lbl">klatka początkowa / referencja (opcjonalne)</div>
+            <div className="vid-imgdrop" onClick={() => imageInputRef.current && imageInputRef.current.click()}>
+              {imagePreview ? (
+                <div className="vid-imgpick">
+                  <img src={imagePreview} alt="klatka początkowa" />
+                  <div className="vid-imgmeta">
+                    <div className="nm">{imageFile ? imageFile.name : "obraz"}</div>
+                    <div className="sub">{isOmni ? "obraz wejściowy Omni" : "wideo powstanie na bazie tej klatki (image-to-video)"}</div>
+                  </div>
+                  <button type="button" className="btn-mini" onClick={e => { e.stopPropagation(); clearImage(); }}>usuń</button>
+                </div>
+              ) : (
+                <div className="vid-imgempty">
+                  <span className="lead">＋ Wgraj zdjęcie (JPG / PNG / WebP)</span>
+                  <span className="sub">wideo powstanie na bazie tej klatki — {isOmni ? "obraz wejściowy Omni" : "image-to-video (Veo)"}</span>
+                </div>
+              )}
+            </div>
+            <input ref={imageInputRef} type="file" accept="image/*" style={{ display: "none" }}
+              onChange={e => { onPickImage(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+
+            <div className="field-lbl" style={{ marginTop: 16 }}>opis (prompt)</div>
             <textarea className="input" rows={5}
               placeholder="np. Powolny najazd kamery na filiżankę parującej kawy na drewnianym stole o poranku, miękkie boczne światło, ciepłe kolory…"
               value={prompt} onChange={e => setPrompt(e.target.value)}
@@ -316,7 +410,7 @@ function App() {
             <div className="foot-lead">{busy ? `Renderuję… ${mm}:${ss}` : "Gotowe do generowania"}</div>
             <div className="foot-meta">
               <span className="mono">{model ? model.label : "—"}</span><span className="dot">·</span>
-              <span className="mono">{aspect} · {resolution} · {duration}s</span><span className="dot">·</span>
+              <span className="mono">{aspect} · {resolution}{isOmni ? "" : " · " + duration + "s"}</span><span className="dot">·</span>
               <span className="mono">{model && model.audio ? "audio" : "bez audio"}</span>
             </div>
           </div>
@@ -325,7 +419,7 @@ function App() {
               style={busy ? { opacity: .6, cursor: "wait" } : {}}>
               <span className="ico">{Ic.sparkle}</span>
               <span>{busy ? "Generuję…" : "Generuj wideo"}</span>
-              <span className="cost">${fmtCost(cost)}</span>
+              <span className="cost">{costLabel}</span>
             </button>
           </div>
         </div>

@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <!-- ?v= busts stale browser caches after an auto-update (Watchtower). Bump on asset change. -->
-  <link rel="stylesheet" href="styles-v2.css?v=20260701">
+  <link rel="stylesheet" href="styles-v2.css?v=20260701e">
   <style>
     /* ---- video-page specifics (reuses styles-v2.css tokens + shell) ---- */
     .vid-frame {
@@ -61,6 +61,26 @@
     .seg button.on { background: var(--ink, #1c1a17); color: var(--paper, #F4F1EA); border-color: var(--ink, #1c1a17); }
     .seg button:disabled { opacity: .35; cursor: not-allowed; }
     .hint { font-size: 10.5px; color: var(--ink-3, #8a857a); margin-top: 5px; font-family: 'Geist Mono', monospace; }
+    /* first-frame / reference image upload */
+    .vid-imgdrop {
+      border: 1.5px dashed var(--line-2, #d8d3c8); border-radius: 10px;
+      background: var(--paper, #FBFAF6); cursor: pointer; transition: border-color .15s;
+    }
+    .vid-imgdrop:hover { border-color: var(--ink-4, #9a948a); }
+    .vid-imgempty {
+      display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center;
+      padding: 22px 14px; text-align: center;
+    }
+    .vid-imgempty .lead { font-size: 13px; color: var(--ink-2, #4a463f); }
+    .vid-imgempty .sub { font-size: 10.5px; color: var(--ink-3, #8a857a); font-family: 'Geist Mono', monospace; }
+    .vid-imgpick { display: flex; align-items: center; gap: 12px; padding: 10px; }
+    .vid-imgpick img {
+      width: 84px; height: 56px; object-fit: cover; border-radius: 7px;
+      border: 1px solid var(--line, #E2DDD0); flex: 0 0 auto;
+    }
+    .vid-imgmeta { flex: 1; min-width: 0; }
+    .vid-imgmeta .nm { font-size: 12.5px; color: var(--ink, #1c1a17); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .vid-imgmeta .sub { font-size: 10.5px; color: var(--ink-3, #8a857a); margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -71,6 +91,6 @@
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <script type="text/babel" src="header.jsx?v=20260701"></script>
-  <script type="text/babel" src="video.jsx?v=20260701"></script>
+  <script type="text/babel" src="video.jsx?v=20260701d"></script>
 </body>
 </html>

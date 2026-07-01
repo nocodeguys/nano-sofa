@@ -275,6 +275,14 @@ _ERROR_CATALOG: dict[str, tuple[int, bool, str, str]] = {
         "Zmień ustawienia (model, proporcje, rozdzielczość) i spróbuj ponownie.",
         "Request rejected by the API (400 INVALID_ARGUMENT).",
     ),
+    "BILLING_REQUIRED": (
+        402, False,
+        "Ten model (np. Veo — wideo) wymaga włączonego rozliczenia (paid tier) "
+        "na projekcie Google Cloud powiązanym z kluczem API. Darmowy tier nie "
+        "obejmuje Veo — włącz billing w Google Cloud Console (Billing) dla tego "
+        "projektu i spróbuj ponownie.",
+        "Model requires a billed (paid-tier) Google Cloud project.",
+    ),
     "UPSTREAM_ERROR": (
         502, True,
         "Błąd po stronie serwera Gemini. Spróbuj ponownie za chwilę.",
@@ -342,6 +350,13 @@ def classify_exception(exc: Exception) -> ErrorInfo:
             if code in (401, 403) or status in ("UNAUTHENTICATED", "PERMISSION_DENIED"):
                 return _err("AUTH_INVALID_KEY")
             if code == 400 or status in ("INVALID_ARGUMENT", "FAILED_PRECONDITION"):
+                # Google returns 400 INVALID_ARGUMENT for several distinct causes;
+                # disambiguate on the message so the user gets an actionable error.
+                msg = str(getattr(exc, "message", "") or exc).lower()
+                if any(k in msg for k in ("billed users", "billing", "paid tier", "paid-tier")):
+                    return _err("BILLING_REQUIRED")
+                if any(k in msg for k in ("api key not valid", "api_key_invalid", "api key expired")):
+                    return _err("AUTH_INVALID_KEY")
                 return _err("INVALID_REQUEST")
             # any other API error (incl. 500/502/504/INTERNAL/DEADLINE) → upstream
             return _err("UPSTREAM_ERROR")
