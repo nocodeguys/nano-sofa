@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nano Sofa — Wideo · Veo</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- ?v= busts stale browser caches after an auto-update (Watchtower). Bump on asset change. -->
+  <link rel="stylesheet" href="styles-v2.css?v=20260701">
+  <style>
+    /* ---- video-page specifics (reuses styles-v2.css tokens + shell) ---- */
+    .vid-frame {
+      position: relative;
+      width: min(92%, 620px);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #15171A;
+      box-shadow: 0 30px 60px -30px rgba(0,0,0,.45);
+      display: grid; place-items: center;
+    }
+    .vid-frame.a-16-9 { aspect-ratio: 16 / 9; }
+    .vid-frame.a-9-16 { aspect-ratio: 9 / 16; width: min(72%, 360px); }
+    .vid-frame video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+    .vid-placeholder {
+      color: rgba(226,221,208,.55);
+      font-family: 'Geist Mono', monospace; font-size: 12px;
+      text-align: center; padding: 24px; line-height: 1.7;
+    }
+    .vid-spinner {
+      width: 34px; height: 34px; margin: 0 auto 14px;
+      border: 2.5px solid rgba(226,221,208,.2);
+      border-top-color: rgba(226,221,208,.85);
+      border-radius: 50%;
+      animation: vid-spin 0.9s linear infinite;
+    }
+    @keyframes vid-spin { to { transform: rotate(360deg); } }
+    .vid-meta {
+      margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+      font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--ink-3, #8a857a);
+    }
+    .vid-dl {
+      font-family: inherit; font-size: 12px; text-decoration: none;
+      background: var(--ink, #1c1a17); color: var(--paper, #F4F1EA);
+      padding: 7px 14px; border-radius: 999px;
+    }
+    .vid-err {
+      margin: 12px 0; padding: 12px 14px; border-radius: 10px;
+      background: rgba(181,102,58,.10); border: 1px solid rgba(181,102,58,.30);
+      color: #7a4526; font-size: 12.5px; line-height: 1.55;
+    }
+    .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+    .seg button {
+      font-family: inherit; font-size: 12px; cursor: pointer;
+      border: 1px solid var(--line-2, #d8d3c8); background: var(--paper, #F4F1EA);
+      color: var(--ink-2, #4a463f); padding: 6px 12px; border-radius: 8px;
+    }
+    .seg button.on { background: var(--ink, #1c1a17); color: var(--paper, #F4F1EA); border-color: var(--ink, #1c1a17); }
+    .seg button:disabled { opacity: .35; cursor: not-allowed; }
+    .hint { font-size: 10.5px; color: var(--ink-3, #8a857a); margin-top: 5px; font-family: 'Geist Mono', monospace; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="header.jsx?v=20260701"></script>
+  <script type="text/babel" src="video.jsx?v=20260701"></script>
+</body>
+</html>

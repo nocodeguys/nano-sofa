@@ -155,7 +155,7 @@ const GALLERY_STORAGE = "nano-sofa-v2-gallery";
 // means re-applying a preset still randomizes — settings travel between images,
 // the exact roll does not.
 const PRESET_FIELDS = [
-  "kind", "color", "colorCustom", "mat", "matNotes", "size", "legs",
+  "kind", "color", "colorCustom", "mat", "matNotes", "size", "legs", "bedLegs",
   "cam", "lens", "tod", "shadow", "shot", "yaw", "height", "dof", "detailRegion",
   "env", "envNote", "envMode", "refsLock", "preserveBaseCamera",
   "bedding", "beddingCustom", "throw", "tidy", "density", "accents", "bedNote",
@@ -205,11 +205,14 @@ function App({ t }) {
 
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
-    alpha: false, kind: "sofa",
-    color: "cream", colorCustom: "",
+    alpha: false, kind: "bed",
+    color: "greige", colorCustom: "",
     mat: "boucle", matNotes: "",
-    size: "3",
+    size: "160",
     legs: "keep",
+    // Beds skip legs by default (most sit on a plinth). Toggle on to render
+    // visible legs — the backend already honours a non-"keep" leg for beds.
+    bedLegs: false,
     cam: "studio", lens: "50mm_natural", tod: "noon_neutral", shadow: "soft_diffuse",
     // Structured camera controls (section 08). When `shot` is "", the server
     // derives shot/yaw/height from the `cam` preset for back-compat. Once
@@ -389,6 +392,9 @@ function App({ t }) {
   const matObj   = useMemo(() => MATERIALS.find(m => m.id === st.mat), [st.mat]);
   const sizes    = st.kind === "bed" ? SIZES_BED : SIZES_SOFA;
   const sizeObj  = useMemo(() => sizes.find(s => s.id === st.size) || sizes[0], [sizes, st.size]);
+  // Beds skip legs unless the user opts in; sofas always send their leg choice.
+  const bedLegsHidden = st.kind === "bed" && !st.bedLegs;
+  const effectiveLegs = bedLegsHidden ? "keep" : st.legs;
   const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
   // The Szybki preset tile stays highlighted only while the seeded structured
   // fields still match — clicking "Detal makro" then changing the shot type
@@ -422,7 +428,7 @@ function App({ t }) {
         : { id: colorObj?.id, hex: colorObj?.hex },
       material: { id: matObj?.id, notes: st.matNotes || null },
       size: { id: sizeObj?.id, dim: sizeObj?.dim },
-      legs: st.kind === "bed" ? "disabled_for_bed" : st.legs,
+      legs: bedLegsHidden ? "disabled_for_bed" : st.legs,
     },
     scene: {
       environment: envObj?.id,
@@ -531,7 +537,7 @@ function App({ t }) {
     fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
-    fd.append("legs", st.legs);
+    fd.append("legs", effectiveLegs);
     fd.append("cam", st.cam);
     fd.append("lens", st.lens);
     fd.append("tod", st.tod);
@@ -605,7 +611,7 @@ function App({ t }) {
       } else {
         setGallery(g => [
           { url: data.image_url, generation_id: data.generation_id || null,
-            color: colorObj?.hex || "#E7E0D6", material: matObj?.id || null,
+            color: colorObj?.hex || "#5C7A56", material: matObj?.id || null,
             tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
           ...g,
         ]);
@@ -618,8 +624,12 @@ function App({ t }) {
     }
   };
 
-  // when size list changes (sofa↔bed), correct st.size
+  // When the user switches sofa↔bed, snap st.size onto the new list. Skip the
+  // initial mount so the chosen default size (e.g. bed "160") is respected —
+  // running it on mount was clobbering the default down to sizes[0] ("90").
+  const kindSwitched = React.useRef(false);
   useEffect(() => {
+    if (!kindSwitched.current) { kindSwitched.current = true; return; }
     if (!sizes.find(s => s.id === st.size)) set({ size: sizes[0].id });
     // eslint-disable-next-line
   }, [st.kind]);
@@ -735,7 +745,7 @@ function App({ t }) {
     fd.append("color_custom", st.colorCustom || "");
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
-    fd.append("legs", st.legs);
+    fd.append("legs", effectiveLegs);
     fd.append("cam", st.cam);
     fd.append("lens", st.lens);
     fd.append("tod", st.tod);
@@ -924,7 +934,7 @@ function App({ t }) {
     fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
-    fd.append("legs", st.legs);
+    fd.append("legs", effectiveLegs);
     fd.append("cam", st.cam);
     fd.append("lens", st.lens);
     fd.append("tod", st.tod);
@@ -983,44 +993,11 @@ function App({ t }) {
   };
 
   return (
-    <div className="shell">
+    <div className="app-frame">
+      <NanoTopbar active="photos" apiKey={apiKey} setApiKey={setApiKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit} />
+      <div className="shell">
       {/* ============= LEFT — sticky stage ============= */}
       <section className="stage-pane">
-        <div className="stage-mark">
-          <span className="glyph"></span>
-          <span className="name">Nano Sofa <span className="light">studio</span></span>
-        </div>
-        {showKeyEdit ? (
-          <div style={{position:"absolute", top:18, right:18, display:"flex", gap:6, alignItems:"center"}}>
-            <input
-              autoFocus
-              type="password"
-              className="input"
-              placeholder="AIza... (wklej nowy klucz)"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              onFocus={e => e.target.select()}
-              onBlur={() => setShowKeyEdit(false)}
-              onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setShowKeyEdit(false); }}
-              style={{width: 230, padding: "6px 10px", fontSize: 12, fontFamily: "Geist Mono"}}
-            />
-            {apiKey && (
-              <button
-                type="button"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => { setApiKey(""); try { localStorage.removeItem(API_KEY_STORAGE); } catch {} }}
-                title="usuń zapisany klucz, żeby wpisać nowy"
-                style={{padding:"6px 9px", fontSize: 11, fontFamily:"Geist Mono", cursor:"pointer", whiteSpace:"nowrap", borderRadius: 6, border:"1px solid rgba(0,0,0,.15)", background:"#fff"}}
-              >wyczyść</button>
-            )}
-          </div>
-        ) : (
-          <div className="stage-status" onClick={() => setShowKeyEdit(true)} style={{cursor:"pointer"}} title="kliknij aby wkleić / zmienić klucz">
-            <span className="dot" style={apiKey ? {} : {background:"#B5663A"}}></span>
-            <span>{apiKey ? `klucz aktywny · ••${apiKey.slice(-4)}` : "wklej klucz Gemini"}</span>
-          </div>
-        )}
-
         <div className="stage-tabs">
           <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>Mockup</button>
           <button className={stageTab === "json" ? "on" : ""} onClick={() => setStageTab("json")}>JSON</button>
@@ -1039,20 +1016,61 @@ function App({ t }) {
               return <img src={gallery[activeGallery].url} alt="rendering"
                           style={{position:"absolute", inset:"6% 6% 14% 6%", width:"88%", height:"80%", objectFit:"contain"}} />;
             }
+            const tex = matObj?.tex || "linen";
             return (
-              <div className="sofa" style={{
-                "--mat-color": colorObj?.hex || "#6F8C68",
-                width: t.sofaWidth + "%",
-                bottom: t.sofaBottom + "%",
-                aspectRatio: `${t.sofaAspect} / 1`,
-                borderRadius: `${t.sofaRadius}px ${t.sofaRadius}px 8px 8px`,
-                boxShadow: `0 28px 50px -22px rgba(0,0,0,${t.shadowStrength/100}), inset 0 -8px 0 -3px rgba(0,0,0,.10)`,
-              }}>
-                <div className={"fabric-overlay " + (matObj?.tex || "")}></div>
-                <div className="sofa-legs">
-                  {Array.from({ length: 4 }).map((_, i) => <span key={i} />)}
-                </div>
-              </div>
+              <>
+                {st.kind === "bed" ? (
+                  <div className={"bed mat-" + tex} style={{
+                    "--mat-color": colorObj?.hex || "#6F8C68",
+                    width: Math.min(t.sofaWidth + 10, 90) + "%",
+                    bottom: t.sofaBottom + "%",
+                    "--shadow-strength": t.shadowStrength / 100,
+                  }}>
+                    <div className="bed-headboard">
+                      <div className={"fabric-overlay " + tex}></div>
+                      <div className="fabric-sheen"></div>
+                    </div>
+                    <div className="bed-base">
+                      <div className={"fabric-overlay " + tex}></div>
+                      <div className="fabric-sheen"></div>
+                    </div>
+                    <div className="bed-mattress"></div>
+                    <div className="bed-pillow p1"></div>
+                    <div className="bed-pillow p2"></div>
+                    {st.bedLegs && (
+                      <div className="bed-legs">
+                        {Array.from({ length: 4 }).map((_, i) => <span key={i} />)}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className={"sofa mat-" + tex} style={{
+                    "--mat-color": colorObj?.hex || "#6F8C68",
+                    width: t.sofaWidth + "%",
+                    bottom: t.sofaBottom + "%",
+                    aspectRatio: `${t.sofaAspect} / 1`,
+                    borderRadius: `${t.sofaRadius}px ${t.sofaRadius}px 8px 8px`,
+                    boxShadow: `0 28px 50px -22px rgba(0,0,0,${t.shadowStrength/100}), inset 0 -8px 0 -3px rgba(0,0,0,.10)`,
+                  }}>
+                    <div className={"fabric-overlay " + tex}></div>
+                    <div className="fabric-sheen"></div>
+                    <div className="sofa-legs">
+                      {Array.from({ length: 4 }).map((_, i) => <span key={i} />)}
+                    </div>
+                  </div>
+                )}
+                {matObj && (
+                  <div className="fabric-caption">
+                    <span className="fc-mat">{matObj.name}</span>
+                    <span className="fc-dot">·</span>
+                    <span className="fc-finish">{matObj.finish}</span>
+                    <span className="fc-sep"></span>
+                    <span className="fc-chip" style={{ background: st.color === "custom" ? "conic-gradient(#d8d3c8,#f2eee4,#d8d3c8)" : (colorObj?.hex || "#ccc") }}></span>
+                    <span>{st.color === "custom" ? "własny odcień" : (colorObj?.name || "—")}</span>
+                    {st.color !== "custom" && colorObj && <span className="fc-hex">{colorObj.hex}</span>}
+                  </div>
+                )}
+              </>
             );
           })()}
 
@@ -1144,9 +1162,9 @@ function App({ t }) {
 
           {stageTab === "variants" && (
             <div className="stage-variants" style={{
-              // Clear the stage-mark (y≈22-50) and stage-tabs (y≈56-89) which
-              // sit on top of the canvas. Start below them.
-              position:"absolute", top: 100, left: 0, right: 0, bottom: 0,
+              // Clear the stage-tabs (y≈18-48) which sit on top of the canvas.
+              // Start below them (the wordmark now lives in the top bar).
+              position:"absolute", top: 60, left: 0, right: 0, bottom: 0,
               display:"flex", flexDirection:"column", gap: 14,
               background:"var(--paper, #f4f0e5)",
               padding: "8px 24px 24px",
@@ -1883,7 +1901,8 @@ function App({ t }) {
           help="Wybierz preset lub opisz własny odcień słownie. Modele rozpoznają nazwy z naszej palety najwierniej.">
           <div className="swatches">
             {COLORS.map(c => (
-              <div key={c.id} className={"sw " + (st.color === c.id ? "sel" : "")} onClick={() => set({ color: c.id })}>
+              <div key={c.id} className={"sw " + (st.color === c.id ? "sel" : "")} onClick={() => set({ color: c.id })}
+                title={c.covers ? `${c.name} — obejmuje tkaniny: ${c.covers}` : c.name}>
                 <div className="sw-fill" style={{ background: c.hex }}></div>
                 <div className="sw-name">{c.name}</div>
                 <div className="sw-hex">{c.hex}</div>
@@ -1906,13 +1925,13 @@ function App({ t }) {
         {/* 03 — material */}
         <Section num="04" title="Materiał" summary={matObj?.name + (st.matNotes ? " · z notatką" : "")}
           help="Zamknięta lista — to materiały, które model odwzorowuje wiarygodnie. Notatki o teksturze (poniżej) doprecyzowują finish.">
-          <div className="mat-grid">
+          <div className="mat-grid" style={{ "--mat-color": (st.color === "custom" ? "#B7A689" : (colorObj?.hex || "#B7A689")) }}>
             {MATERIALS.map(m => (
               <div key={m.id} className={"mat " + (st.mat === m.id ? "sel" : "")} onClick={() => set({ mat: m.id })}>
                 <div className={"mat-tex " + m.tex}></div>
                 <div className="mat-meta">
                   <div className="mat-name">{m.name}</div>
-                  <div className="mat-prop">{m.prop}</div>
+                  <div className="mat-prop">{m.prop} · <span className="mat-finish">{m.finish}</span></div>
                 </div>
               </div>
             ))}
@@ -1937,9 +1956,21 @@ function App({ t }) {
         </Section>
 
         {/* 05 — legs */}
-        <Section num="06" title="Nogi" summary={st.kind === "bed" ? "wyłączone" : (LEGS.find(l => l.id === st.legs)?.name)}
-          help={st.kind === "bed" ? "Dla łóżek krok jest pomijany." : "Domyślnie zachowujemy nogi z bazy. Wybierz inne tylko jeśli celowo chcesz je zmienić."}>
-          <div className={"legs-rail " + (st.kind === "bed" ? "disabled" : "")}>
+        <Section num="06" title="Nogi"
+          summary={st.kind === "bed"
+            ? (st.bedLegs ? (LEGS.find(l => l.id === st.legs)?.name || "na nóżkach") : "bez nóżek")
+            : (LEGS.find(l => l.id === st.legs)?.name)}
+          help={st.kind === "bed"
+            ? "Łóżka domyślnie stoją na cokole (bez nóżek). Zaznacz, jeśli Twoje łóżko ma widoczne nóżki, i wybierz ich typ."
+            : "Domyślnie zachowujemy nogi z bazy. Wybierz inne tylko jeśli celowo chcesz je zmienić."}>
+          {st.kind === "bed" && (
+            <label className="check" style={{ marginBottom: 12 }}>
+              <input type="checkbox" checked={st.bedLegs} onChange={e => set({ bedLegs: e.target.checked })} />
+              <span className="box"></span>
+              <span>Łóżko na nóżkach (pokaż nóżki)</span>
+            </label>
+          )}
+          <div className={"legs-rail " + (bedLegsHidden ? "disabled" : "")}>
             {LEGS.map(l => (
               <div key={l.id} className={"leg " + (st.legs === l.id ? "sel" : "")} onClick={() => set({ legs: l.id })}>
                 <div className="glyph"><LegGlyph id={l.id} /></div>
@@ -2384,25 +2415,21 @@ function App({ t }) {
         {/* Presets — save the whole config (except base image, key, seed) and
             re-apply it to any other photo. Stored in the browser; export/import
             for backup or sharing. */}
-        <div style={{
-          display:"flex", flexWrap:"wrap", alignItems:"center", gap:8,
-          margin:"0 0 14px 0", padding:"10px 14px", borderRadius:10,
-          background:"var(--bg-1, rgba(0,0,0,.03))", border:"1px solid var(--line-2, rgba(0,0,0,.12))",
-        }}>
-          <span style={{fontFamily:"Geist Mono", fontSize:11, color:"var(--ink-3)"}}>presety</span>
-          <select className="select" style={{maxWidth:220}} value={selectedPreset}
+        <div className="presets">
+          <span className="presets-label">Presety</span>
+          <select className="select presets-select" value={selectedPreset}
             onChange={e => { const v = e.target.value; setSelectedPreset(v); if (v) applyPreset(v); }}>
             <option value="">— wczytaj preset —</option>
             {presets.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
           </select>
-          <button type="button" className="copy" onClick={savePreset}>zapisz bieżące</button>
-          <button type="button" className="copy" disabled={!selectedPreset}
-            onClick={() => { deletePreset(selectedPreset); setSelectedPreset(""); }}>usuń</button>
-          <button type="button" className="copy" disabled={!presets.length} onClick={exportPresets}>eksport</button>
-          <button type="button" className="copy" onClick={() => presetFileRef.current && presetFileRef.current.click()}>import</button>
-          <input ref={presetFileRef} type="file" accept="application/json,.json" style={{display:"none"}}
+          <button type="button" className="preset-btn primary" onClick={savePreset}>Zapisz bieżące</button>
+          <button type="button" className="preset-btn" disabled={!selectedPreset}
+            onClick={() => { deletePreset(selectedPreset); setSelectedPreset(""); }}>Usuń</button>
+          <button type="button" className="preset-btn" disabled={!presets.length} onClick={exportPresets}>Eksport</button>
+          <button type="button" className="preset-btn" onClick={() => presetFileRef.current && presetFileRef.current.click()}>Import</button>
+          <input ref={presetFileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
             onChange={e => { importPresets(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-          {presetMsg && <span style={{color:"var(--ink-3)", fontSize:11}}>{presetMsg}</span>}
+          {presetMsg && <span className="presets-msg">{presetMsg}</span>}
         </div>
 
         <div className="form-foot">
@@ -2455,6 +2482,7 @@ function App({ t }) {
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 }

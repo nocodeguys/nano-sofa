@@ -52,6 +52,11 @@ from app.core.cost_tracker import (  # noqa: E402
     recent_generations,
 )
 from app.core.schema_loader import schema  # noqa: E402
+from app.core.video_generator import (  # noqa: E402
+    VideoRequest,
+    generate_video,
+    list_video_models,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nano-sofa-v2")
@@ -60,34 +65,47 @@ logger = logging.getLogger("nano-sofa-v2")
 # Mappings: React state → GenerationRequest
 # ---------------------------------------------------------------------------
 
-# Color group id (from data.jsx COLORS / Generator AI matrix) → English term
-# the prompt uses. Kept as a short adjective phrase so it slots into the
-# "{upholstery_color} {upholstery_material}" clause in generator.py.
+# Colour id (from data.jsx COLORS) → English term the prompt uses. These are the
+# TreeTale fabric-matrix colour GROUPS; each carries its representative hex so
+# the model can anchor the exact shade. Keys must match data.jsx COLORS ids.
 _COLOR_PL_TO_EN = {
-    "cream": "soft creamy off-white",
-    "sand": "light sandy beige",
-    "greige": "neutral greige",
-    "cappuc": "warm cappuccino beige",
-    "taupe": "medium taupe grey-brown",
-    "carmel": "warm caramel walnut brown",
-    "choc": "dark chocolate brown",
-    "ash": "light ash grey",
-    "steel": "medium steel grey",
-    "graphi": "dark graphite grey",
-    "olive": "muted olive sage green",
-    "forest": "deep bottle green",
-    "rose": "dusty muted pink",
-    "bluesteel": "muted steel blue",
-    "black": "deep solid black",
+    "cream":      "soft creamy off-white ivory, like natural unbleached cotton (hex #E7E0D6)",
+    "sand":       "light sandy beige with warm champagne undertones (hex #D9D4CD)",
+    "greige":     "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
+    "cappuccino": "warm cappuccino latte beige (hex #B4A799)",
+    "taupe":      "medium taupe blending grey and brown (hex #938A83)",
+    "caramel":    "warm caramel honey-walnut brown (hex #9F693D)",
+    "choc":       "deep dark chocolate brown / espresso (hex #4E3E2F)",
+    "ash":        "light cool ash grey / silver (hex #BCBCBC)",
+    "steelgrey":  "solid medium steel grey / stone (hex #908F8B)",
+    "graphite":   "dark moody graphite / anthracite grey (hex #656F70)",
+    "olive":      "muted earthy olive / sage green (hex #6A7763)",
+    "forest":     "deep rich forest / bottle green (hex #2E3B2C)",
+    "rose":       "soft dusty pink / muted salmon (hex #D4BABA)",
+    "steelblue":  "cool muted steel blue (hex #8A979D)",
+    "black":      "solid deep black (hex #17161A)",
 }
 
+# Material id → short English noun used inline as "{colour} {material}".
 _MATERIAL_PL_TO_EN = {
-    "boucle": "bouclé",
-    "velvet": "velvet",
-    "linen": "linen",
-    "weave": "flat woven fabric",
-    "chenille": "chenille",
-    "leather": "smooth leather",
+    "knit":        "soft knit fabric",
+    "boucle":      "bouclé fabric",
+    "basketweave": "basketweave woven fabric",
+    "chenille":    "chenille fabric",
+    "ecoleather":  "eco-leather (faux leather)",
+    "velour":      "velour fabric",
+}
+
+# Material id → rich texture/drape/features spec (from the TreeTale fabric
+# matrix). Injected into the prompt's "Texture detail:" clause when the user
+# hasn't typed their own material notes — see _build_generation_request.
+_MATERIAL_TEXTURE_EN = {
+    "knit":        "Soft, smooth knit with a subtle fine interlocking loop structure; medium weight, drapes softly and follows the furniture contours closely; matte finish, slightly stretchy appearance.",
+    "boucle":      "Highly textured looped and curled yarns forming a nubby, irregular surface; heavy and bulky, holds its shape with a structured, substantial drape; matte finish, high dimensional depth, cozy and tactile.",
+    "basketweave": "Distinctive woven texture with a visible interlaced thread pattern like a classic basketweave; medium-to-heavy weight, structured, slightly stiff and tailored drape; matte finish, durable classic look, visible thread contrast.",
+    "chenille":    "Plush, velvety tufted-yarn surface, softly ribbed and caterpillar-like; medium-to-heavy weight, drapes smoothly with a soft, cozy, substantial feel; slight sheen that catches the light, rich and inviting.",
+    "ecoleather":  "Smooth, slightly grained surface mimicking natural leather with a subtle uniform pore pattern; medium weight, structured and relatively stiff drape holding clean lines; slightly glossy, wipe-clean, modern and sleek.",
+    "velour":      "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows.",
 }
 
 _SOFA_CONFIG = {
@@ -983,7 +1001,8 @@ def _build_generation_request(
         preserve_list=["frame_silhouette", "stitching"],
         upholstery_color=upholstery_color,
         upholstery_material=upholstery_material,
-        texture_notes=mat_notes.strip(),
+        # User's own notes win; otherwise fall back to the fabric's matrix spec.
+        texture_notes=(mat_notes.strip() or _MATERIAL_TEXTURE_EN.get(mat, "")),
         leg_id=leg_id,
         camera_angle=camera_angle,
         angle_degrees_from_left=deg,
@@ -1039,6 +1058,7 @@ _TRANSPARENT_ENVS = {"cyclorama_transparent", "transparent"}
 _MEDIA_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".png": "image/png", ".webp": "image/webp",
+    ".mp4": "video/mp4", ".webm": "video/webm",
 }
 
 
@@ -1171,7 +1191,7 @@ def _prune_storage() -> None:
 async def api_generate(
     api_key: str = Form(""),
     kind: str = Form("sofa"),
-    color: str = Form("cream"),
+    color: str = Form("greige"),
     color_custom: str = Form(""),
     mat: str = Form("boucle"),
     mat_notes: str = Form(""),
@@ -1907,6 +1927,107 @@ def api_history(limit: int = 60):
             "ts": int(ts_raw) if ts_raw.isdigit() else rec.get("timestamp"),
         })
     return {"items": items}
+
+
+# ---------------------------------------------------------------------------
+# Video (Veo) — text-to-video, separate subpage from the sofa/bed image studio.
+# ---------------------------------------------------------------------------
+@app.get("/video")
+def video_page():
+    return FileResponse(_STATIC_DIR / "video.html")
+
+
+@app.get("/api/video-models")
+def api_video_models(api_key: str = ""):
+    """
+    Veo model catalog + per-model constraints for the video picker. When a key
+    is supplied we probe the live API and keep only models that key can reach
+    (falls back to the full catalog on any failure — the picker is never empty).
+    """
+    return list_video_models(api_key.strip())
+
+
+@app.post("/api/generate-video")
+async def api_generate_video(
+    api_key: str = Form(""),
+    prompt: str = Form(""),
+    model: str = Form("veo-3.1-fast-generate-preview"),
+    aspect: str = Form("16:9"),
+    resolution: str = Form("720p"),
+    duration: str = Form("8"),
+    audio: str = Form("true"),
+    negative_prompt: str = Form(""),
+    seed: str = Form(""),
+):
+    if not api_key.strip():
+        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    if not prompt.strip():
+        return _validation_error("Wpisz opis (prompt) filmu.", "INVALID_REQUEST")
+
+    try:
+        duration_i = int(str(duration).strip() or "8")
+    except ValueError:
+        duration_i = 8
+    seed_i: Optional[int] = None
+    if str(seed).strip():
+        try:
+            seed_i = int(str(seed).strip())
+        except ValueError:
+            seed_i = None
+
+    req = VideoRequest(
+        api_key=api_key.strip(),
+        prompt=prompt.strip(),
+        model_id=model.strip(),
+        aspect_ratio=aspect.strip(),
+        resolution=resolution.strip(),
+        duration_seconds=duration_i,
+        negative_prompt=negative_prompt.strip(),
+        generate_audio=str(audio).strip().lower() in ("1", "true", "on", "yes"),
+        seed=seed_i,
+    )
+
+    logger.info("Generating video: %s / %s / %ss", req.model_id, req.resolution, req.duration_seconds)
+    result = await asyncio.to_thread(generate_video, req)
+
+    if not result.success or not result.video_bytes:
+        return JSONResponse(
+            {
+                "error": result.error_message or "Nie udało się wygenerować wideo.",
+                "error_code": result.error_code or "UNKNOWN",
+                "retryable": result.retryable,
+            },
+            status_code=result.http_status or 500,
+        )
+
+    # Persist the mp4 alongside images so /api/outputs/{name} serves it and the
+    # newest-N prune applies. The image history globs *.png, so videos don't
+    # pollute it.
+    short = req.model_id.replace("veo-", "").replace("-generate-preview", "").replace(".", "")
+    name = f"video_{short}_{uuid.uuid4().hex[:8]}.mp4"
+    out_path = _OUTPUT_DIR / name
+    try:
+        out_path.write_bytes(result.video_bytes)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to write video output: %s", exc)
+        return JSONResponse(
+            {"error": "Nie udało się zapisać pliku wideo na serwerze.",
+             "error_code": "SERVER_MISCONFIG", "retryable": False},
+            status_code=500,
+        )
+    await asyncio.to_thread(_prune_storage)
+
+    return {
+        "success": True,
+        "video_url": f"/api/outputs/{name}",
+        "mime_type": result.mime_type,
+        "model": result.model_id,
+        "resolution": result.resolution,
+        "aspect": result.aspect_ratio,
+        "duration": result.duration_seconds,
+        "audio": result.audio,
+        "cost": result.estimated_cost_usd,
+    }
 
 
 # Static files for the prototype JS / CSS — mounted last so dynamic routes win.
