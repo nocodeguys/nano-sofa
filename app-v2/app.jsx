@@ -30,7 +30,7 @@ function App() {
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
     alpha: false, kind: "sofa",
-    color: "cream", colorCustom: "",
+    color: "cream", colorCustom: "", colorCustomHex: "",
     mat: "boucle", matNotes: "",
     size: "3",
     legs: "keep",
@@ -78,7 +78,15 @@ function App() {
     fd.append("api_key", apiKey.trim());
     fd.append("kind", st.kind);
     fd.append("color", st.color);
-    fd.append("color_custom", st.colorCustom || "");
+    // Merge free-text + optional HEX into the single color_custom field the
+    // server injects verbatim into the prompt (mirrors app-v2.jsx).
+    fd.append("color_custom", (() => {
+      const txt = (st.colorCustom || "").trim();
+      const hex = (st.colorCustomHex || "").trim();
+      if (!hex) return txt;
+      const hexNote = `exact upholstery colour hex ${hex}`;
+      return txt ? `${txt} (${hexNote})` : hexNote;
+    })());
     fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
@@ -378,7 +386,7 @@ const SUBS = {
 
 function stepBot(id, st, c, m, s, cam) {
   if (id === "photo") return st.uploaded ? (st.baseFileName || "wgrane") : "wymagane";
-  if (id === "color") return st.color === "custom" ? "własny opis" : c?.name;
+  if (id === "color") return st.color === "custom" ? ("własny" + (st.colorCustomHex ? " · " + st.colorCustomHex : " opis")) : c?.name;
   if (id === "mat")   return m?.name + (st.matNotes ? " · z notatkami" : "");
   if (id === "size")  return s?.name + " · " + s?.dim;
   if (id === "legs")  return st.kind === "bed" ? "wyłączone" : (LEGS.find(l=>l.id===st.legs)?.name || "");

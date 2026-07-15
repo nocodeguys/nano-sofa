@@ -9,6 +9,9 @@ const { useState, useMemo, useEffect, useCallback } = React;
 // stands in for (shown on hover). English prompt terms live in server.py
 // _COLOR_PL_TO_EN keyed by the same id.
 const COLORS = [
+  // "pearl" is not from the TreeTale matrix — added on request (Ola, 2026-07):
+  // a brighter near-white so renders don't need post-production lightening.
+  { id: "pearl",      name: "biel perłowa",   hex: "#EFEFEE", fabric: true },
   { id: "cream",      name: "śmietankowy",    hex: "#E7E0D6", fabric: true, covers: "glam-2, baloo-2073, cremona-1, perfecto-1, bellini-5, vibe-3" },
   { id: "sand",       name: "beż piaskowy",   hex: "#D9D4CD", fabric: true, covers: "baloo-2074, cremona-2, rouge-2, bellini-20, velutto-2" },
   { id: "greige",     name: "greige",         hex: "#C3BEB6", fabric: true, covers: "barrel-3, lumi-6, cremona-14, bella-5, rouge-1" },
@@ -207,7 +210,7 @@ const DEPTHS_OF_FIELD = [
    ====================================================== */
 const STEPS = [
   { id: "photo",  num: "01", top: "Zdjęcie i typ",     bot: "wgraj produkt bazowy" },
-  { id: "color",  num: "02", top: "Kolor",             bot: "12 presetów lub własny opis" },
+  { id: "color",  num: "02", top: "Kolor",             bot: "presety, własny opis lub HEX" },
   { id: "mat",    num: "03", top: "Materiał",          bot: "tkaniny rysowane wiernie" },
   { id: "size",   num: "04", top: "Konfiguracja",      bot: "liczba miejsc / rozmiar" },
   { id: "legs",   num: "05", top: "Nogi",              bot: "opcjonalne — domyślnie zachowuje" },

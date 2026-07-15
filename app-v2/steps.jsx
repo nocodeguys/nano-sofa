@@ -102,7 +102,7 @@ function StepColor({ st, set }) {
   return (
     <div className="card">
       <div className="field-label">Kolor tapicerki</div>
-      <div className="field-help">Wybierz preset z palety albo opisz własny — np. „ciepła szałwia z szarym podtonem”. Modele rozpoznają nazwy z naszej palety najwierniej.</div>
+      <div className="field-help">Wybierz preset z palety albo zdefiniuj własny — opisem słownym, dokładnym HEX-em lub oboma naraz. Modele rozpoznają nazwy z naszej palety najwierniej.</div>
       <div className="swatch-row">
         {COLORS.map(c => (
           <div key={c.id}
@@ -115,9 +115,9 @@ function StepColor({ st, set }) {
         ))}
         <div className={"swatch custom " + (st.color === "custom" ? "sel" : "")}
              onClick={() => set({color: "custom"})}>
-          <div className="swatch-fill">+</div>
+          <div className="swatch-fill" style={st.colorCustomHex ? {background: st.colorCustomHex} : undefined}>{st.colorCustomHex ? "" : "+"}</div>
           <div className="swatch-name">własny</div>
-          <div className="swatch-hex">opisz słownie</div>
+          <div className="swatch-hex">{st.colorCustomHex || "opis / HEX"}</div>
         </div>
       </div>
 
@@ -127,6 +127,24 @@ function StepColor({ st, set }) {
             placeholder="np. ciepła szałwia z szarym podtonem, lekko stonowana, jak na zdjęciu salonu Norrgavel z 2024"
             value={st.colorCustom}
             onChange={e => set({colorCustom: e.target.value})} />
+          <div style={{display: "flex", alignItems: "center", gap: 10, marginTop: 8}}>
+            <input type="color"
+              value={st.colorCustomHex || "#EFEFEE"}
+              onChange={e => set({colorCustomHex: e.target.value.toUpperCase()})}
+              style={{width: 42, height: 32, padding: 0, border: "1px solid var(--line, #ccc)", borderRadius: 6, background: "none", cursor: "pointer"}} />
+            <input type="text" className="input" style={{width: 130, fontFamily: "Geist Mono, monospace"}}
+              placeholder="#RRGGBB (opcja)"
+              value={st.colorCustomHex}
+              onChange={e => {
+                const v = e.target.value.trim().toUpperCase();
+                if (v === "" || /^#?[0-9A-F]{0,6}$/.test(v)) set({colorCustomHex: v && !v.startsWith("#") ? "#" + v : v});
+              }} />
+            {st.colorCustomHex && (
+              <button type="button"
+                style={{fontSize: 11, padding: "4px 10px", border: "1px solid var(--line, #ccc)", borderRadius: 6, background: "transparent", cursor: "pointer", color: "var(--ink-3, #888)"}}
+                onClick={() => set({colorCustomHex: ""})}>wyczyść HEX</button>
+            )}
+          </div>
         </div>
       )}
     </div>

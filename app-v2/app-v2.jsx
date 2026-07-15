@@ -1,5 +1,5 @@
 /* global React, ReactDOM, Ic, NS_DATA */
-const { useState, useMemo, useRef, useEffect } = React;
+const { useState, useMemo, useRef, useEffect, useCallback } = React;
 const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
         LENSES, TIMES_OF_DAY, SHADOWS,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
@@ -155,7 +155,7 @@ const GALLERY_STORAGE = "nano-sofa-v2-gallery";
 // means re-applying a preset still randomizes — settings travel between images,
 // the exact roll does not.
 const PRESET_FIELDS = [
-  "kind", "color", "colorCustom", "mat", "matNotes", "size", "legs", "bedLegs",
+  "kind", "color", "colorCustom", "colorCustomHex", "mat", "matNotes", "size", "legs", "bedLegs",
   "cam", "lens", "tod", "shadow", "shot", "yaw", "height", "dof", "detailRegion",
   "env", "envNote", "envMode", "refsLock", "preserveBaseCamera",
   "bedding", "beddingCustom", "throw", "tidy", "density", "accents", "bedNote",
@@ -206,7 +206,7 @@ function App({ t }) {
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
     alpha: false, kind: "bed",
-    color: "greige", colorCustom: "",
+    color: "greige", colorCustom: "", colorCustomHex: "",
     mat: "boucle", matNotes: "",
     size: "160",
     legs: "keep",
@@ -416,6 +416,17 @@ function App({ t }) {
   const todObj    = useMemo(() => TIMES_OF_DAY.find(t => t.id === st.tod),    [st.tod]);
   const shadowObj = useMemo(() => SHADOWS.find(s => s.id === st.shadow),      [st.shadow]);
 
+  // The `color_custom` string the server injects verbatim into the prompt when
+  // color === "custom". Merges the free-text description with the optional HEX
+  // pick so the model gets both the words and an exact shade anchor.
+  const customColorText = useCallback(() => {
+    const txt = (st.colorCustom || "").trim();
+    const hex = (st.colorCustomHex || "").trim();
+    if (!hex) return txt;
+    const hexNote = `exact upholstery colour hex ${hex}`;
+    return txt ? `${txt} (${hexNote})` : hexNote;
+  }, [st.colorCustom, st.colorCustomHex]);
+
   // Single source of truth for the public JSON contract — the same shape is
   // used by the JSON tab preview, the JSON-tab Copy button, and the footer
   // "kopiuj JSON" button. Every value is an English stable id, a hex color,
@@ -424,7 +435,7 @@ function App({ t }) {
     product: { type: st.kind, base: st.uploaded ? st.baseFileName || "base.jpg" : null },
     variant: {
       color: st.color === "custom"
-        ? { custom: st.colorCustom }
+        ? { custom: st.colorCustom || null, hex: st.colorCustomHex || null }
         : { id: colorObj?.id, hex: colorObj?.hex },
       material: { id: matObj?.id, notes: st.matNotes || null },
       size: { id: sizeObj?.id, dim: sizeObj?.dim },
@@ -533,7 +544,7 @@ function App({ t }) {
     fd.append("api_key", apiKey.trim());
     fd.append("kind", st.kind);
     fd.append("color", st.color);
-    fd.append("color_custom", st.colorCustom || "");
+    fd.append("color_custom", customColorText());
     fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
@@ -742,7 +753,7 @@ function App({ t }) {
   const appendShootConfig = (fd) => {
     fd.append("api_key", apiKey.trim());
     fd.append("kind", st.kind);
-    fd.append("color_custom", st.colorCustom || "");
+    fd.append("color_custom", customColorText());
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
     fd.append("legs", effectiveLegs);
@@ -930,7 +941,7 @@ function App({ t }) {
     fd.append("colors_csv", variantColors.join(","));
     // Empty materials_csv → server reuses single `mat` for every variant.
     fd.append("materials_csv", variantMaterials.join(","));
-    fd.append("color_custom", st.colorCustom || "");
+    fd.append("color_custom", customColorText());
     fd.append("mat", st.mat);
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
@@ -1065,8 +1076,9 @@ function App({ t }) {
                     <span className="fc-dot">·</span>
                     <span className="fc-finish">{matObj.finish}</span>
                     <span className="fc-sep"></span>
-                    <span className="fc-chip" style={{ background: st.color === "custom" ? "conic-gradient(#d8d3c8,#f2eee4,#d8d3c8)" : (colorObj?.hex || "#ccc") }}></span>
+                    <span className="fc-chip" style={{ background: st.color === "custom" ? (st.colorCustomHex || "conic-gradient(#d8d3c8,#f2eee4,#d8d3c8)") : (colorObj?.hex || "#ccc") }}></span>
                     <span>{st.color === "custom" ? "własny odcień" : (colorObj?.name || "—")}</span>
+                    {st.color === "custom" && st.colorCustomHex && <span className="fc-hex">{st.colorCustomHex}</span>}
                     {st.color !== "custom" && colorObj && <span className="fc-hex">{colorObj.hex}</span>}
                   </div>
                 )}
@@ -1897,8 +1909,9 @@ function App({ t }) {
         </Section>
 
         {/* 02 — color */}
-        <Section num="03" title="Kolor tapicerki" summary={st.color === "custom" ? "własny opis" : colorObj?.name}
-          help="Wybierz preset lub opisz własny odcień słownie. Modele rozpoznają nazwy z naszej palety najwierniej.">
+        <Section num="03" title="Kolor tapicerki"
+          summary={st.color === "custom" ? ("własny" + (st.colorCustomHex ? " · " + st.colorCustomHex : " opis")) : colorObj?.name}
+          help="Wybierz preset albo zdefiniuj własny kolor — opisem słownym, dokładnym HEX-em lub oboma naraz. Modele rozpoznają nazwy z naszej palety najwierniej.">
           <div className="swatches">
             {COLORS.map(c => (
               <div key={c.id} className={"sw " + (st.color === c.id ? "sel" : "")} onClick={() => set({ color: c.id })}
@@ -1909,16 +1922,36 @@ function App({ t }) {
               </div>
             ))}
             <div className={"sw custom " + (st.color === "custom" ? "sel" : "")} onClick={() => set({ color: "custom" })}>
-              <div className="sw-fill">+</div>
+              <div className="sw-fill" style={st.colorCustomHex ? { background: st.colorCustomHex } : undefined}>{st.colorCustomHex ? "" : "+"}</div>
               <div className="sw-name">własny</div>
-              <div className="sw-hex">opisz</div>
+              <div className="sw-hex">{st.colorCustomHex || "opis / HEX"}</div>
             </div>
           </div>
           {st.color === "custom" && (
-            <textarea className="input" style={{ marginTop: 10 }}
-              placeholder="np. ciepła szałwia z szarym podtonem, lekko stonowana"
-              value={st.colorCustom}
-              onChange={e => set({ colorCustom: e.target.value })} />
+            <div style={{ marginTop: 10 }}>
+              <textarea className="input"
+                placeholder="np. ciepła szałwia z szarym podtonem, lekko stonowana"
+                value={st.colorCustom}
+                onChange={e => set({ colorCustom: e.target.value })} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                <input type="color"
+                  value={st.colorCustomHex || "#EFEFEE"}
+                  onChange={e => set({ colorCustomHex: e.target.value.toUpperCase() })}
+                  style={{ width: 42, height: 32, padding: 0, border: "1px solid var(--line, #ccc)", borderRadius: 6, background: "none", cursor: "pointer" }} />
+                <input type="text" className="input" style={{ width: 120, fontFamily: "Geist Mono, monospace" }}
+                  placeholder="#RRGGBB (opcja)"
+                  value={st.colorCustomHex}
+                  onChange={e => {
+                    const v = e.target.value.trim().toUpperCase();
+                    if (v === "" || /^#?[0-9A-F]{0,6}$/.test(v)) set({ colorCustomHex: v && !v.startsWith("#") ? "#" + v : v });
+                  }} />
+                {st.colorCustomHex && (
+                  <button type="button"
+                    style={{ fontSize: 11, padding: "4px 10px", border: "1px solid var(--line, #ccc)", borderRadius: 6, background: "transparent", cursor: "pointer", color: "var(--ink-3, #888)" }}
+                    onClick={() => set({ colorCustomHex: "" })}>wyczyść HEX</button>
+                )}
+              </div>
+            </div>
           )}
         </Section>
 

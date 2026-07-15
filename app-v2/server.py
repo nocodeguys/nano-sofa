@@ -69,6 +69,7 @@ logger = logging.getLogger("nano-sofa-v2")
 # TreeTale fabric-matrix colour GROUPS; each carries its representative hex so
 # the model can anchor the exact shade. Keys must match data.jsx COLORS ids.
 _COLOR_PL_TO_EN = {
+    "pearl":      "bright pearl white — very light, clean near-white with a barely-there cool-neutral undertone, noticeably lighter than ivory or cream (hex #EFEFEE)",
     "cream":      "soft creamy off-white ivory, like natural unbleached cotton (hex #E7E0D6)",
     "sand":       "light sandy beige with warm champagne undertones (hex #D9D4CD)",
     "greige":     "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
