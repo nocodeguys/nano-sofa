@@ -9,9 +9,13 @@ const { useState, useMemo, useEffect, useCallback } = React;
 // stands in for (shown on hover). English prompt terms live in server.py
 // _COLOR_PL_TO_EN keyed by the same id.
 const COLORS = [
-  // "pearl" is not from the TreeTale matrix — added on request (Ola, 2026-07):
-  // a brighter near-white so renders don't need post-production lightening.
+  // "pearl"/"pearlgrey" are not from the TreeTale matrix — added on request:
+  // a brighter near-white + a light pearl grey so renders don't need
+  // post-production lightening. "pearlgrey" is a lighter alternative to the
+  // standard "srebrzysty" (ash), which is too dark next to some fabrics
+  // (Ola, 2026-07 · TRE-16).
   { id: "pearl",      name: "biel perłowa",   hex: "#EFEFEE", fabric: true },
+  { id: "pearlgrey",  name: "szary perłowy",  hex: "#ECEAEA", fabric: true },
   { id: "cream",      name: "śmietankowy",    hex: "#E7E0D6", fabric: true, covers: "glam-2, baloo-2073, cremona-1, perfecto-1, bellini-5, vibe-3" },
   { id: "sand",       name: "beż piaskowy",   hex: "#D9D4CD", fabric: true, covers: "baloo-2074, cremona-2, rouge-2, bellini-20, velutto-2" },
   { id: "greige",     name: "greige",         hex: "#C3BEB6", fabric: true, covers: "barrel-3, lumi-6, cremona-14, bella-5, rouge-1" },
