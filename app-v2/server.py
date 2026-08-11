@@ -92,7 +92,10 @@ _COLOR_PL_TO_EN = {
 _MATERIAL_PL_TO_EN = {
     "knit":        "soft knit fabric",
     "boucle":      "bouclé fabric",
-    "basketweave": "basketweave woven fabric",
+    # NOT "basketweave woven fabric" — the texture spec below describes a fine,
+    # irregular, non-repeating weave, and the literal noun pulled the model
+    # toward a coarse regular basketweave that contradicted it (2026-08).
+    "basketweave": "finely woven textured upholstery fabric",
     "chenille":    "chenille fabric",
     "ecoleather":  "eco-leather (faux leather)",
     "velour":      "velour fabric",
@@ -104,7 +107,7 @@ _MATERIAL_PL_TO_EN = {
 _MATERIAL_TEXTURE_EN = {
     "knit":        "Soft, smooth knit with a subtle fine interlocking loop structure; medium weight, drapes softly and follows the furniture contours closely; matte finish, slightly stretchy appearance.",
     "boucle":      "Highly textured looped and curled yarns forming a nubby, irregular surface; heavy and bulky, holds its shape with a structured, substantial drape; matte finish, high dimensional depth, cozy and tactile.",
-    "basketweave": "Distinctive woven texture with a visible interlaced thread pattern like a classic basketweave; medium-to-heavy weight, structured, slightly stiff and tailored drape; matte finish, durable classic look, visible thread contrast.",
+    "basketweave": "Medium-to-heavy upholstery fabric with a fine, irregular woven texture. Densely woven from slightly varied yarns, creating a subtle nubby, grainy surface with small broken horizontal and vertical threads. Soft tonal variation and a lightly mélange appearance give the fabric natural depth. Matte finish, substantial and durable, with a structured upholstery drape. The weave is small-scale, intricate and organic rather than a regular basketweave, with no large repeating pattern.",
     "chenille":    "Plush, velvety tufted-yarn surface, softly ribbed and caterpillar-like; medium-to-heavy weight, drapes smoothly with a soft, cozy, substantial feel; slight sheen that catches the light, rich and inviting.",
     "ecoleather":  "Smooth, slightly grained surface mimicking natural leather with a subtle uniform pore pattern; medium weight, structured and relatively stiff drape holding clean lines; slightly glossy, wipe-clean, modern and sleek.",
     "velour":      "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows.",
@@ -905,6 +908,21 @@ def _build_generation_request(
         else _COLOR_PL_TO_EN.get(color, "neutral")
     )
     upholstery_material = _MATERIAL_PL_TO_EN.get(mat, "fabric")
+    if mat and mat not in _MATERIAL_PL_TO_EN:
+        # Stale browser cache or a hand-rolled request: we silently fell back to
+        # a bare "fabric" with no texture spec, which renders an arbitrary
+        # weave. Loud in the log so it stops looking like a model problem.
+        logger.warning(
+            "Unknown material id %r — falling back to generic 'fabric' with no "
+            "texture spec. Known ids: %s", mat, ", ".join(_MATERIAL_PL_TO_EN),
+        )
+
+    # Texture spec: the fabric's matrix description ALWAYS goes in, and the
+    # user's own note is appended as a refinement on top of it. It used to be
+    # `notes or spec` — any typed note silently dropped the whole matrix spec.
+    texture_spec = " ".join(
+        part for part in (_MATERIAL_TEXTURE_EN.get(mat, ""), mat_notes.strip()) if part
+    )
 
     is_bed = kind == "bed"
     sofa_config = (_BED_CONFIG if is_bed else _SOFA_CONFIG).get(size, "3-seater")
@@ -1003,8 +1021,7 @@ def _build_generation_request(
         preserve_list=["frame_silhouette", "stitching"],
         upholstery_color=upholstery_color,
         upholstery_material=upholstery_material,
-        # User's own notes win; otherwise fall back to the fabric's matrix spec.
-        texture_notes=(mat_notes.strip() or _MATERIAL_TEXTURE_EN.get(mat, "")),
+        texture_notes=texture_spec,
         leg_id=leg_id,
         camera_angle=camera_angle,
         angle_degrees_from_left=deg,

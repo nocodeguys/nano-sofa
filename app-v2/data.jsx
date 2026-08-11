@@ -39,7 +39,7 @@ const COLORS = [
 const MATERIALS = [
   { id: "knit",        name: "dzianina",  prop: "miękka, gładka",           tex: "linen",    finish: "matowy" },
   { id: "boucle",      name: "bouclé",    prop: "pętelkowy, mięsisty",      tex: "boucle",   finish: "matowy" },
-  { id: "basketweave", name: "plecionka", prop: "splot koszykowy",          tex: "weave",    finish: "matowy" },
+  { id: "basketweave", name: "plecionka", prop: "drobny, nieregularny splot", tex: "weave",  finish: "matowy" },
   { id: "chenille",    name: "szenila",   prop: "aksamitny, ciepły",        tex: "chenille", finish: "delikatny połysk" },
   { id: "ecoleather",  name: "eco skóra", prop: "gładka, łatwa w czyszczeniu", tex: "leather", finish: "połysk" },
   { id: "velour",      name: "welur",     prop: "gęsty włos, połysk",       tex: "velvet",   finish: "połysk" },
