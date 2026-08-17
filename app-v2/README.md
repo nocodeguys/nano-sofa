@@ -1,8 +1,8 @@
-# app-v2 — Nano Sofa Studio (design port)
+# app-v2 — Nano Sofa Studio
 
-Alternative UI to the Gradio app under `app/`. Ported from the Claude Design
-prototype (`Nano Sofa Studio.html` + companion `.jsx`/`.css`). Reuses
-`app/core/generator.py` for the actual API call.
+The app Docker runs: FastAPI backend (`server.py`) + static React UI compiled
+in the browser. Reuses `app/core/` (generator, cost tracker, schema loader)
+for the actual Gemini calls.
 
 ## Run
 
@@ -14,23 +14,21 @@ prototype (`Nano Sofa Studio.html` + companion `.jsx`/`.css`). Reuses
 The script installs FastAPI/uvicorn into the project venv and starts the server
 on port 7861 (override with `PORT=...`).
 
-## What's wired
+## Pages
 
-- 7-step wizard from the prototype: photo, color, material, size, legs, scene, refs
-- Real file upload on step 01 (drag-drop or click)
-- Real Gemini API key field in the topbar (stored in `localStorage` only)
-- Generuj wariant → `POST /api/generate` → `app.core.generator.generate()` → real PNG
-- Returned image renders in the live preview stage and in the gallery dock
-
-## What's stub-only (matches v1 scope, lift if needed)
-
-- Reference image slots (step 07) — UI present, not sent to backend
-- Tabs other than "Generuj" (Porównaj, Koszty, Schemat) — header pills only
-- Cost dock value — derived client-side, not from `cost_tracker`
+- `/` → `Nano Sofa Studio v2.html` — main configurator (`app-v2.jsx` + `tweaks-panel.jsx` + `header.jsx`)
+- `/video` → `video.html` — video studio (`video.jsx`)
+- `/help` → `docs.html` — user guide
+- `/docs` → FastAPI Swagger UI
 
 ## Files
 
-- `Nano Sofa Studio.html` · `app.jsx` · `steps.jsx` · `data.jsx` · `styles.css` — prototype, lightly modified
-- `server.py` — FastAPI: serves prototype, exposes `/api/generate`, `/api/outputs/<file>`
-- `requirements.txt` — additive deps over the v1 requirements
+- `server.py` — FastAPI: static serving + `/api/*` (generate, generate-set, variants, video, history, config)
+- `data.jsx` — product / material / color / camera data shared by the pages
+- `styles-v2.css` — design system (sage accent, Geist)
+- `requirements.txt` — runtime deps (this is what the Docker image installs)
 - `run.sh` — convenience launcher
+
+Cache busting: static assets are referenced with `?v=YYYYMMDDx` query strings
+in the HTML — bump them when you change an asset, or Watchtower-updated
+clients keep the stale cached copy.

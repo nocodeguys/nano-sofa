@@ -3,13 +3,12 @@ server.py — FastAPI backend for Nano Sofa Studio v2.
 
 Serves the static React/HTML/CSS prototype from ./static and exposes:
   GET  /                   → Nano Sofa Studio v2.html (current design)
-  GET  /v1                 → Nano Sofa Studio.html   (earlier design, static)
   GET  /healthz            → liveness + capability report (no API call)
   GET  /api/config         → model enum + per-model constraints
   POST /api/generate       → run a single generation
   GET  /api/outputs/<file> → serve a generated image
 
-Wraps app/core/generator.py from the parent project (shared with v1).
+Wraps app/core/generator.py from the parent project.
 
 Environment variables:
   PORT          listen port (default 7861)
@@ -743,11 +742,6 @@ except Exception:
 @app.get("/")
 def index():
     return FileResponse(_STATIC_DIR / "Nano Sofa Studio v2.html")
-
-
-@app.get("/v1")
-def index_v1():
-    return FileResponse(_STATIC_DIR / "Nano Sofa Studio.html")
 
 
 @app.get("/help")

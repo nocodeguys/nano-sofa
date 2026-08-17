@@ -89,9 +89,9 @@ app/                     # Shared core (generator, cost tracker, schema loader)
   core/cost_tracker.py   # Per-request cost logging (SQLite, ephemeral in container)
   core/schema_loader.py  # Reads prompts/schemas/sofa.json, exposes typed helpers
 app-v2/                  # FastAPI server + React UI (this is what Docker runs)
-  server.py              # Entry point: GET /, /v1, /healthz, /api/config, POST /api/generate
+  server.py              # Entry point: GET /, /healthz, /api/config, POST /api/generate
   app-v2.jsx             # Main app shell — 3-pane configurator
-  steps.jsx, data.jsx    # Wizard steps + product/material/color/camera data
+  data.jsx               # Product/material/color/camera data
   styles-v2.css          # Calm composer design (sage accent, Instrument Serif + Geist)
   Nano Sofa Studio v2.html  # Entry HTML (loads JSX through Babel standalone)
 prompts/schemas/         # JSON schemas — source of truth for model constraints
@@ -111,7 +111,6 @@ INSTALL.md               # Non-technical install guide
 | Route | Purpose |
 |---|---|
 | `GET /` | v2 design (current) |
-| `GET /v1` | Earlier design, preserved as static HTML |
 | `GET /healthz` | Liveness + model catalogue. No external calls. Used by Docker `HEALTHCHECK`. |
 | `GET /api/config` | Model enum + per-model constraints (driven by `prompts/schemas/sofa.json`) |
 | `POST /api/generate` | Run one generation. Form fields: `api_key`, `kind`, `color`, `mat`, `size`, `legs`, `cam`, `lens`, `tod`, `shadow`, `env`, `model`, `aspect`, `res`, `seed`, `base_image` |
@@ -120,7 +119,7 @@ INSTALL.md               # Non-technical install guide
 ## Status
 
 - **v2 (current):** Production-shaped. Docker image published to GHCR. Three Gemini models exposed through the picker. Phases 1–3 complete: dynamic model picker, API key onboarding, env-configurable runtime, multi-arch image, double-click installers.
-- **v1 (earlier Gradio UI):** kept at the `/v1` static route for reference. Its Python entry point (`app/main.py`) is intentionally not part of the v2 image.
+- **v1:** removed (both the Gradio app and the later `/v1` static UI). `app/core/` remains as the shared generation engine; everything else v1-specific is gone — recover from git history if ever needed.
 
 ## How the agent system works
 
@@ -129,7 +128,7 @@ Each agent under `.claude/agents/` owns one concern:
 - `nano-banana-researcher` → `docs/research/nano-banana-state.md`
 - `furniture-prompt-architect` → `prompts/schemas/*.json`
 - `leg-pipeline-designer` → `legs/render-blender.py`, leg manifests
-- `gradio-app-architect` → previously `app/` (Gradio); now superseded by FastAPI + React in `app-v2/`
+- `gradio-app-architect` → historical name; owns the app shell, now FastAPI + React in `app-v2/`
 - `docker-packager` → `Dockerfile`, `docker-compose.yml`, `install/`, `INSTALL.md`
 
 They share state through files, not chat. The JSON schemas are the contract — the prompt architect's output is what the UI reads at runtime. A non-technical teammate can edit a schema (add a model, change a constraint) without touching code; the change takes effect on the next server restart.
