@@ -96,7 +96,9 @@ _MATERIAL_PL_TO_EN = {
     # irregular, non-repeating weave, and the literal noun pulled the model
     # toward a coarse regular basketweave that contradicted it (2026-08).
     "basketweave": "finely woven textured upholstery fabric",
-    "chenille":    "chenille fabric",
+    # "woven" carries weight here — the bare noun let the model drift to velvet,
+    # which the texture spec below explicitly rules out (2026-08).
+    "chenille":    "woven textured chenille fabric",
     "ecoleather":  "eco-leather (faux leather)",
     "velour":      "velour fabric",
 }
@@ -108,7 +110,7 @@ _MATERIAL_TEXTURE_EN = {
     "knit":        "Soft, smooth knit with a subtle fine interlocking loop structure; medium weight, drapes softly and follows the furniture contours closely; matte finish, slightly stretchy appearance.",
     "boucle":      "Highly textured looped and curled yarns forming a nubby, irregular surface; heavy and bulky, holds its shape with a structured, substantial drape; matte finish, high dimensional depth, cozy and tactile.",
     "basketweave": "Medium-to-heavy upholstery fabric with a fine, irregular woven texture. Densely woven from slightly varied yarns, creating a subtle nubby, grainy surface with small broken horizontal and vertical threads. Soft tonal variation and a lightly mélange appearance give the fabric natural depth. Matte finish, substantial and durable, with a structured upholstery drape. The weave is small-scale, intricate and organic rather than a regular basketweave, with no large repeating pattern.",
-    "chenille":    "Plush, velvety tufted-yarn surface, softly ribbed and caterpillar-like; medium-to-heavy weight, drapes smoothly with a soft, cozy, substantial feel; slight sheen that catches the light, rich and inviting.",
+    "chenille":    "Textured chenille upholstery fabric with a dense, irregular woven surface made from soft fuzzy chenille yarns. Medium-scale tactile texture with short uneven yarn segments, tiny soft ridges and subtle nubby loops creating a broken, organic crosshatched pattern. Plush and soft to the touch, with the woven yarn structure clearly visible across the whole surface. Rich dimensional surface with gentle tonal variation and soft shadowing between the yarns. Mostly matte with only a very subtle soft luster. Heavy, substantial upholstery fabric with a cozy, tactile appearance. Light scatters evenly across the surface in every direction, holding the same tone whichever way the fabric is brushed. Every part of the panel reads as discrete woven yarn segments with visible gaps between them. Highlights stay broad, diffuse and matte. The weave remains visibly irregular and broken across the entire panel.",
     "ecoleather":  "Smooth, slightly grained surface mimicking natural leather with a subtle uniform pore pattern; medium weight, structured and relatively stiff drape holding clean lines; slightly glossy, wipe-clean, modern and sleek.",
     "velour":      "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows.",
 }

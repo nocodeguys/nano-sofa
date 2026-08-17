@@ -389,8 +389,9 @@ button { font-family: inherit; }
   opacity: 0;
   mix-blend-mode: soft-light;
 }
+/* Chenille dropped from this group — its spec is now "mostly matte, no glossy
+   sheen", and the animated sweep read as velvet in the picker (2026-08). */
 .mat-velvet .fabric-sheen,
-.mat-chenille .fabric-sheen,
 .mat-leather .fabric-sheen {
   opacity: 1;
   background: linear-gradient(105deg, transparent 34%, rgba(255,255,255,.4) 50%, transparent 64%);
