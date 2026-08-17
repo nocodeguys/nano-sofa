@@ -90,8 +90,10 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
 ## Deploy loop
 
 ```
-edit → commit → push (main) → GitHub Actions (docker.yml)
-     → multi-arch image → GHCR → Watchtower on user machines pulls it
+edit → commit → push (main) → GitHub Actions (docker.yml):
+     tests (prompt invariants + API smoke) → multi-arch image → GHCR
+     → Watchtower on user machines pulls it
+
 ```
 
 **Local edits are invisible to users until pushed** — there is no other
@@ -103,5 +105,5 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 - [x] Single source of truth for materials/colors (`app-v2/catalog.json` + `/catalog.js`)
 - [x] Vite build: production React, ES modules, self-hosted fonts, hashed assets
 - [ ] Split `server.py` (~2100 lines) into routers; split `App()` (~2300 lines) into components
-- [ ] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests in CI
+- [x] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests gating CI
 - [ ] Decide fate of the WebGL 3D preview branch (`worktree-webgl-3d-preview`, 15 commits behind)

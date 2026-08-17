@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - app-v2-design
     tags:
       - "v*.*.*"
   workflow_dispatch:
@@ -14,8 +13,45 @@ env:
   IMAGE_NAME: nocodeguys/nano-sofa
 
 jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Gate: prompt-invariant + API smoke tests. The image never builds (and so
+  # Watchtower never deploys) when these fail.
+  # ───────────────────────────────────────────────────────────────────────────
+  test:
+    name: Prompt invariants + API smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node (frontend build — server refuses to start without dist)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app-v2/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: app-v2/frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python deps
+        run: pip install -r app-v2/requirements-dev.txt
+
+      - name: Run tests
+        run: pytest tests/ -q
+
   build-and-push:
     name: Build multi-arch image and push to GHCR
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -46,8 +82,6 @@ jobs:
           tags: |
             # :latest on every push to the default branch (main)
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            # :edge on every push to the active dev branch
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/app-v2-design' }}
             # :sha-<short> on every push (for pinning to an exact commit)
             type=sha,prefix=sha-,format=short
             # :<semver-tag> when a v*.*.* tag is pushed
