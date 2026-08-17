@@ -1080,6 +1080,16 @@ def generate(req: GenerationRequest) -> GenerationResult:
     ref_images = _collect_reference_images(req, base_img)
     prompt_text = _build_prompt_text(req)
 
+    # Opt-in full-prompt dump. Only the one-line summary is logged otherwise,
+    # which is useless when iterating on texture/scene wording — there was no
+    # way to see what actually crossed the wire. Off by default so production
+    # logs stay quiet; set NANO_SOFA_LOG_PROMPT=1 when tuning prompts.
+    if os.environ.get("NANO_SOFA_LOG_PROMPT"):
+        logger.info(
+            "── PROMPT → Gemini (%d chars, %d refs) ──\n%s\n── END PROMPT ──",
+            len(prompt_text), len(ref_images), prompt_text,
+        )
+
     # ------------------------------------------------------------------ #
     # API call with exponential backoff
     # ------------------------------------------------------------------ #
