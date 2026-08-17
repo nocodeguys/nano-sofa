@@ -108,6 +108,37 @@ from their ZDR guarantees.
 4. For real savings on bulk/batch renders, look at **Google Batch API (−50%)**
    — a bigger lever than any aggregator.
 
+## Bake-off results (2026-08-17, 12 cases × 3 models, $1.76 total)
+
+Run: `outputs/bakeoff/20260817-134755/` (scripts/bakeoff_openrouter.py —
+production prompts + real base photos, single base-image reference, all via
+OpenRouter). Findings:
+
+- **Gemini 2.5 Flash Image** — the only model that respects the base photo as
+  a hard constraint: camera angle (¾ left), frame silhouette, channel/bubble
+  tufting, bedding all preserved across all 12 cases. Confirms the current
+  default is right.
+- **FLUX.2 pro** — best-looking *fabric* of the three and clean packshots,
+  accurate colours; but it treats the reference as inspiration, not
+  constraint: dropped the channel-tufted stitching on the chenille case,
+  re-proportioned the bubble bed, and flipped ¾ views to frontal. Verdict:
+  unusable for product-true e-commerce shots; possibly useful for marketing /
+  moodboard renders where exact geometry is not contractual. ~$0.06/img here.
+- **Seedream 4.5** — consistent failure modes: texture overshoot (bouclé →
+  sheep fleece, chenille → carpet), camera changed to frontal, recurring
+  dome-ceiling artifact instead of the cyclorama, bedding degraded to a bare
+  slab. Cheap ($0.04, ~2K output) and fast to fail; not fit for this workflow
+  even as a fallback. API quirk: rejects `resolution: "1K"` (min ~3.7 MP
+  output — omit the field).
+- Neither alternative followed the "front 34 left" camera instruction from
+  text alone — Gemini's advantage is precisely its obedience to the reference
+  image + camera text, which is what this product needs.
+
+Practical conclusion: keep Gemini as the sole production engine; a FLUX-based
+"kreatywny wariant" toggle is the only integration worth considering, clearly
+labelled as not product-true. Re-run this bake-off when FLUX/Seedream ship
+major updates (script is idempotent: `--retry <run-dir>` fills gaps only).
+
 ## Flagged as unverified
 
 Veo-on-OpenRouter billing (zeros in endpoints API), Krea pricing, exact

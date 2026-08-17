@@ -48,9 +48,10 @@ DEFAULT_MODELS = {
     "flux": "black-forest-labs/flux.2-pro",
 }
 # Per-endpoint quirks (verified via /api/v1/images/models/{slug}/endpoints):
-#  - seedream supports `resolution` (1K/2K/4K); the others do not.
 #  - all three support aspect_ratio 3:2 and input_references (3/14/8 max).
-SUPPORTS_RESOLUTION = {"bytedance-seed/seedream-4.5"}
+#  - seedream lists a `resolution` enum, but the provider enforces a minimum
+#    of ~3.69M output pixels — "1K" at 3:2 gets a 400. Omitting the field
+#    uses the provider default, which passes (price is flat per image anyway).
 
 ASPECT = "3:2"  # closest to both base photos; identical for every model/case
 
@@ -113,20 +114,20 @@ def generate(client: httpx.Client, model: str, prompt: str, base: Path) -> dict:
             {"type": "image_url", "image_url": {"url": data_url(base)}},
         ],
     }
-    if model in SUPPORTS_RESOLUTION:
-        payload["resolution"] = "1K"
     last_err = None
     for attempt in (1, 2):  # one retry on transient failure
         try:
             r = client.post("/images", json=payload, timeout=300)
             if r.status_code >= 500:
-                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
+                last_err = f"HTTP {r.status_code}: {r.text[:300]}"
                 time.sleep(8 * attempt)
                 continue
-            r.raise_for_status()
+            if r.status_code >= 400:
+                # 4xx is not transient — keep the API's own explanation
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             return r.json()
         except httpx.HTTPError as exc:
-            last_err = str(exc)[:200]
+            last_err = str(exc)[:300]
             time.sleep(8 * attempt)
     raise RuntimeError(last_err or "unknown error")
 
@@ -138,13 +139,23 @@ def main() -> None:
     ap.add_argument("--models", nargs="*", default=None,
                     help="extra OpenRouter model slugs on top of the defaults")
     ap.add_argument("--key", default=os.environ.get("OPENROUTER_API_KEY", ""))
+    ap.add_argument("--retry", metavar="RUN_DIR",
+                    help="re-run only the failed rows of a previous run, "
+                         "merge into its results.json and gallery")
     args = ap.parse_args()
 
     models = dict(DEFAULT_MODELS)
     for slug in args.models or []:
         models[slug.rsplit("/", 1)[-1]] = slug
 
-    run_dir = REPO_ROOT / "outputs" / "bakeoff" / time.strftime("%Y%m%d-%H%M%S")
+    if args.retry:
+        run_dir = Path(args.retry).resolve()
+        prev = json.loads((run_dir / "results.json").read_text())
+        ok = {(r["case"], r["model"]) for r in prev["rows"] if r.get("file")}
+        kept = [r for r in prev["rows"] if r.get("file")]
+    else:
+        run_dir = REPO_ROOT / "outputs" / "bakeoff" / time.strftime("%Y%m%d-%H%M%S")
+        ok, kept = set(), []
 
     if args.dry_run:
         print(f"{len(CASES)} cases × {len(models)} models = "
@@ -160,17 +171,20 @@ def main() -> None:
     if not args.key:
         sys.exit("OPENROUTER_API_KEY missing (env var or --key)")
 
-    run_dir.mkdir(parents=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
     client = httpx.Client(
         base_url="https://openrouter.ai/api/v1",
         headers={"Authorization": f"Bearer {args.key}",
                  "X-Title": "nano-sofa bakeoff"},
     )
-    results = []
-    total_cost = 0.0
+    results = list(kept)
+    total_cost = sum(r.get("cost", 0) for r in kept)
     for cid, base, kw in CASES:
+        pending = {s: m for s, m in models.items() if (cid, m) not in ok}
+        if not pending:
+            continue
         prompt = build_prompt(base, **kw)
-        for short, slug in models.items():
+        for short, slug in pending.items():
             t0 = time.time()
             row = {"case": cid, "model": slug, "base": base.name}
             try:
