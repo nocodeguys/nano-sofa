@@ -104,6 +104,7 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 - [x] Remove dead Gradio app + `/v1` static UI (5b2f4c7)
 - [x] Single source of truth for materials/colors (`app-v2/catalog.json` + `/catalog.js`)
 - [x] Vite build: production React, ES modules, self-hosted fonts, hashed assets
-- [ ] Split `server.py` (~2100 lines) into routers; split `App()` (~2300 lines) into components
+- [x] Split `server.py` into `studio/` modules (paths, catalog, mappings, request_builder, media, routes_*)
+- [ ] Split the frontend `App()` (~2300 lines) into components — now easy with ES modules, do it opportunistically as sections get touched
 - [x] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests gating CI
 - [ ] Decide fate of the WebGL 3D preview branch (`worktree-webgl-3d-preview`, 15 commits behind)
