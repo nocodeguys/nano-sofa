@@ -35,7 +35,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
@@ -64,55 +64,56 @@ logger = logging.getLogger("nano-sofa-v2")
 # Mappings: React state → GenerationRequest
 # ---------------------------------------------------------------------------
 
-# Colour id (from data.jsx COLORS) → English term the prompt uses. These are the
-# TreeTale fabric-matrix colour GROUPS; each carries its representative hex so
-# the model can anchor the exact shade. Keys must match data.jsx COLORS ids.
-_COLOR_PL_TO_EN = {
-    "pearl":      "bright pearl white — very light, clean near-white with a barely-there cool-neutral undertone, noticeably lighter than ivory or cream (hex #EFEFEE)",
-    "pearlgrey":  "soft pearl grey — very light, clean pale grey with a delicate cool undertone, noticeably lighter than the standard ash / silver grey (hex #ECEAEA)",
-    "cream":      "soft creamy off-white ivory, like natural unbleached cotton (hex #E7E0D6)",
-    "sand":       "light sandy beige with warm champagne undertones (hex #D9D4CD)",
-    "greige":     "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
-    "cappuccino": "warm cappuccino latte beige (hex #B4A799)",
-    "taupe":      "medium taupe blending grey and brown (hex #938A83)",
-    "caramel":    "warm caramel honey-walnut brown (hex #9F693D)",
-    "choc":       "deep dark chocolate brown / espresso (hex #4E3E2F)",
-    "ash":        "light cool ash grey / silver (hex #BCBCBC)",
-    "steelgrey":  "solid medium steel grey / stone (hex #908F8B)",
-    "graphite":   "dark moody graphite / anthracite grey (hex #656F70)",
-    "olive":      "muted earthy olive / sage green (hex #6A7763)",
-    "forest":     "deep rich forest / bottle green (hex #2E3B2C)",
-    "rose":       "soft dusty pink / muted salmon (hex #D4BABA)",
-    "steelblue":  "cool muted steel blue (hex #8A979D)",
-    "black":      "solid deep black (hex #17161A)",
-}
+# Materials + colours live in catalog.json — the single source of truth shared
+# with the browser (served as window.NS_CATALOG via GET /catalog.js). The dicts
+# below keep their historical names so the rest of this file is unchanged.
+# Per-entry "note" fields in the JSON carry the hard-won prompt rules (EN noun
+# must agree with the texture spec — see ARCHITECTURE.md invariant #1).
+_CATALOG_PATH = _THIS / "catalog.json"
+with open(_CATALOG_PATH, encoding="utf-8") as _f:
+    CATALOG = json.load(_f)
+
+# Colour id → English term the prompt uses (TreeTale fabric-matrix GROUPS;
+# each carries its representative hex so the model can anchor the exact shade).
+_COLOR_PL_TO_EN = {c["id"]: c["prompt_en"] for c in CATALOG["colors"]}
 
 # Material id → short English noun used inline as "{colour} {material}".
-_MATERIAL_PL_TO_EN = {
-    "knit":        "soft knit fabric",
-    "boucle":      "bouclé fabric",
-    # NOT "basketweave woven fabric" — the texture spec below describes a fine,
-    # irregular, non-repeating weave, and the literal noun pulled the model
-    # toward a coarse regular basketweave that contradicted it (2026-08).
-    "basketweave": "finely woven textured upholstery fabric",
-    # "woven" carries weight here — the bare noun let the model drift to velvet,
-    # which the texture spec below explicitly rules out (2026-08).
-    "chenille":    "woven textured chenille fabric",
-    "ecoleather":  "eco-leather (faux leather)",
-    "velour":      "velour fabric",
-}
+_MATERIAL_PL_TO_EN = {m["id"]: m["noun_en"] for m in CATALOG["materials"]}
 
-# Material id → rich texture/drape/features spec (from the TreeTale fabric
-# matrix). Injected into the prompt's "Texture detail:" clause when the user
-# hasn't typed their own material notes — see _build_generation_request.
-_MATERIAL_TEXTURE_EN = {
-    "knit":        "Soft, smooth knit with a subtle fine interlocking loop structure; medium weight, drapes softly and follows the furniture contours closely; matte finish, slightly stretchy appearance.",
-    "boucle":      "Highly textured looped and curled yarns forming a nubby, irregular surface; heavy and bulky, holds its shape with a structured, substantial drape; matte finish, high dimensional depth, cozy and tactile.",
-    "basketweave": "Medium-to-heavy upholstery fabric with a fine, irregular woven texture. Densely woven from slightly varied yarns, creating a subtle nubby, grainy surface with small broken horizontal and vertical threads. Soft tonal variation and a lightly mélange appearance give the fabric natural depth. Matte finish, substantial and durable, with a structured upholstery drape. The weave is small-scale, intricate and organic rather than a regular basketweave, with no large repeating pattern.",
-    "chenille":    "Textured chenille upholstery fabric with a dense, irregular woven surface made from soft fuzzy chenille yarns. Medium-scale tactile texture with short uneven yarn segments, tiny soft ridges and subtle nubby loops creating a broken, organic crosshatched pattern. Plush and soft to the touch, with the woven yarn structure clearly visible across the whole surface. Rich dimensional surface with gentle tonal variation and soft shadowing between the yarns. Mostly matte with only a very subtle soft luster. Heavy, substantial upholstery fabric with a cozy, tactile appearance. Light scatters evenly across the surface in every direction, holding the same tone whichever way the fabric is brushed. Every part of the panel reads as discrete woven yarn segments with visible gaps between them. Highlights stay broad, diffuse and matte. The weave remains visibly irregular and broken across the entire panel.",
-    "ecoleather":  "Smooth, slightly grained surface mimicking natural leather with a subtle uniform pore pattern; medium weight, structured and relatively stiff drape holding clean lines; slightly glossy, wipe-clean, modern and sleek.",
-    "velour":      "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows.",
-}
+# Material id → rich texture/drape/features spec. Injected into the prompt's
+# "Texture detail:" clause when the user hasn't typed their own material notes
+# — see _build_generation_request.
+_MATERIAL_TEXTURE_EN = {m["id"]: m["texture_en"] for m in CATALOG["materials"]}
+
+
+def _validate_catalog() -> None:
+    """Fail loudly at startup when catalog.json drifts from the schema enum.
+
+    prompts/schemas/sofa.json is the model-constraints contract; its material
+    enum and the catalog must list the same ids, otherwise the UI offers
+    materials the schema forbids (or vice versa).
+    """
+    try:
+        with open(_REPO_ROOT / "prompts" / "schemas" / "sofa.json", encoding="utf-8") as f:
+            raw = json.load(f)
+        enum = set(
+            raw["properties"]["variant"]["properties"]["upholstery"]
+            ["properties"]["material"]["enum"]
+        )
+    except (OSError, KeyError, TypeError, ValueError):
+        logger.warning("catalog check: could not read material enum from schema")
+        return
+    catalog_ids = {m["id"] for m in CATALOG["materials"]}
+    # The schema enum may carry extra aliases (e.g. legacy names); what must
+    # never happen is a catalog material the schema would reject.
+    orphans = catalog_ids - enum
+    if orphans:
+        logger.warning(
+            "catalog check: materials missing from schema enum: %s", sorted(orphans)
+        )
+
+
+_validate_catalog()
 
 _SOFA_CONFIG = {
     "1": "armchair",
@@ -742,6 +743,19 @@ except Exception:
 @app.get("/")
 def index():
     return FileResponse(_STATIC_DIR / "Nano Sofa Studio v2.html")
+
+
+@app.get("/catalog.js")
+def catalog_js():
+    # Synchronous script-tag bridge: data.jsx builds its COLORS/MATERIALS from
+    # window.NS_CATALOG, so browser and server read the same catalog.json.
+    # no-store — tiny file that must never be stale after a Watchtower update.
+    body = "window.NS_CATALOG = " + json.dumps(CATALOG, ensure_ascii=False) + ";"
+    return Response(
+        content=body,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/help")

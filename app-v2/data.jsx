@@ -4,46 +4,20 @@ const { useState, useMemo, useEffect, useCallback } = React;
 /* ======================================================
    Data — colors, materials, sizes, cameras, legs
    ====================================================== */
-// Upholstery colour GROUPS from the TreeTale fabric matrix (Generator AI).
-// Each group is one pickable AI colour; `covers` lists the real fabric SKUs it
-// stands in for (shown on hover). English prompt terms live in server.py
-// _COLOR_PL_TO_EN keyed by the same id.
-const COLORS = [
-  // "pearl"/"pearlgrey" are not from the TreeTale matrix — added on request:
-  // a brighter near-white + a light pearl grey so renders don't need
-  // post-production lightening. "pearlgrey" is a lighter alternative to the
-  // standard "srebrzysty" (ash), which is too dark next to some fabrics
-  // (Ola, 2026-07 · TRE-16).
-  { id: "pearl",      name: "biel perłowa",   hex: "#EFEFEE", fabric: true },
-  { id: "pearlgrey",  name: "szary perłowy",  hex: "#ECEAEA", fabric: true },
-  { id: "cream",      name: "śmietankowy",    hex: "#E7E0D6", fabric: true, covers: "glam-2, baloo-2073, cremona-1, perfecto-1, bellini-5, vibe-3" },
-  { id: "sand",       name: "beż piaskowy",   hex: "#D9D4CD", fabric: true, covers: "baloo-2074, cremona-2, rouge-2, bellini-20, velutto-2" },
-  { id: "greige",     name: "greige",         hex: "#C3BEB6", fabric: true, covers: "barrel-3, lumi-6, cremona-14, bella-5, rouge-1" },
-  { id: "cappuccino", name: "cappuccino",     hex: "#B4A799", fabric: true, covers: "vibe-6, vibe-8, soft-31, soft-33, perfecto-7" },
-  { id: "taupe",      name: "taupe",          hex: "#938A83", fabric: true, covers: "glam-4, barrel-9, lumi-11, cremona-24, vibe-21, miscanto-30, bellini-6, rouge-4, velutto-29" },
-  { id: "caramel",    name: "karmelowy",      hex: "#9F693D", fabric: true, covers: "glam-7, baloo-2077, vibe-7, vibe-19, perfecto-52, soft-2, bellini-7, rouge-10" },
-  { id: "choc",       name: "czekoladowy",    hex: "#4E3E2F", fabric: true, covers: "miscanto-80, toro-45, toro-50, bella-70, soft-34, vena-14, velutto-6" },
-  { id: "ash",        name: "srebrzysty",     hex: "#BCBCBC", fabric: true, covers: "glam-10, baloo-2085, barrel-80, vega-1, cremona-4, rouge-14, bellini-1, velutto-15" },
-  { id: "steelgrey",  name: "szary stalowy",  hex: "#908F8B", fabric: true, covers: "vega-11, lumi-84, miscanto-10, toro-140, bella-55, perfecto-4, vena-3, vena-9" },
-  { id: "graphite",   name: "grafitowy",      hex: "#656F70", fabric: true, covers: "barrel-21, vega-26, vega-90, miscanto-40, vena-5, vena-8" },
-  { id: "olive",      name: "oliwkowy",       hex: "#6A7763", fabric: true, covers: "baloo-2090, barrel-38, vega-37, lumi-35, cremona-34, toro-135, bella-85, perfecto-39" },
-  { id: "forest",     name: "butelkowa zieleń", hex: "#2E3B2C", fabric: true, covers: "miscanto-75, bella-75, velutto-27" },
-  { id: "rose",       name: "brudny róż",     hex: "#D4BABA", fabric: true, covers: "glam-15, lumi-52" },
-  { id: "steelblue",  name: "stalowy błękit", hex: "#8A979D", fabric: true, covers: "vega-80, bella-30" },
-  { id: "black",      name: "czarny",         hex: "#17161A", fabric: true, covers: "soft-11" },
-];
+// Upholstery colours + fabric types come from catalog.json — the single
+// source of truth shared with server.py 1:1 (prompt_en / noun_en / texture_en
+// live there too and are applied server-side). GET /catalog.js sets
+// window.NS_CATALOG and MUST be loaded before this file.
+// COLORS are the TreeTale fabric-matrix GROUPS; `covers` lists the real
+// fabric SKUs a group stands in for (shown on hover).
+const COLORS = window.NS_CATALOG.colors.map((c) => ({
+  id: c.id, name: c.name_pl, hex: c.hex, fabric: !!c.fabric, covers: c.covers,
+}));
 
-// Fabric TYPES from the TreeTale matrix (Matryca AI Tkaniny). `tex` maps to a
-// .fabric-overlay preview class; the rich texture/drape/features prompt lives
-// in server.py _MATERIAL_TEXTURE_EN keyed by the same id.
-const MATERIALS = [
-  { id: "knit",        name: "dzianina",  prop: "miękka, gładka",           tex: "linen",    finish: "matowy" },
-  { id: "boucle",      name: "bouclé",    prop: "pętelkowy, mięsisty",      tex: "boucle",   finish: "matowy" },
-  { id: "basketweave", name: "plecionka", prop: "drobny, nieregularny splot", tex: "weave",  finish: "matowy" },
-  { id: "chenille",    name: "szenila",   prop: "tkany, mięsisty",          tex: "chenille", finish: "matowy" },
-  { id: "ecoleather",  name: "eco skóra", prop: "gładka, łatwa w czyszczeniu", tex: "leather", finish: "połysk" },
-  { id: "velour",      name: "welur",     prop: "gęsty włos, połysk",       tex: "velvet",   finish: "połysk" },
-];
+// `tex` maps to a .fabric-overlay preview class in styles-v2.css.
+const MATERIALS = window.NS_CATALOG.materials.map((m) => ({
+  id: m.id, name: m.name_pl, prop: m.prop_pl, tex: m.tex, finish: m.finish_pl,
+}));
 
 const SIZES_SOFA = [
   { id: "1", name: "fotel",       cushions: 1, dim: "90×90 cm" },

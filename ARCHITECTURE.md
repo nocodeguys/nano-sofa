@@ -67,11 +67,13 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
    silently cancels a paragraph of texture description. The noun must agree
    with the spec ("woven textured chenille fabric"). Learned twice:
    plecionka (a794761), szenila (ab1f898).
-2. **A material lives in 5 places** until consolidation lands: `data.jsx`
-   (PL name/prop/tex/finish), `server.py` `_MATERIAL_PL_TO_EN`,
-   `server.py` `_MATERIAL_TEXTURE_EN`, the `.mat-*` picker visuals in
-   `styles-v2.css`, and the enum in `prompts/schemas/sofa.json`.
-   Change one → change all, or the layers contradict each other.
+2. **Materials & colours live in `app-v2/catalog.json`** — the single source
+   of truth. `server.py` derives its prompt dicts from it; the browser gets it
+   as `window.NS_CATALOG` via `GET /catalog.js` (no-store); the schema enum is
+   validated against it at startup. The only thing still hand-synced is the
+   `.mat-*` picker *visual* in `styles-v2.css` (keyed by the catalog's `tex`
+   field) — keep the visual in agreement with `texture_en` (e.g. no glossy
+   sheen sweep on matte fabrics).
 3. **Video: never send `person_generation` unless explicitly set** — sending
    it blind caused `INVALID_REQUEST` (9cb5931). Empty string = let the API
    apply its per-mode default.
@@ -98,7 +100,7 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 ## Refactor roadmap (2026-08)
 
 - [x] Remove dead Gradio app + `/v1` static UI (5b2f4c7)
-- [ ] Single source of truth for materials/colors (server-side, via `/api/config`)
+- [x] Single source of truth for materials/colors (`app-v2/catalog.json` + `/catalog.js`)
 - [ ] Vite build: production React, ES modules, self-hosted fonts, hashed assets
 - [ ] Split `server.py` (~2100 lines) into routers; split `App()` (~2300 lines) into components
 - [ ] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests in CI
