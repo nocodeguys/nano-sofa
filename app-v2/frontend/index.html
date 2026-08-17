@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nano Sofa — Studio · v2</title>
+  <!-- catalog.js is served dynamically by FastAPI from catalog.json (no-store).
+       Classic script: executes before the deferred module below, so
+       window.NS_CATALOG is ready when data.jsx runs. -->
+  <script src="/catalog.js"></script>
+  <script type="module" src="/src/app-v2.jsx"></script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

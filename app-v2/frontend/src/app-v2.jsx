@@ -1,5 +1,20 @@
-/* global React, ReactDOM, Ic, NS_DATA */
-const { useState, useMemo, useRef, useEffect, useCallback } = React;
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import "@fontsource/geist-sans/300.css";
+import "@fontsource/geist-sans/400.css";
+import "@fontsource/geist-sans/500.css";
+import "@fontsource/geist-sans/600.css";
+import "@fontsource/geist-sans/700.css";
+import "@fontsource/geist-mono/400.css";
+import "@fontsource/geist-mono/500.css";
+import "./styles-v2.css";
+import { NS_DATA, Ic } from "./data.jsx";
+import { NanoTopbar } from "./header.jsx";
+import {
+  useTweaks, TweaksPanel, TweakSection,
+  TweakSlider, TweakToggle, TweakRadio,
+} from "./tweaks-panel.jsx";
+
 const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
         LENSES, TIMES_OF_DAY, SHADOWS,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
@@ -2575,4 +2590,4 @@ function Root() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+createRoot(document.getElementById("root")).render(<Root />);

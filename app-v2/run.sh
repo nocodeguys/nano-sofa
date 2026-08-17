@@ -16,5 +16,13 @@ fi
 # Install v2 deps into whichever interpreter we're using.
 "$PY" -m pip install -q -r "$HERE/requirements.txt"
 
+# Build the frontend when the dist bundle is missing (first run / fresh clone).
+# For iterative frontend work use `npm run dev` in app-v2/frontend instead —
+# it hot-reloads and proxies /api to this server.
+if [ ! -d "$HERE/frontend/dist" ]; then
+  echo "frontend/dist missing — building (one-time)…"
+  (cd "$HERE/frontend" && npm install --no-audit --no-fund && npm run build)
+fi
+
 cd "$REPO_ROOT"
 exec "$PY" "$HERE/server.py"

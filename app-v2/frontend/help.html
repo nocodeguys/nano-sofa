@@ -5,18 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Nano Sofa — Dokumentacja parametrów</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles-v2.css?v=20260701">
-
   <style>
     :root { --doc-ink:#2b2c28; --doc-ink-2:#6b6d64; --doc-ink-3:#9a9c90;
             --doc-paper:#f4f1ea; --doc-card:#fffefb; --doc-line:rgba(0,0,0,.10);
             --doc-accent:#5f7a56; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--doc-paper); color:var(--doc-ink);
-           font-family:'Geist',system-ui,sans-serif; line-height:1.5;
+           font-family:'Geist Sans',system-ui,sans-serif; line-height:1.5;
            -webkit-font-smoothing:antialiased; }
     a { color:var(--doc-accent); }
     .doc-wrap { max-width:980px; margin:0 auto; padding:0 24px 96px; }
@@ -25,13 +20,13 @@
                padding:14px 0; margin-bottom:32px; }
     .doc-top .inner { max-width:980px; margin:0 auto; padding:0 24px;
                       display:flex; align-items:center; justify-content:space-between; gap:16px; }
-    .doc-top .mark { font-family:'Geist',system-ui,sans-serif; font-weight:600; font-size:18px; letter-spacing:-.02em; }
+    .doc-top .mark { font-family:'Geist Sans',system-ui,sans-serif; font-weight:600; font-size:18px; letter-spacing:-.02em; }
     .doc-top a.back { font-size:13px; text-decoration:none; padding:7px 14px; border-radius:999px;
                       border:.5px solid var(--doc-line); background:var(--doc-card); color:var(--doc-ink); }
-    h1 { font-family:'Geist',system-ui,sans-serif; font-weight:600; font-size:36px;
+    h1 { font-family:'Geist Sans',system-ui,sans-serif; font-weight:600; font-size:36px;
          letter-spacing:-.03em; margin:8px 0 6px; }
     .lede { font-size:16px; color:var(--doc-ink-2); max-width:62ch; margin:0 0 28px; }
-    h2 { font-family:'Geist',system-ui,sans-serif; font-weight:600; font-size:24px;
+    h2 { font-family:'Geist Sans',system-ui,sans-serif; font-weight:600; font-size:24px;
          letter-spacing:-.02em; margin:40px 0 6px; scroll-margin-top:80px; }
     .sec-note { font-size:13px; color:var(--doc-ink-2); margin:0 0 14px; max-width:64ch; }
     .card { background:var(--doc-card); border:.5px solid var(--doc-line); border-radius:14px;
@@ -61,6 +56,10 @@
     code { font-family:'Geist Mono',monospace; font-size:12px; background:rgba(0,0,0,.05);
            padding:1px 5px; border-radius:5px; }
   </style>
+
+  <!-- catalog.js before the module bundle — data.jsx reads window.NS_CATALOG. -->
+  <script src="/catalog.js"></script>
+  <script type="module" src="/src/help.js"></script>
 </head>
 <body>
   <div class="doc-top">
@@ -104,54 +103,5 @@
       żebyś widział/a efekt obok opisu. Na razie korzystaj z opisów powyżej.
     </div>
   </div>
-
-  <!-- Reuse the app's data layer (NS_DATA = Polish labels) so this page can't drift. -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-  <script src="catalog.js"></script>
-  <script type="text/babel" src="data.jsx"></script>
-  <script type="text/babel">
-    // Runs after data.jsx (Babel executes text/babel scripts in document order),
-    // so window.NS_DATA is populated. Joins Polish labels (NS_DATA) with the
-    // English prompt clauses from /api/param-docs by shared id.
-    (async () => {
-      const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g,
-        c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-      const D = window.NS_DATA || {};
-      const body = document.getElementById("doc-body");
-      const toc = document.getElementById("toc");
-      let groups;
-      try {
-        const r = await fetch("/api/param-docs");
-        ({ groups } = await r.json());
-      } catch (e) {
-        body.innerHTML = '<div class="loading">Nie udało się wczytać opisów parametrów. Odśwież stronę.</div>';
-        return;
-      }
-      body.innerHTML = "";
-      groups.forEach(g => {
-        const table = D[g.table] || [];
-        const rows = table.map(item => {
-          const clause = g.clauses[item.id];
-          if (!clause) return "";
-          const sw = item.hex ? `<span class="sw" style="background:${esc(item.hex)}"></span>` : "";
-          return `<tr><td class="opt">${sw}${esc(item.name || item.id)}<span class="id">${esc(item.id)}</span></td>`
-               + `<td class="clause">${esc(clause)}</td></tr>`;
-        }).filter(Boolean).join("");
-        if (!rows) return;
-        const sec = document.createElement("section");
-        sec.innerHTML = `<h2 id="g-${esc(g.key)}">${esc(g.title)}</h2>`
-                      + `<div class="card"><table><tbody>${rows}</tbody></table></div>`;
-        body.appendChild(sec);
-        const a = document.createElement("a");
-        a.href = `#g-${g.key}`; a.textContent = g.title;
-        toc.appendChild(a);
-      });
-      // Add the matrix anchor to the TOC too.
-      const m = document.createElement("a");
-      m.href = "#matrix"; m.textContent = "Galeria (wkrótce)";
-      toc.appendChild(m);
-    })();
-  </script>
 </body>
 </html>

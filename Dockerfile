@@ -2,7 +2,8 @@
 # Nano Sofa Studio v2 — multi-stage, multi-arch image.
 # Base: python:3.12-slim (pinned by digest for reproducibility).
 # Stage 1: install Python wheels into an isolated --target dir.
-# Stage 2: copy wheels + source into a clean runtime image, non-root user.
+# Stage 2: build the Vite frontend (node) into static dist/ files.
+# Stage 3: copy wheels + source + dist into a clean runtime image, non-root user.
 #
 # Build:
 #   docker buildx build --platform linux/amd64,linux/arm64 -t nano-sofa:latest .
@@ -32,7 +33,22 @@ RUN pip install --upgrade pip --no-cache-dir \
     && pip install --no-cache-dir --target /wheels -r /build/requirements.txt
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2 — runtime image
+# Stage 2 — frontend builder (Vite). --platform=$BUILDPLATFORM: the output is
+# static files, so always build on the host arch instead of emulating arm64.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM node:22-slim AS frontend
+
+WORKDIR /fe
+
+# Lockfile-first copy so npm ci layer-caches independently of source changes.
+COPY app-v2/frontend/package.json app-v2/frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY app-v2/frontend/ ./
+RUN npm run build
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 3 — runtime image
 # ─────────────────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
@@ -58,8 +74,11 @@ ENV PYTHONPATH=/app/site-packages:/app
 COPY app/__init__.py       /app/app/__init__.py
 COPY app/core/             /app/app/core/
 
-# app-v2/ (FastAPI server + static HTML/CSS/JS)
+# app-v2/ (FastAPI server + catalog.json + scene references)
 COPY app-v2/               /app/app-v2/
+
+# Built frontend from Stage 2 (source jsx never ships — only the dist bundle)
+COPY --from=frontend /fe/dist /app/app-v2/frontend/dist
 
 # Static assets baked into the image (editable via volume override in compose)
 COPY prompts/              /app/prompts/

@@ -56,5 +56,8 @@ install/
 *.command
 *.bat
 
-# Node (shouldn't exist, but just in case)
+# Node — deps are installed inside the frontend build stage; a locally built
+# dist/ must not leak into the context either (the stage builds its own).
 node_modules/
+**/node_modules/
+app-v2/frontend/dist/

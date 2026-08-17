@@ -4,10 +4,10 @@
   so the key entered on one page (localStorage "nano-sofa-v2-api-key") is the same
   everywhere. Styling lives in styles-v2.css under .topbar*.
 
-  Loaded as a plain <script type="text/babel"> BEFORE each page's app script, so
-  `NanoTopbar` is a global both apps can use (same mechanism as data.jsx).
 */
-function NanoTopbar({ active, apiKey, setApiKey, showKeyEdit, setShowKeyEdit }) {
+import React from "react";
+
+export function NanoTopbar({ active, apiKey, setApiKey, showKeyEdit, setShowKeyEdit }) {
   const suffix = active === "video" ? "wideo" : "studio";
   const forget = () => setApiKey("");
   return (
@@ -62,4 +62,3 @@ function NanoTopbar({ active, apiKey, setApiKey, showKeyEdit, setShowKeyEdit }) 
     </header>
   );
 }
-window.NanoTopbar = NanoTopbar;

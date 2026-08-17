@@ -11,6 +11,10 @@ app/state/
 outputs/
 state/
 
+# Frontend build artifacts
+app-v2/frontend/node_modules/
+app-v2/frontend/dist/
+
 # Editor / OS
 .DS_Store
 .idea/

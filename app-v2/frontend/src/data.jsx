@@ -1,5 +1,4 @@
-/* global React */
-const { useState, useMemo, useEffect, useCallback } = React;
+import React from "react";
 
 /* ======================================================
    Data — colors, materials, sizes, cameras, legs
@@ -289,10 +288,10 @@ const BED_ACCENTS = [
   { id: "candle",        name: "Świeca",                prompt: "a single lit candle in a simple ceramic holder placed near the bed" },
 ];
 
-window.Ic = Ic;
-window.NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
-                   STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
-                   SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
-                   CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
-                   CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
-                   BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS };
+export { Ic };
+export const NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
+                         STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
+                         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
+                         CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
+                         CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
+                         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS };

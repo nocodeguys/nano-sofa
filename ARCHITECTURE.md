@@ -79,10 +79,10 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
    apply its per-mode default.
 4. **Fotosesja/variants: no fabric-swatch reference image** — including it
    collapsed the framing (b59b49b).
-5. **Cache busting is manual**: static assets carry `?v=YYYYMMDDx` in the
-   HTML. Bump on every asset change or Watchtower-updated clients run stale
-   JS against a new API. (Goes away when the Vite build lands — hashed
-   filenames.)
+5. **Cache busting is automatic**: Vite emits hashed asset filenames, so
+   Watchtower-updated clients can never run stale JS against a new API.
+   The one non-hashed asset is `/catalog.js`, which is served with
+   `Cache-Control: no-store` for the same reason.
 6. **`/docs` belongs to Swagger**; the user guide lives at `/help`.
 7. **Beds vs sofas share one pipeline**: `product_type` switches prompt
    blocks; platform/divan beds set `leg_count=0`.
@@ -101,7 +101,7 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 
 - [x] Remove dead Gradio app + `/v1` static UI (5b2f4c7)
 - [x] Single source of truth for materials/colors (`app-v2/catalog.json` + `/catalog.js`)
-- [ ] Vite build: production React, ES modules, self-hosted fonts, hashed assets
+- [x] Vite build: production React, ES modules, self-hosted fonts, hashed assets
 - [ ] Split `server.py` (~2100 lines) into routers; split `App()` (~2300 lines) into components
 - [ ] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests in CI
 - [ ] Decide fate of the WebGL 3D preview branch (`worktree-webgl-3d-preview`, 15 commits behind)

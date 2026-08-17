@@ -90,10 +90,13 @@ app/                     # Shared core (generator, cost tracker, schema loader)
   core/schema_loader.py  # Reads prompts/schemas/sofa.json, exposes typed helpers
 app-v2/                  # FastAPI server + React UI (this is what Docker runs)
   server.py              # Entry point: GET /, /healthz, /api/config, POST /api/generate
-  app-v2.jsx             # Main app shell — 3-pane configurator
-  data.jsx               # Product/material/color/camera data
-  styles-v2.css          # Calm composer design (sage accent, Instrument Serif + Geist)
-  Nano Sofa Studio v2.html  # Entry HTML (loads JSX through Babel standalone)
+  catalog.json           # Single source of truth: materials + colours (PL + EN prompts)
+  frontend/              # Vite app (React 18, self-hosted Geist fonts)
+    index.html, video.html, help.html   # entry pages → /, /video, /help
+    src/app-v2.jsx       # Main app shell — 3-pane configurator
+    src/data.jsx         # Option tables (reads window.NS_CATALOG for materials/colours)
+    src/styles-v2.css    # Calm composer design (sage accent, Geist)
+    dist/                # build output, served by FastAPI (gitignored)
 prompts/schemas/         # JSON schemas — source of truth for model constraints
 prompts/test-matrices/   # Eval matrices (per schema)
 legs/                    # 3D leg reference library + manifest

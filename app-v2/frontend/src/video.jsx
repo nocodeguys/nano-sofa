@@ -5,7 +5,17 @@
   /api/video-models (which can probe the user's key), so nothing here hardcodes
   the catalog — resolutions / aspect ratios / durations follow the chosen model.
 */
-const { useState, useEffect, useRef, useCallback } = React;
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import "@fontsource/geist-sans/300.css";
+import "@fontsource/geist-sans/400.css";
+import "@fontsource/geist-sans/500.css";
+import "@fontsource/geist-sans/600.css";
+import "@fontsource/geist-sans/700.css";
+import "@fontsource/geist-mono/400.css";
+import "@fontsource/geist-mono/500.css";
+import "./styles-v2.css";
+import { NanoTopbar } from "./header.jsx";
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key"; // shared with the studio page
 
@@ -429,4 +439,4 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(<App />);

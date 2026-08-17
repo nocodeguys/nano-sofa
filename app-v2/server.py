@@ -1,8 +1,8 @@
 """
 server.py — FastAPI backend for Nano Sofa Studio v2.
 
-Serves the static React/HTML/CSS prototype from ./static and exposes:
-  GET  /                   → Nano Sofa Studio v2.html (current design)
+Serves the built Vite frontend from ./frontend/dist and exposes:
+  GET  /                   → index.html (configurator)
   GET  /healthz            → liveness + capability report (no API call)
   GET  /api/config         → model enum + per-model constraints
   POST /api/generate       → run a single generation
@@ -704,7 +704,15 @@ def _item_error(base: dict, result_or_exc) -> dict:
     return base
 
 
-_STATIC_DIR = _THIS  # serve prototype files from app-v2/
+# Built frontend (Vite). Local dev: run `npm run build` in app-v2/frontend
+# (run.sh does it automatically when dist/ is missing), or use `npm run dev`
+# for the hot-reloading dev server, which proxies /api here.
+_DIST_DIR = _THIS / "frontend" / "dist"
+if not _DIST_DIR.is_dir():
+    raise RuntimeError(
+        "app-v2/frontend/dist not found — build the frontend first: "
+        "cd app-v2/frontend && npm install && npm run build"
+    )
 
 # OUTPUTS_DIR is the volume mount target in Docker. We keep generator outputs
 # and per-request uploads under it so a single bind mount captures everything.
@@ -742,7 +750,7 @@ except Exception:
 
 @app.get("/")
 def index():
-    return FileResponse(_STATIC_DIR / "Nano Sofa Studio v2.html")
+    return FileResponse(_DIST_DIR / "index.html")
 
 
 @app.get("/catalog.js")
@@ -761,7 +769,7 @@ def catalog_js():
 @app.get("/help")
 def help_page():
     # /docs is taken by FastAPI's Swagger UI, so the user guide lives at /help.
-    return FileResponse(_STATIC_DIR / "docs.html")
+    return FileResponse(_DIST_DIR / "help.html")
 
 
 @app.get("/healthz")
@@ -1963,7 +1971,7 @@ def api_history(limit: int = 60):
 # ---------------------------------------------------------------------------
 @app.get("/video")
 def video_page():
-    return FileResponse(_STATIC_DIR / "video.html")
+    return FileResponse(_DIST_DIR / "video.html")
 
 
 @app.get("/api/video-models")
@@ -2120,7 +2128,7 @@ async def api_generate_video(
 
 
 # Static files for the prototype JS / CSS — mounted last so dynamic routes win.
-app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")
+app.mount("/", StaticFiles(directory=str(_DIST_DIR), html=True), name="static")
 
 
 def main() -> None:
