@@ -29,6 +29,7 @@ server (it serves `frontend/dist`).
 
 - `/` → `frontend/index.html` — main configurator (`src/app-v2.jsx`)
 - `/video` → `frontend/video.html` — video studio (`src/video.jsx`)
+- `/editorial` → `frontend/editorial.html` — freeform editorial shots, no base photo (`src/editorial.jsx`)
 - `/help` → `frontend/help.html` — user guide (`src/help.js`)
 - `/docs` → FastAPI Swagger UI
 

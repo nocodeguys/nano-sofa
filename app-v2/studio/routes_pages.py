@@ -38,6 +38,11 @@ def index():
     return FileResponse(_DIST_DIR / "index.html")
 
 
+@router.get("/editorial")
+def editorial_page():
+    return FileResponse(_DIST_DIR / "editorial.html")
+
+
 @router.get("/catalog.js")
 def catalog_js():
     # Synchronous script-tag bridge: data.jsx builds its COLORS/MATERIALS from

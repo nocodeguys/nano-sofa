@@ -21,9 +21,10 @@ Browser (React UI, static)          FastAPI (app-v2/server.py)         Shared co
 ┌─────────────────────────┐  POST   ┌─────────────────────────┐        ┌──────────────────────────┐
 │ /       configurator    │ ──────▶ │ /api/generate            │ ─────▶ │ generator.py             │──▶ google-genai
 │ /video  video studio    │  form   │ /api/generate-set        │  Gen-  │  prompt assembly, retry, │    (Gemini / Veo)
-│ /help   user guide      │         │ /api/generate-variants   │  Request│  alpha-flatten, history │
-└─────────────────────────┘         │ /api/generate-video      │        │ video_generator.py       │
-        ▲                           │ /api/config, /healthz …  │        │ cost_tracker.py (SQLite) │
+│ /editorial freeform     │         │ /api/generate-variants   │  Request│  alpha-flatten, history │
+│ /help   user guide      │         │ /api/generate-free       │        │ video_generator.py       │
+└─────────────────────────┘         │ /api/generate-video      │        │ cost_tracker.py (SQLite) │
+        ▲                           │ /api/config, /healthz …  │        │                          │
         │ static files + JSON       └─────────────────────────┘        │ schema_loader.py         │
         └───────────────────────────────────┘                           │ leg_browser.py           │
                                                                         └──────────────────────────┘
@@ -50,6 +51,14 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
    image, logs cost to SQLite (`app/state/costs.db`).
 4. Debugging wording: `NANO_SOFA_LOG_PROMPT=1` dumps the full prompt that
    crossed the wire. Off by default.
+
+**Editorial mode** (`/editorial` → `/api/generate-free`) is the exception to
+the flow above: pure text-to-image, no base product slot. The user's brief
+leads; optional picker fragments (style from `_EDITORIAL_STYLES`, scene,
+light, lens, camera height, TreeTale palette, fabric cue) are appended as
+art direction, plus up to 3 moodboard refs. `GenerationRequest.freeform_prompt`
+carries the composed text verbatim — the variant prompt assembly, preserve
+list, and base-image validation are all skipped.
 
 ## Sources of truth
 

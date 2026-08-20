@@ -85,6 +85,13 @@ class GenerationRequest:
     texture_notes: str = ""
     base_image_has_alpha: bool = False
 
+    # Freeform (editorial) mode: when non-empty, this text IS the whole prompt
+    # — the variant prompt assembly is skipped entirely, and the base product
+    # image becomes optional (pure text-to-image, plus optional moodboard refs
+    # via extra_reference_images). The caller composes the text; see
+    # studio/request_builder._build_freeform_request.
+    freeform_prompt: str = ""
+
     # Legs
     leg_id: Optional[str] = None
     leg_explicit_descriptor: str = ""
@@ -563,6 +570,10 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     and so leg-count emphasis is OMITTED entirely when leg_count is 0
     (the proximate cause of the model adding legs to platform beds).
     """
+    # Freeform/editorial requests carry their complete prompt verbatim.
+    if req.freeform_prompt:
+        return req.freeform_prompt
+
     lines: list[str] = []
 
     is_bed = req.product_type == "bed"
@@ -1048,36 +1059,55 @@ def generate(req: GenerationRequest) -> GenerationResult:
     """
     generation_id = new_generation_id()
     _t0 = time.monotonic()
-    num_refs = _count_active_refs(req)
+    is_freeform = bool(req.freeform_prompt) and req.base_product_image is None
+    num_refs = (len(req.extra_reference_images or []) if is_freeform
+                else _count_active_refs(req))
     cost_est = estimate_cost(req.model_id, req.resolution, num_refs)
 
-    # ------------------------------------------------------------------ #
-    # Alpha-channel flattening
-    # ------------------------------------------------------------------ #
-    base_img = _load_image(req.base_product_image)
-    if base_img is None:
-        return GenerationResult(
-            success=False,
-            generation_id=generation_id,
-            output_path=None,
-            output_image=None,
-            next_history=list(req.prior_history),
-            actual_cost=0.0,
-            attempts=0,
-            error_message=_ERROR_CATALOG["BAD_INPUT_IMAGE"][2],
-            error_code="BAD_INPUT_IMAGE",
-            error_detail="Could not load base product image.",
-            retryable=False,
-            http_status=400,
-            model_id=req.model_id,
-            resolution=req.resolution,
-        )
+    if is_freeform:
+        # Editorial text-to-image: no base product slot. Optional moodboard
+        # refs still ride along, capped to the model's limit.
+        ref_images = []
+        max_refs = schema.max_refs_for_model(req.model_id)
+        for idx, extra in enumerate(req.extra_reference_images or []):
+            if len(ref_images) >= max_refs:
+                logger.warning(
+                    "Freeform reference #%d dropped: model %s allows max %d refs",
+                    idx + 1, req.model_id, max_refs,
+                )
+                continue
+            extra_img = _load_image(extra)
+            if extra_img:
+                ref_images.append(extra_img)
+    else:
+        # -------------------------------------------------------------- #
+        # Alpha-channel flattening
+        # -------------------------------------------------------------- #
+        base_img = _load_image(req.base_product_image)
+        if base_img is None:
+            return GenerationResult(
+                success=False,
+                generation_id=generation_id,
+                output_path=None,
+                output_image=None,
+                next_history=list(req.prior_history),
+                actual_cost=0.0,
+                attempts=0,
+                error_message=_ERROR_CATALOG["BAD_INPUT_IMAGE"][2],
+                error_code="BAD_INPUT_IMAGE",
+                error_detail="Could not load base product image.",
+                retryable=False,
+                http_status=400,
+                model_id=req.model_id,
+                resolution=req.resolution,
+            )
 
-    if req.base_image_has_alpha or base_img.mode in ("RGBA", "LA"):
-        base_img = _flatten_alpha(base_img)
-        logger.info("Base product image flattened from alpha (alpha bleed mitigation)")
+        if req.base_image_has_alpha or base_img.mode in ("RGBA", "LA"):
+            base_img = _flatten_alpha(base_img)
+            logger.info("Base product image flattened from alpha (alpha bleed mitigation)")
 
-    ref_images = _collect_reference_images(req, base_img)
+        ref_images = _collect_reference_images(req, base_img)
+
     prompt_text = _build_prompt_text(req)
 
     # Opt-in full-prompt dump. Only the one-line summary is logged otherwise,
@@ -1368,13 +1398,13 @@ def validate_request(req: GenerationRequest) -> list[str]:
     # separate "preview only" rule is needed (the schema's slot_3_scene_or_swatch
     # explicitly allows swatch in slot 3 on Flash when scene is absent).
 
-    # Preserve list must not be empty
-    if not req.preserve_list:
-        errors.append("Preserve list must contain at least one item.")
-
-    # Base image required
-    if req.base_product_image is None:
-        errors.append("A base product image is required (slot 1).")
+    # Preserve list must not be empty; base image is required. Neither rule
+    # applies to freeform/editorial requests, which are pure text-to-image.
+    if not req.freeform_prompt:
+        if not req.preserve_list:
+            errors.append("Preserve list must contain at least one item.")
+        if req.base_product_image is None:
+            errors.append("A base product image is required (slot 1).")
 
     # Multi-turn chain-reset warning (not an error, but surfaces as warning)
     if req.turn_number > 3:

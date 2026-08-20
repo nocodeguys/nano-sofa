@@ -56,7 +56,10 @@ from studio.catalog import (  # noqa: E402,F401
     _MATERIAL_PL_TO_EN,
     _MATERIAL_TEXTURE_EN,
 )
-from studio.request_builder import _build_generation_request  # noqa: E402,F401
+from studio.request_builder import (  # noqa: E402,F401
+    _build_freeform_request,
+    _build_generation_request,
+)
 
 
 def main() -> None:

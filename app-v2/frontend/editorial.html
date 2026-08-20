@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nano Sofa — Editorial</title>
+  <style>
+    /* ---- editorial-page specifics (reuses styles-v2.css tokens + shell) ---- */
+    .ed-frame {
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #15171A;
+      box-shadow: 0 30px 60px -30px rgba(0,0,0,.45);
+      display: grid; place-items: center;
+      width: min(92%, 640px);
+    }
+    .ed-frame img { width: 100%; height: 100%; object-fit: contain; display: block; background: #101112; }
+    .ed-placeholder {
+      color: rgba(226,221,208,.55);
+      font-family: 'Geist Mono', monospace; font-size: 12px;
+      text-align: center; padding: 24px; line-height: 1.7;
+    }
+    .ed-spinner {
+      width: 34px; height: 34px; margin: 0 auto 14px;
+      border: 2.5px solid rgba(226,221,208,.2);
+      border-top-color: rgba(226,221,208,.85);
+      border-radius: 50%;
+      animation: ed-spin 0.9s linear infinite;
+    }
+    @keyframes ed-spin { to { transform: rotate(360deg); } }
+    .ed-meta {
+      margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+      font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--ink-3, #8a857a);
+    }
+    .ed-dl {
+      font-family: inherit; font-size: 12px; text-decoration: none;
+      background: var(--ink, #1c1a17); color: var(--paper, #F4F1EA);
+      padding: 7px 14px; border-radius: 999px;
+    }
+    .ed-err {
+      margin: 12px 0; padding: 12px 14px; border-radius: 10px;
+      background: rgba(181,102,58,.10); border: 1px solid rgba(181,102,58,.30);
+      color: #7a4526; font-size: 12.5px; line-height: 1.55;
+    }
+    .ed-hist { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+    .ed-hist img {
+      width: 74px; height: 52px; object-fit: cover; border-radius: 7px; cursor: pointer;
+      border: 1.5px solid transparent; opacity: .8; transition: opacity .12s;
+    }
+    .ed-hist img:hover { opacity: 1; }
+    .ed-hist img.on { border-color: var(--accent, #5f7a56); opacity: 1; }
+    .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+    .seg button {
+      font-family: inherit; font-size: 12px; cursor: pointer;
+      border: 1px solid var(--line-2, #d8d3c8); background: var(--paper, #F4F1EA);
+      color: var(--ink-2, #4a463f); padding: 6px 12px; border-radius: 8px;
+    }
+    .seg button.on { background: var(--ink, #1c1a17); color: var(--paper, #F4F1EA); border-color: var(--ink, #1c1a17); }
+    .hint { font-size: 10.5px; color: var(--ink-3, #8a857a); margin-top: 5px; font-family: 'Geist Mono', monospace; }
+    .ed-style { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .ed-style button {
+      font-family: inherit; text-align: left; cursor: pointer;
+      border: 1px solid var(--line-2, #d8d3c8); background: var(--paper, #F4F1EA);
+      border-radius: 10px; padding: 9px 12px;
+    }
+    .ed-style button.on { border-color: var(--ink, #1c1a17); box-shadow: 0 0 0 1px var(--ink, #1c1a17) inset; }
+    .ed-style .nm { font-size: 12.5px; font-weight: 600; color: var(--ink, #1c1a17); }
+    .ed-style .pr { font-size: 10.5px; color: var(--ink-3, #8a857a); margin-top: 2px; }
+    .ed-sw { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ed-sw button {
+      width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+      border: 1.5px solid rgba(0,0,0,.15); padding: 0;
+    }
+    .ed-sw button.on { outline: 2px solid var(--ink, #1c1a17); outline-offset: 1px; }
+    .ed-refs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ed-refs .slot {
+      width: 84px; height: 60px; border-radius: 8px; cursor: pointer; position: relative;
+      border: 1.5px dashed var(--line-2, #d8d3c8); background: var(--paper, #FBFAF6);
+      display: grid; place-items: center; color: var(--ink-3, #8a857a); font-size: 18px;
+      overflow: hidden;
+    }
+    .ed-refs .slot img { width: 100%; height: 100%; object-fit: cover; }
+    .ed-refs .slot .x {
+      position: absolute; top: 3px; right: 3px; width: 18px; height: 18px;
+      border-radius: 50%; border: 0; background: rgba(0,0,0,.55); color: #fff;
+      font-size: 11px; line-height: 1; cursor: pointer;
+    }
+  </style>
+  <!-- catalog.js before the module bundle — data.jsx reads window.NS_CATALOG. -->
+  <script src="/catalog.js"></script>
+  <script type="module" src="/src/editorial.jsx"></script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

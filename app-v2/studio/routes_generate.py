@@ -25,7 +25,11 @@ from studio.media import (
     _save_upload,
 )
 from studio.paths import logger
-from studio.request_builder import _build_generation_request, _recolor_request
+from studio.request_builder import (
+    _build_freeform_request,
+    _build_generation_request,
+    _recolor_request,
+)
 
 router = APIRouter()
 
@@ -665,3 +669,72 @@ async def api_regenerate_variant(
     await asyncio.to_thread(_prune_storage)
     return {"success": True, "color": color, "material": material, "image_url": url,
             "generation_id": result.generation_id, "cost": result.actual_cost}
+
+
+@router.post("/api/generate-free")
+async def api_generate_free(
+    api_key: str = Form(""),
+    prompt: str = Form(""),
+    style: str = Form(""),
+    env: str = Form(""),
+    tod: str = Form(""),
+    lens: str = Form(""),
+    height: str = Form(""),
+    color: str = Form(""),
+    mat: str = Form(""),
+    model: str = Form("gemini-2.5-flash-image"),
+    aspect: str = Form("4:3"),
+    res: str = Form("1K"),
+    seed: str = Form(""),
+    output_format: str = Form("jpg"),
+    output_quality: str = Form("82"),
+    references: list[UploadFile] = File(default_factory=list),
+):
+    """Editorial mode: text-to-image, no base product photo. The brief plus
+    optional picker fragments become the whole prompt (see
+    _build_freeform_request); optional moodboard refs ride along."""
+    if not api_key.strip():
+        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    if len(prompt.strip()) < 3:
+        return _validation_error("Opisz, co ma być na zdjęciu.", "MISSING_PROMPT")
+
+    extra_ref_paths: list[Path] = []
+    for idx, ref in enumerate(references or []):
+        if ref is None:
+            continue
+        try:
+            extra_ref_paths.append(await _save_upload(ref, suffix=f"_edref{idx}"))
+        except Exception as exc:
+            logger.warning("Editorial reference #%d unreadable, ignoring: %s", idx, exc)
+
+    req = _build_freeform_request(
+        api_key=api_key, text=prompt,
+        style=style, env=env, tod=tod, lens=lens, height=height,
+        color=color, mat=mat,
+        model=model, aspect=aspect, res=res, seed=seed,
+        extra_reference_paths=extra_ref_paths,
+    )
+
+    logger.info("Editorial generate: style=%s env=%s model=%s", style or "-", env or "-", model)
+    result = await asyncio.to_thread(generate, req)
+
+    if not result.success or result.output_path is None:
+        return _result_error(result)
+
+    image_url, fmt_used, downgraded = await _derived_url(
+        result.output_path, output_format, _parse_quality(output_quality),
+        False,
+    )
+    await asyncio.to_thread(_prune_storage)
+
+    return {
+        "success": True,
+        "generation_id": result.generation_id,
+        "image_url": image_url,
+        "format": fmt_used,
+        "format_downgraded": downgraded,
+        "cost": result.actual_cost,
+        "model": result.model_id,
+        "resolution": result.resolution,
+        "elapsed_ms": result.elapsed_ms,
+    }

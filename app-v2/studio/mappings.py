@@ -523,3 +523,113 @@ def _resolve_id(value: str, aliases: dict) -> str:
     if not value:
         return value
     return aliases.get(value, value)
+
+
+# ---------------------------------------------------------------------------
+# Editorial (freeform) mode — /api/generate-free
+# ---------------------------------------------------------------------------
+# Style id → English art-direction fragment. Polish labels live in
+# frontend/src/data.jsx EDITORIAL_STYLES, keyed by the same ids (the same
+# pattern as ENVIRONMENTS / TIMES_OF_DAY).
+_EDITORIAL_STYLES = {
+    "magazine_cover": (
+        "premium interior-magazine cover composition: one strong focal "
+        "subject, bold clean negative space reserved at the top for a "
+        "masthead and along one edge for cover lines, refined styling, "
+        "high-end editorial lighting, subtle film-like grade"
+    ),
+    "web_hero": (
+        "wide website hero-banner composition: calm horizontal flow, "
+        "generous clean negative space on one side for a headline overlay, "
+        "minimal styling, soft depth falloff"
+    ),
+    "editorial_spread": (
+        "interior-magazine editorial spread: styled, lived-in scene with "
+        "layered textiles and props, natural imperfections, storytelling "
+        "composition in the manner of a premium architecture magazine feature"
+    ),
+    "campaign": (
+        "seasonal brand-campaign key visual: evocative art-directed styling "
+        "with seasonal accents, cohesive palette, cinematic light with "
+        "gentle atmosphere"
+    ),
+    "art_minimal": (
+        "minimal art-poster aesthetic: sculptural composition, bold geometry "
+        "of light and shadow, generous abstract negative space, "
+        "gallery-poster feel"
+    ),
+}
+
+
+def _build_freeform_prompt(
+    *,
+    text: str,
+    style: str = "",
+    env: str = "",
+    tod: str = "",
+    lens: str = "",
+    height: str = "",
+    color_en: str = "",
+    mat_noun_en: str = "",
+    mat_texture_en: str = "",
+    seed: str = "",
+    n_refs: int = 0,
+) -> str:
+    """
+    Compose the full editorial prompt: the user's brief leads, picker
+    fragments follow as art-direction constraints. Every picker is optional —
+    empty ids are simply skipped, so the minimal prompt is TASK + BRIEF +
+    OUTPUT STYLE.
+    """
+    lines: list[str] = [
+        "TASK: Create a brand-new editorial photograph from scratch based on "
+        "the brief below. There is no base product to preserve — full "
+        "creative freedom within the art direction."
+    ]
+    if n_refs:
+        lines.append(
+            f"Use the {n_refs} attached image(s) as loose mood and styling "
+            "inspiration only — do not copy them literally."
+        )
+    lines.append("")
+    lines.append(f"BRIEF: {text.strip()}")
+    lines.append("")
+
+    if style in _EDITORIAL_STYLES:
+        lines.append(f"ART DIRECTION: {_EDITORIAL_STYLES[style]}.")
+    if env and env in _ENV_TO_SCENE and env != "custom":
+        lines.append(f"SETTING: {_ENV_TO_SCENE[env][1]}.")
+    if tod in _TOD_TO_PROMPT:
+        lines.append(f"LIGHT: {_TOD_TO_PROMPT[tod]}.")
+    cam_bits = []
+    if lens in _LENS_TO_PROMPT:
+        cam_bits.append(_LENS_TO_PROMPT[lens]["descriptor"])
+    if height in _HEIGHT_TO_PHRASE:
+        cam_bits.append(_HEIGHT_TO_PHRASE[height])
+    if cam_bits:
+        lines.append("CAMERA: " + "; ".join(cam_bits) + ".")
+    if color_en:
+        lines.append(
+            f"COLOR DIRECTION: build the palette around {color_en} as the "
+            "dominant tone, supported by harmonious neutrals."
+        )
+    if mat_noun_en:
+        tex_hint = mat_texture_en.split(".")[0].strip()
+        lines.append(
+            f"TEXTILE DIRECTION: featured fabrics read as {mat_noun_en}"
+            + (f" — {tex_hint}." if tex_hint else ".")
+        )
+    if seed.strip():
+        lines.append(f"seed hint: {seed.strip()}")
+
+    lines.append("")
+    lines.append(
+        "OUTPUT STYLE: professional editorial furniture-brand photography, "
+        "photorealistic, coherent high-end art direction, natural color grading."
+    )
+    lines.append(
+        "NEGATIVE (must not appear in output): any rendered text, typography, "
+        "logos, watermarks or UI elements — leave clean negative space where "
+        "a masthead or headline would be placed."
+    )
+    return "\n".join(lines)

@@ -17,6 +17,7 @@ export default defineConfig({
         main: resolve(import.meta.dirname, "index.html"),
         video: resolve(import.meta.dirname, "video.html"),
         help: resolve(import.meta.dirname, "help.html"),
+        editorial: resolve(import.meta.dirname, "editorial.html"),
       },
     },
   },

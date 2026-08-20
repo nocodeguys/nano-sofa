@@ -185,6 +185,16 @@ const DEPTHS_OF_FIELD = [
 /* ======================================================
    Wizard meta
    ====================================================== */
+/* Editorial (freeform) styles — /editorial page. English prompt fragments
+   live server-side in studio/mappings.py _EDITORIAL_STYLES, same ids. */
+const EDITORIAL_STYLES = [
+  { id: "magazine_cover",   name: "okładka magazynu",  prop: "mocny motyw + miejsce na tytuły" },
+  { id: "web_hero",         name: "hero strony www",   prop: "poziomy spokój + miejsce na nagłówek" },
+  { id: "editorial_spread", name: "rozkładówka",       prop: "styl życia, warstwy, rekwizyty" },
+  { id: "campaign",         name: "kampania sezonowa", prop: "klimat, akcenty sezonowe" },
+  { id: "art_minimal",      name: "minimal art",       prop: "rzeźbiarsko, światło i cień" },
+];
+
 const STEPS = [
   { id: "photo",  num: "01", top: "Zdjęcie i typ",     bot: "wgraj produkt bazowy" },
   { id: "color",  num: "02", top: "Kolor",             bot: "presety, własny opis lub HEX" },
@@ -294,4 +304,5 @@ export const NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS
                          SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
                          CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
                          CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
-                         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS };
+                         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS,
+                         EDITORIAL_STYLES };

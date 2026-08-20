@@ -36,6 +36,7 @@ from studio.mappings import (
     _TOD_LEGACY_ALIAS,
     _TOD_TO_PROMPT,
     _YAW_TO_ANGLE,
+    _build_freeform_prompt,
     _resolve_id,
 )
 from studio.paths import _SCENE_REFS_DIR, logger
@@ -257,4 +258,51 @@ def _recolor_request(
         strict_in_place_recolor=True,
         keep_source_scene=True,                 # keep the source photo's own background
         bedding_description=bedding_desc,
+    )
+
+
+def _build_freeform_request(
+    *,
+    api_key: str,
+    text: str,
+    style: str = "",
+    env: str = "",
+    tod: str = "",
+    lens: str = "",
+    height: str = "",
+    color: str = "",
+    mat: str = "",
+    model: str = "gemini-2.5-flash-image",
+    aspect: str = "4:3",
+    res: str = "1K",
+    seed: str = "",
+    extra_reference_paths: Optional[list[Path]] = None,
+) -> GenerationRequest:
+    """
+    Editorial mode: no base product, the composed text IS the prompt.
+    Picker ids reuse the same tables as the wizard (env / tod / lens / height
+    / colour / material) but every one of them is optional.
+    """
+    refs = [str(p) for p in (extra_reference_paths or [])]
+    prompt = _build_freeform_prompt(
+        text=text,
+        style=style,
+        env=env,
+        tod=_resolve_id(tod, _TOD_LEGACY_ALIAS),
+        lens=_resolve_id(lens, _LENS_LEGACY_ALIAS),
+        height=height,
+        color_en=_COLOR_PL_TO_EN.get(color, ""),
+        mat_noun_en=_MATERIAL_PL_TO_EN.get(mat, ""),
+        mat_texture_en=_MATERIAL_TEXTURE_EN.get(mat, ""),
+        seed=seed,
+        n_refs=len(refs),
+    )
+    return GenerationRequest(
+        model_id=model,
+        base_product_image=None,
+        freeform_prompt=prompt,
+        extra_reference_images=refs,
+        aspect_ratio=aspect,
+        resolution=res,
+        api_key=api_key,
     )
