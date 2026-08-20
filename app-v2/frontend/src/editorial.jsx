@@ -19,8 +19,9 @@ import { NS_DATA } from "./data.jsx";
 import { NanoTopbar } from "./header.jsx";
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key"; // shared with the studio page
+const OR_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // FLUX / Seedream via OpenRouter
 const { ENVIRONMENTS, TIMES_OF_DAY, LENSES, CAMERA_HEIGHTS, COLORS, MATERIALS,
-        EDITORIAL_STYLES } = NS_DATA;
+        EDITORIAL_STYLES, PEOPLE_OPTIONS } = NS_DATA;
 
 // Lifestyle + cyclorama scenes minus legacy aliases and "custom" (needs an
 // upload slot the editorial page doesn't have).
@@ -55,18 +56,28 @@ function App() {
     try { return !(localStorage.getItem(API_KEY_STORAGE) || ""); } catch { return true; }
   });
 
+  // ---- OpenRouter key (only needed for FLUX / Seedream) -------------------
+  const [orKey, setOrKey] = useState(() => {
+    try { return localStorage.getItem(OR_KEY_STORAGE) || ""; } catch { return ""; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(OR_KEY_STORAGE, orKey); } catch {}
+  }, [orKey]);
+
   // ---- model catalog from /api/config ------------------------------------
   const [models, setModels] = useState([]);
   const [modelId, setModelId] = useState("gemini-2.5-flash-image");
   useEffect(() => {
     fetch("/api/config").then(r => r.ok ? r.json() : null).then(c => {
-      if (c && c.models && c.models.length) {
-        setModels(c.models);
-        setModelId(prev => c.models.some(m => m.id === prev) ? prev : c.models[0].id);
+      const list = (c && (c.editorial_models || c.models)) || [];
+      if (list.length) {
+        setModels(list);
+        setModelId(prev => list.some(m => m.id === prev) ? prev : list[0].id);
       }
     }).catch(() => {});
   }, []);
   const model = models.find(m => m.id === modelId) || null;
+  const isOpenRouter = !!(model && model.provider === "openrouter");
 
   // ---- form state ---------------------------------------------------------
   const [prompt, setPrompt] = useState("");
@@ -79,6 +90,7 @@ function App() {
   const [height, setHeight] = useState("");
   const [color, setColor] = useState("");
   const [mat, setMat] = useState("");
+  const [people, setPeople] = useState("");
   const [seed, setSeed] = useState("");
   const [refs, setRefs] = useState([]);          // [{file, url}]
   const refInputRef = useRef(null);
@@ -113,7 +125,9 @@ function App() {
 
   const handleGenerate = async () => {
     setError(null);
-    if (!apiKey.trim()) { setError({ message: "Wklej klucz Gemini API u góry.", code: "MISSING_API_KEY" }); setShowKeyEdit(true); return; }
+    if (isOpenRouter) {
+      if (!orKey.trim()) { setError({ message: "Ten model działa przez OpenRouter — wklej klucz sk-or-… w sekcji Model.", code: "MISSING_OPENROUTER_KEY" }); return; }
+    } else if (!apiKey.trim()) { setError({ message: "Wklej klucz Gemini API u góry.", code: "MISSING_API_KEY" }); setShowKeyEdit(true); return; }
     if (prompt.trim().length < 3) { setError({ message: "Opisz, co ma być na zdjęciu.", code: "MISSING_PROMPT" }); return; }
     if (busy) return;
     setBusy(true);
@@ -123,6 +137,7 @@ function App() {
     try {
       const fd = new FormData();
       fd.append("api_key", apiKey.trim());
+      if (isOpenRouter) fd.append("openrouter_key", orKey.trim());
       fd.append("prompt", prompt.trim());
       fd.append("style", style);
       fd.append("env", env);
@@ -131,6 +146,7 @@ function App() {
       fd.append("height", height);
       fd.append("color", color);
       fd.append("mat", mat);
+      fd.append("people", people);
       fd.append("model", modelId);
       fd.append("aspect", aspect);
       fd.append("res", res);
@@ -302,9 +318,29 @@ function App() {
           <div className="sec-body">
             <select className="select" value={modelId} onChange={e => setModelId(e.target.value)}>
               {models.map(m => (
-                <option key={m.id} value={m.id}>{m.label} · do {m.max_resolution}</option>
+                <option key={m.id} value={m.id}>
+                  {m.label}{m.provider === "openrouter"
+                    ? (m.price_hint ? ` · ${m.price_hint}` : "")
+                    : ` · do ${m.max_resolution}`}
+                </option>
               ))}
             </select>
+            {isOpenRouter && (
+              <>
+                <div className="hint" style={{ marginTop: 8 }}>
+                  Model alternatywny — komponuje pięknie, ale nie jest wierny produktowi jak Gemini.
+                  Działa przez OpenRouter i wymaga osobnego klucza.
+                </div>
+                <div className="field-lbl" style={{ marginTop: 10 }}>klucz OpenRouter</div>
+                <input type="password" className="input" placeholder="sk-or-…"
+                  value={orKey} onChange={e => setOrKey(e.target.value)}
+                  style={{ fontFamily: "Geist Mono", fontSize: 13 }} />
+                <div className="hint">
+                  trzymany tylko w tej przeglądarce · pobierz z{" "}
+                  <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer">openrouter.ai/settings/keys</a>
+                </div>
+              </>
+            )}
 
             <div className="field-lbl" style={{ marginTop: 16 }}>proporcje</div>
             <div className="seg">
@@ -372,6 +408,13 @@ function App() {
             <div className="seg">
               {withNone(MATERIALS, "brak").map(m => (
                 <button key={m.id} className={mat === m.id ? "on" : ""} onClick={() => setMat(m.id)}>{m.name}</button>
+              ))}
+            </div>
+
+            <div className="field-lbl" style={{ marginTop: 14 }}>ludzie w kadrze</div>
+            <div className="seg">
+              {PEOPLE_OPTIONS.map(p => (
+                <button key={p.id} className={people === p.id ? "on" : ""} onClick={() => setPeople(p.id)}>{p.name}</button>
               ))}
             </div>
 

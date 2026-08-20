@@ -56,9 +56,15 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
 the flow above: pure text-to-image, no base product slot. The user's brief
 leads; optional picker fragments (style from `_EDITORIAL_STYLES`, scene,
 light, lens, camera height, TreeTale palette, fabric cue) are appended as
-art direction, plus up to 3 moodboard refs. `GenerationRequest.freeform_prompt`
-carries the composed text verbatim — the variant prompt assembly, preserve
-list, and base-image validation are all skipped.
+art direction (fabric + palette are hard constraints, people-in-frame picker
+defaults to an explicit no-people negative), plus up to 3 moodboard refs.
+`GenerationRequest.freeform_prompt` carries the composed text verbatim — the
+variant prompt assembly, preserve list, and base-image validation are all
+skipped. Editorial is also the only place the OpenRouter engine exists
+(`studio/openrouter.py`: FLUX.2 pro, Seedream 4.5 — strong at composing from
+scratch, banned from the variant pipeline per the bake-off): same composed
+prompt, user's own OpenRouter key (browser-stored, like the Gemini key),
+same outputs naming and delivery pipeline.
 
 ## Sources of truth
 

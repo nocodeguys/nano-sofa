@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.generator import generate
 from studio.errors import _item_error, _result_error, _validation_error
@@ -24,6 +24,7 @@ from studio.media import (
     _resolve_anchor_path,
     _save_upload,
 )
+from studio.openrouter import OPENROUTER_MODELS, OpenRouterError, generate_openrouter
 from studio.paths import logger
 from studio.request_builder import (
     _build_freeform_request,
@@ -674,6 +675,7 @@ async def api_regenerate_variant(
 @router.post("/api/generate-free")
 async def api_generate_free(
     api_key: str = Form(""),
+    openrouter_key: str = Form(""),
     prompt: str = Form(""),
     style: str = Form(""),
     env: str = Form(""),
@@ -682,6 +684,7 @@ async def api_generate_free(
     height: str = Form(""),
     color: str = Form(""),
     mat: str = Form(""),
+    people: str = Form(""),
     model: str = Form("gemini-2.5-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
@@ -692,8 +695,17 @@ async def api_generate_free(
 ):
     """Editorial mode: text-to-image, no base product photo. The brief plus
     optional picker fragments become the whole prompt (see
-    _build_freeform_request); optional moodboard refs ride along."""
-    if not api_key.strip():
+    _build_freeform_request); optional moodboard refs ride along. Gemini
+    models run through the normal generate() pipeline; FLUX / Seedream run
+    through the OpenRouter Images API with the user's OpenRouter key."""
+    is_openrouter = model in OPENROUTER_MODELS
+    if is_openrouter:
+        if not openrouter_key.strip():
+            return _validation_error(
+                "Ten model działa przez OpenRouter — wklej klucz OpenRouter (sk-or-…).",
+                "MISSING_OPENROUTER_KEY",
+            )
+    elif not api_key.strip():
         return _validation_error("Brak klucza API.", "MISSING_API_KEY")
     if len(prompt.strip()) < 3:
         return _validation_error("Opisz, co ma być na zdjęciu.", "MISSING_PROMPT")
@@ -707,34 +719,59 @@ async def api_generate_free(
         except Exception as exc:
             logger.warning("Editorial reference #%d unreadable, ignoring: %s", idx, exc)
 
+    # The prompt text is composed identically for both engines — one wording,
+    # two backends, comparable results.
     req = _build_freeform_request(
         api_key=api_key, text=prompt,
         style=style, env=env, tod=tod, lens=lens, height=height,
-        color=color, mat=mat,
-        model=model, aspect=aspect, res=res, seed=seed,
+        color=color, mat=mat, people=people,
+        model=model if not is_openrouter else "gemini-2.5-flash-image",
+        aspect=aspect, res=res, seed=seed,
         extra_reference_paths=extra_ref_paths,
     )
 
-    logger.info("Editorial generate: style=%s env=%s model=%s", style or "-", env or "-", model)
-    result = await asyncio.to_thread(generate, req)
+    logger.info("Editorial generate: style=%s env=%s model=%s engine=%s",
+                style or "-", env or "-", model, "openrouter" if is_openrouter else "google")
 
-    if not result.success or result.output_path is None:
-        return _result_error(result)
+    if is_openrouter:
+        try:
+            out = await asyncio.to_thread(
+                generate_openrouter,
+                api_key=openrouter_key.strip(), model=model,
+                prompt=req.freeform_prompt, aspect=aspect,
+                ref_paths=extra_ref_paths,
+            )
+        except OpenRouterError as exc:
+            return JSONResponse(
+                {"error": exc.message_pl, "error_code": exc.code,
+                 "detail_en": exc.detail, "retryable": exc.retryable},
+                status_code=exc.http_status,
+            )
+        output_path, generation_id = out["output_path"], out["generation_id"]
+        cost, model_used, elapsed_ms = out["cost"], out["model_id"], out["elapsed_ms"]
+        resolution_used = "auto"
+    else:
+        result = await asyncio.to_thread(generate, req)
+        if not result.success or result.output_path is None:
+            return _result_error(result)
+        output_path, generation_id = Path(result.output_path), result.generation_id
+        cost, model_used, elapsed_ms = result.actual_cost, result.model_id, result.elapsed_ms
+        resolution_used = result.resolution
 
     image_url, fmt_used, downgraded = await _derived_url(
-        result.output_path, output_format, _parse_quality(output_quality),
+        output_path, output_format, _parse_quality(output_quality),
         False,
     )
     await asyncio.to_thread(_prune_storage)
 
     return {
         "success": True,
-        "generation_id": result.generation_id,
+        "generation_id": generation_id,
         "image_url": image_url,
         "format": fmt_used,
         "format_downgraded": downgraded,
-        "cost": result.actual_cost,
-        "model": result.model_id,
-        "resolution": result.resolution,
-        "elapsed_ms": result.elapsed_ms,
+        "cost": cost,
+        "model": model_used,
+        "resolution": resolution_used,
+        "elapsed_ms": elapsed_ms,
     }

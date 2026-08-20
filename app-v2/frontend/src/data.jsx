@@ -195,6 +195,15 @@ const EDITORIAL_STYLES = [
   { id: "art_minimal",      name: "minimal art",       prop: "rzeźbiarsko, światło i cień" },
 ];
 
+/* People-in-frame options (editorial). EN fragments in mappings.py
+   _PEOPLE_TO_PROMPT; "" = explicit no-people negative. */
+const PEOPLE_OPTIONS = [
+  { id: "",           name: "bez ludzi" },
+  { id: "silhouette", name: "sylwetka w tle" },
+  { id: "lifestyle",  name: "osoba lifestyle" },
+  { id: "hands",      name: "tylko dłonie" },
+];
+
 const STEPS = [
   { id: "photo",  num: "01", top: "Zdjęcie i typ",     bot: "wgraj produkt bazowy" },
   { id: "color",  num: "02", top: "Kolor",             bot: "presety, własny opis lub HEX" },
@@ -305,4 +314,4 @@ export const NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS
                          CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
                          CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
                          BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS,
-                         EDITORIAL_STYLES };
+                         EDITORIAL_STYLES, PEOPLE_OPTIONS };

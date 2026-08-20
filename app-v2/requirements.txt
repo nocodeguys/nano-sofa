@@ -11,3 +11,6 @@ python-multipart==0.0.27
 # --- Gemini SDK + image handling (shared with app/core/generator.py) ---
 google-genai==2.0.0
 Pillow==12.2.0
+
+# OpenRouter Images API (editorial tab alternative models)
+httpx>=0.27

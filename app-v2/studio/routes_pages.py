@@ -28,6 +28,7 @@ from studio.mappings import (
     _YAW_TO_ANGLE,
 )
 from studio.media import _MEDIA_TYPES, _read_png_meta
+from studio.openrouter import OPENROUTER_MODELS
 from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger
 
 router = APIRouter()
@@ -105,9 +106,28 @@ def api_config():
         if any(m["id"] == preferred for m in models)
         else (models[0]["id"] if models else None)
     )
+    # Editorial tab: the Gemini models above plus the OpenRouter alternatives
+    # (FLUX / Seedream) — text-to-image only, never offered in the variant
+    # pipeline (the bake-off showed they don't preserve product geometry).
+    editorial_models = [
+        {**m, "provider": "google"} for m in models
+    ] + [
+        {
+            "id": slug,
+            "label": cfg["label"],
+            "provider": "openrouter",
+            "max_refs": cfg["max_refs"],
+            "max_resolution": "auto",
+            "supports_resolution_param": False,
+            "resolutions": ["auto"],
+            "price_hint": cfg.get("price_hint", ""),
+        }
+        for slug, cfg in OPENROUTER_MODELS.items()
+    ]
     return {
         "models": models,
         "default_model": default_id,
+        "editorial_models": editorial_models,
     }
 
 

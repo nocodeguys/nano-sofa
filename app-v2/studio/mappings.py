@@ -561,6 +561,29 @@ _EDITORIAL_STYLES = {
 }
 
 
+# People-in-frame options for the editorial page. Default "" = explicitly no
+# people (goes into the NEGATIVE block — leaving it unstated makes the model
+# add or omit figures at random between renders).
+_PEOPLE_TO_PROMPT = {
+    "silhouette": (
+        "One anonymous human figure appears as a soft, out-of-focus "
+        "silhouette in the background, adding scale and life to the scene; "
+        "face not visible, no eye contact with the camera."
+    ),
+    "lifestyle": (
+        "A person interacts naturally with the scene (resting, reading, "
+        "stretching) in candid lifestyle-editorial style; relaxed unposed "
+        "body language, soft natural styling, face softly lit, never looking "
+        "into the camera."
+    ),
+    "hands": (
+        "Only a human hand or forearm enters the frame (smoothing bedding, "
+        "holding a mug) — intimate editorial detail-shot style; no face, no "
+        "full figure."
+    ),
+}
+
+
 def _build_freeform_prompt(
     *,
     text: str,
@@ -572,6 +595,7 @@ def _build_freeform_prompt(
     color_en: str = "",
     mat_noun_en: str = "",
     mat_texture_en: str = "",
+    people: str = "",
     seed: str = "",
     n_refs: int = 0,
 ) -> str:
@@ -610,15 +634,21 @@ def _build_freeform_prompt(
         lines.append("CAMERA: " + "; ".join(cam_bits) + ".")
     if color_en:
         lines.append(
-            f"COLOR DIRECTION: build the palette around {color_en} as the "
-            "dominant tone, supported by harmonious neutrals."
+            f"COLOR DIRECTION (hard constraint): the hero furniture piece and "
+            f"the dominant tone of the frame are {color_en}; the supporting "
+            "palette stays harmonious and neutral around it."
         )
     if mat_noun_en:
-        tex_hint = mat_texture_en.split(".")[0].strip()
+        # The full texture spec, not a one-line hint — with no base image to
+        # anchor the fabric, a soft hint gets overridden by the model's own
+        # styling (the same noun-vs-spec lesson as the variant pipeline).
         lines.append(
-            f"TEXTILE DIRECTION: featured fabrics read as {mat_noun_en}"
-            + (f" — {tex_hint}." if tex_hint else ".")
+            f"TEXTILE DIRECTION (hard constraint): every upholstered "
+            f"furniture piece in the frame is upholstered in {mat_noun_en}. "
+            f"Fabric spec: {mat_texture_en}"
         )
+    if people in _PEOPLE_TO_PROMPT:
+        lines.append(f"PEOPLE: {_PEOPLE_TO_PROMPT[people]}")
     if seed.strip():
         lines.append(f"seed hint: {seed.strip()}")
 
@@ -627,9 +657,12 @@ def _build_freeform_prompt(
         "OUTPUT STYLE: professional editorial furniture-brand photography, "
         "photorealistic, coherent high-end art direction, natural color grading."
     )
-    lines.append(
+    negative = (
         "NEGATIVE (must not appear in output): any rendered text, typography, "
         "logos, watermarks or UI elements — leave clean negative space where "
         "a masthead or headline would be placed."
     )
+    if people not in _PEOPLE_TO_PROMPT:
+        negative += " No people, no human figures, no faces, no body parts."
+    lines.append(negative)
     return "\n".join(lines)

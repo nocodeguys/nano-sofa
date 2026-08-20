@@ -67,3 +67,42 @@ def test_generate_free_requires_key_and_prompt(client):
     assert r.json()["error_code"] == "MISSING_API_KEY"
     r = client.post("/api/generate-free", data={"api_key": "x", "prompt": ""})
     assert r.json()["error_code"] == "MISSING_PROMPT"
+
+
+def test_fabric_cue_is_hard_constraint_with_full_spec(server):
+    """The one-line hint got ignored by the model — the full texture spec and
+    the hard-constraint framing must both land in the prompt."""
+    req = _freeform(server, mat="chenille")
+    prompt = _build_prompt_text(req)
+    assert "TEXTILE DIRECTION (hard constraint)" in prompt
+    # a sentence from deep inside the spec — proves the WHOLE spec is there
+    assert "Highlights stay broad, diffuse and matte" in prompt
+
+
+def test_people_default_is_explicit_negative(server):
+    prompt = _build_prompt_text(_freeform(server))
+    assert "No people, no human figures" in prompt
+
+
+def test_people_option_replaces_negative(server):
+    prompt = _build_prompt_text(_freeform(server, people="lifestyle"))
+    assert "PEOPLE:" in prompt
+    assert "interacts naturally" in prompt
+    assert "No people, no human figures" not in prompt
+
+
+def test_config_lists_editorial_models(client):
+    cfg = client.get("/api/config").json()
+    ed = cfg.get("editorial_models") or []
+    providers = {m["id"]: m.get("provider") for m in ed}
+    assert providers.get("black-forest-labs/flux.2-pro") == "openrouter"
+    assert providers.get("bytedance-seed/seedream-4.5") == "openrouter"
+    assert any(p == "google" for p in providers.values())
+
+
+def test_generate_free_openrouter_requires_or_key(client):
+    r = client.post("/api/generate-free", data={
+        "api_key": "x", "prompt": "cokolwiek",
+        "model": "black-forest-labs/flux.2-pro",
+    })
+    assert r.json()["error_code"] == "MISSING_OPENROUTER_KEY"

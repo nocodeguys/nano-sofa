@@ -272,6 +272,7 @@ def _build_freeform_request(
     height: str = "",
     color: str = "",
     mat: str = "",
+    people: str = "",
     model: str = "gemini-2.5-flash-image",
     aspect: str = "4:3",
     res: str = "1K",
@@ -294,6 +295,7 @@ def _build_freeform_request(
         color_en=_COLOR_PL_TO_EN.get(color, ""),
         mat_noun_en=_MATERIAL_PL_TO_EN.get(mat, ""),
         mat_texture_en=_MATERIAL_TEXTURE_EN.get(mat, ""),
+        people=people,
         seed=seed,
         n_refs=len(refs),
     )
