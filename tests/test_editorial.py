@@ -95,9 +95,28 @@ def test_config_lists_editorial_models(client):
     cfg = client.get("/api/config").json()
     ed = cfg.get("editorial_models") or []
     providers = {m["id"]: m.get("provider") for m in ed}
-    assert providers.get("black-forest-labs/flux.2-pro") == "openrouter"
-    assert providers.get("bytedance-seed/seedream-4.5") == "openrouter"
+    for slug in (
+        "black-forest-labs/flux.2-pro",
+        "bytedance-seed/seedream-4.5",
+        "bytedance-seed/seedream-5-0-pro",
+        "bytedance-seed/seedream-5-0-lite",
+        "krea/krea-2-large",
+        "krea/krea-2-medium",
+    ):
+        assert providers.get(slug) == "openrouter", f"{slug} missing"
     assert any(p == "google" for p in providers.values())
+    # Krea's reduced vocabulary must reach the frontend so it can disable chips.
+    krea = next(m for m in ed if m["id"] == "krea/krea-2-large")
+    assert "3:4" not in krea["aspects"]
+    assert krea["max_refs"] == 1
+
+
+def test_openrouter_aspect_clamping(server):
+    from studio.openrouter import _clamp_aspect
+    assert _clamp_aspect("krea/krea-2-large", "3:4") == "2:3"
+    assert _clamp_aspect("krea/krea-2-large", "21:9") == "16:9"
+    assert _clamp_aspect("krea/krea-2-large", "16:9") == "16:9"
+    assert _clamp_aspect("bytedance-seed/seedream-5-0-pro", "3:4") == "3:4"
 
 
 def test_generate_free_openrouter_requires_or_key(client):

@@ -95,10 +95,15 @@ function App() {
   const [refs, setRefs] = useState([]);          // [{file, url}]
   const refInputRef = useRef(null);
 
-  // Clamp resolution to what the model supports.
+  // Clamp resolution + aspect to what the model supports (Krea has no 3:4/21:9).
+  const modelAspects = (model && model.aspects) || ASPECTS;
   useEffect(() => {
-    if (model && !(model.resolutions || []).includes(res)) {
+    if (!model) return;
+    if (!(model.resolutions || []).includes(res)) {
       setRes((model.resolutions || ["1K"])[0]);
+    }
+    if (!modelAspects.includes(aspect)) {
+      setAspect(modelAspects.includes("3:4") ? "3:4" : modelAspects[0]);
     }
     // eslint-disable-next-line
   }, [modelId]);
@@ -345,9 +350,15 @@ function App() {
             <div className="field-lbl" style={{ marginTop: 16 }}>proporcje</div>
             <div className="seg">
               {ASPECTS.map(a => (
-                <button key={a} className={aspect === a ? "on" : ""} onClick={() => setAspect(a)}>{a}</button>
+                <button key={a} className={aspect === a ? "on" : ""}
+                  disabled={!modelAspects.includes(a)}
+                  title={!modelAspects.includes(a) ? "niedostępne w tym modelu" : undefined}
+                  onClick={() => setAspect(a)}>{a}</button>
               ))}
             </div>
+            {isOpenRouter && model && model.max_refs < MAX_REFS && (
+              <div className="hint">ten model przyjmuje max {model.max_refs} obraz(y) moodboardu</div>
+            )}
 
             <div className="field-lbl" style={{ marginTop: 16 }}>rozdzielczość</div>
             <div className="seg">

@@ -22,23 +22,67 @@ from PIL import Image
 from app.core.cost_tracker import new_generation_id
 from studio.paths import _OUTPUT_DIR, logger
 
-# Editorial-only alternative models. Quirks learned in the bake-off:
+# Editorial-only alternative models. Quirks (verified live against
+# /api/v1/images/models/{slug}/endpoints, 2026-08):
 #  - seedream-4.5 rejects resolution "1K" (enforces a ~3.7MP output minimum) —
-#    omit the field and let the provider default decide.
+#    we omit the resolution field everywhere and let provider defaults decide.
 #  - flux.2-pro has no resolution parameter at all.
-# Both accept the same aspect_ratio vocabulary the page offers.
+#  - krea-2-* supports a REDUCED aspect vocabulary (no 3:4, no 21:9) and only
+#    ONE input reference; its pricing is not published in the endpoints API.
+# `aspects` lists what the provider accepts from the page's vocabulary; the
+# frontend disables the rest and _clamp_aspect is the server-side backstop.
+_ALL_ASPECTS = ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"]
 OPENROUTER_MODELS = {
     "black-forest-labs/flux.2-pro": {
         "label": "FLUX.2 pro · OpenRouter",
         "max_refs": 8,
         "price_hint": "~$0.06/obraz",
+        "aspects": _ALL_ASPECTS,
     },
     "bytedance-seed/seedream-4.5": {
         "label": "Seedream 4.5 · OpenRouter",
         "max_refs": 14,
         "price_hint": "$0.04/obraz",
+        "aspects": _ALL_ASPECTS,
+    },
+    "bytedance-seed/seedream-5-0-pro": {
+        "label": "Seedream 5.0 Pro · OpenRouter",
+        "max_refs": 14,
+        "price_hint": "$0.045/obraz",
+        "aspects": _ALL_ASPECTS,
+    },
+    "bytedance-seed/seedream-5-0-lite": {
+        "label": "Seedream 5.0 Lite · OpenRouter",
+        "max_refs": 14,
+        "price_hint": "$0.035/obraz",
+        "aspects": _ALL_ASPECTS,
+    },
+    "krea/krea-2-large": {
+        "label": "Krea 2 Large · OpenRouter",
+        "max_refs": 1,
+        "price_hint": "cena wg OpenRouter",
+        "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
+    },
+    "krea/krea-2-medium": {
+        "label": "Krea 2 Medium · OpenRouter",
+        "max_refs": 1,
+        "price_hint": "cena wg OpenRouter",
+        "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
     },
 }
+
+# Nearest supported stand-ins for aspects a model lacks (same orientation).
+_ASPECT_FALLBACK = {"3:4": "2:3", "21:9": "16:9", "4:5": "3:4", "9:21": "9:16"}
+
+
+def _clamp_aspect(model: str, aspect: str) -> str:
+    allowed = OPENROUTER_MODELS.get(model, {}).get("aspects") or _ALL_ASPECTS
+    if aspect in allowed:
+        return aspect
+    fallback = _ASPECT_FALLBACK.get(aspect, allowed[0])
+    fallback = fallback if fallback in allowed else allowed[0]
+    logger.warning("Aspect %s unsupported by %s — clamped to %s", aspect, model, fallback)
+    return fallback
 
 _API_URL = "https://openrouter.ai/api/v1/images"
 _TIMEOUT_S = 300
@@ -90,7 +134,8 @@ def generate_openrouter(
     generation_id = new_generation_id()
     cfg = OPENROUTER_MODELS.get(model, {"max_refs": 4})
 
-    payload: dict = {"model": model, "prompt": prompt, "aspect_ratio": aspect}
+    payload: dict = {"model": model, "prompt": prompt,
+                     "aspect_ratio": _clamp_aspect(model, aspect)}
     refs = list(ref_paths or [])[: cfg["max_refs"]]
     if refs:
         payload["input_references"] = [

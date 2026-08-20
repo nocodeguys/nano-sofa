@@ -121,6 +121,7 @@ def api_config():
             "supports_resolution_param": False,
             "resolutions": ["auto"],
             "price_hint": cfg.get("price_hint", ""),
+            "aspects": cfg.get("aspects"),
         }
         for slug, cfg in OPENROUTER_MODELS.items()
     ]
