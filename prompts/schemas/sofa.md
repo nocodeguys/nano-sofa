@@ -61,7 +61,7 @@ Numerical equivalent of the angle enum. The research notes that camera angle dri
 
 ### `output.resolution` — corrected default and ceiling
 
-v0.1.0 defaulted `resolution` to `"2K"` and the rationale doc said "current Nano Banana max output." Both were wrong for `gemini-2.5-flash-image`, which has a hard cap of 1K (1024px). The 2K and 4K options are only available on `gemini-3.1-flash-image-preview` and `gemini-3-pro-image-preview` via the `resolution` key in `ImageConfig`. The default is corrected to `"1K"`. The Gradio app must enforce the per-model ceiling using the `model_constraints` block.
+v0.1.0 defaulted `resolution` to `"2K"` and the rationale doc said "current Nano Banana max output." Both were wrong for `gemini-2.5-flash-image`, which has a hard cap of 1K (1024px). The 2K and 4K options are available on `gemini-3.1-flash-image` and `gemini-3-pro-image` via `ImageConfig.image_size`. The default remains `"1K"`; the app enforces the per-model ceiling using `model_constraints`.
 
 ### `negative` list — expanded
 
@@ -96,11 +96,11 @@ No change from v0.1.0.
 
 ---
 
-## Pricing notes (as of 2026-05-08)
+## Pricing notes (verified 2026-08-27)
 
 - `gemini-2.5-flash-image`: $0.039/img standard, $0.0195/img batch. Input image cost is ~$0.000077/ref after the November 2025 token reduction (258 tokens at $0.30/1M). Three ref images add approximately $0.00023 per call — negligible.
-- `gemini-3.1-flash-image-preview`: $0.067/img at 1K, $0.101/img at 2K, $0.151/img at 4K standard. Thinking overhead adds latency and tokens on complex multi-reference prompts.
-- `gemini-3-pro-image-preview`: $0.134/img at 1K-2K, $0.240/img at 4K standard. Thinking tokens cannot be disabled and add $0.002-$0.006 per call plus 5-15% for complex prompts. Also: thinking tokens are billed even on failed safety-check generations — budget for this in high-volume runs.
+- `gemini-3.1-flash-image`: $0.067/img at 1K, $0.101/img at 2K, $0.151/img at 4K standard.
+- `gemini-3-pro-image`: $0.134/img at 1K-2K and $0.240/img at 4K standard.
 
 ---
 

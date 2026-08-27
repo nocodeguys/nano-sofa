@@ -194,7 +194,7 @@ class SofaSchema:
 
     def aspect_ratios_for_model(self, model_id: str) -> list[str]:
         """
-        gemini-3.1-flash-image-preview supports 14 ratios; the schema limits
+        gemini-3.1-flash-image supports additional extreme ratios; the schema limits
         output.aspect_ratio to the 4 ratios needed for sofa photography, all
         of which are valid on every active model. Return the full schema list.
         """

@@ -1,4 +1,24 @@
-# Nano Banana — State as of 2026-05-11
+# Nano Banana — State as of 2026-08-27
+
+## 2026-08-27 official-docs update
+
+Google's image-generation guide was updated on 2026-08-26. The current stable
+production IDs are `gemini-3.1-flash-image` (Nano Banana 2, recommended default)
+and `gemini-3-pro-image` (precision / professional asset production). The older
+`-preview` identifiers used in the May research below are superseded. Nano
+Banana 2 supports 1K, 2K and 4K output and is explicitly positioned by Google
+as the best general balance of quality, consistency, price and latency. It also
+excels at multiple-reference processing; the catalog pipeline therefore uses
+it by default and keeps Pro as the highest brand-consistency option.
+
+Primary sources:
+
+- https://ai.google.dev/gemini-api/docs/image-generation
+- https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image
+- https://ai.google.dev/gemini-api/docs/pricing
+
+The historical notes below remain useful for failure modes and prompt lessons,
+but model names/status from the May snapshot must not override this update.
 
 ---
 

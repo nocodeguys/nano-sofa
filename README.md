@@ -2,7 +2,7 @@
 
 AI-powered product photography for upholstered furniture. Upload a base sofa or bed photo, pick a color and fabric, choose a scene — get a publishable variant in ~12 seconds. Polish UI, runs locally in Docker, no Python/Node install required.
 
-Built on Google's Gemini image models (2.5 Flash + the new 3.1 Flash / 3 Pro previews).
+Built on Google's Gemini image models (Nano Banana 2 / Gemini 3.1 Flash Image, with Gemini 3 Pro Image for precision work).
 
 ```
 ┌────────────────────────────┬──────────────────────────────────┐
@@ -52,8 +52,8 @@ The model picker reads from `prompts/schemas/sofa.json` at startup, so adding a 
 | Model | Tier | Max refs | Max resolution |
 |---|---|---|---|
 | `gemini-2.5-flash-image` | flash | 3 | 1K |
-| `gemini-3.1-flash-image-preview` | flash | 14 | 4K |
-| `gemini-3-pro-image-preview` | pro | 14 | 4K |
+| `gemini-3.1-flash-image` | flash · recommended | 14 total | 4K |
+| `gemini-3-pro-image` | pro · precision | 14 total | 4K |
 
 The UI disables resolution/ref-count options that the active model doesn't support.
 

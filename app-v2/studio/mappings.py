@@ -188,36 +188,169 @@ _CYCLORAMA_PROFILES = {
         "no props, no furniture, no plants, no architectural elements, no "
         "signage, no overlaid text"
     ),
+    "cyclorama_atelier_gradient": (
+        "a seamless, full-depth furniture-studio cyclorama with a pronounced "
+        "two-axis directional light field, based on a real editorial product "
+        "studio rather than a flat e-commerce backdrop. There is NO visible "
+        "horizon line and NO floor-to-wall seam. COLOR AND LIGHT ARE LOCKED: "
+        "the upper-left corner is muted warm olive-grey RGB(168,162,146) hex "
+        "#A8A292; the upper-right opens to warm stone RGB(193,185,176) hex "
+        "#C1B9B0; the lower-left is soft taupe RGB(195,189,180) hex #C3BDB4; "
+        "and the lower-right is pale dusty blush RGB(238,231,231) hex #EEE7E7. "
+        "Blend these four tones as one continuous diagonal studio-light wash: "
+        "darker and more olive at upper-left, progressively brighter and more "
+        "blush toward lower-right. This lateral depth is essential — do NOT "
+        "flatten the backdrop to one average beige. LIGHTING: one very large "
+        "diffused key from camera-right plus broad ambient fill; soft form "
+        "modelling on the product at a controlled neutral exposure. Pale fabric "
+        "and white bedding retain visible weave, folds and tonal separation. "
+        "SHADOW: one faint, compact warm-grey contact shadow directly beneath "
+        "the product, feathering slightly left and disappearing within 12 cm. "
+        "SURFACE: matte, with extremely fine fixed "
+        "photographic grain, never rough plaster or visible paper texture. "
+        "Absolutely no props, walls, corners, rugs, plants, signage or text"
+    ),
+    "cyclorama_softblush": (
+        "a seamless premium furniture-catalog cyclorama in a locked pale "
+        "pudrowy cream tone RGB(250,248,246) hex #FAF8F6. This is a warm "
+        "blush-leaning off-white, never pure white, never yellow cream and "
+        "never cool grey. The same #FAF8F6 tone covers wall, sweep and floor "
+        "across the entire frame with no visible horizon line. Keep the field "
+        "calm and almost uniform: no spotlight circle, no vignette, no bright "
+        "corner and no grey floor band. Depth comes only from the product's "
+        "soft natural modelling and a whisper-soft warm-grey contact shadow "
+        "beneath it. Controlled diffused frontal-left light at a neutral D55 "
+        "white balance; pale upholstery and bedding retain their full highlight "
+        "texture rather than dissolving into white. Smooth matte surface, zero props, "
+        "zero room context, zero architecture, zero text or signage"
+    ),
     "cyclorama_architectural": (
         "a seamless architectural-studio backdrop in warm soft ivory, base "
-        "tone RGB(247,243,234) hex #F7F3EA — a clean off-white that reads as "
-        "warm and architectural, NOT a stark hospital or pure-photo white. "
+        "tone RGB(247,245,241) hex #F7F5F1 — a restrained neutral ivory that "
+        "reads as warm and architectural without a yellow or orange cast. "
         "There is NO visible horizon line and NO visible floor-to-wall seam; "
         "the surface behaves like a perfect floating cyclorama with the "
         "product appearing to rest on a continuous ivory plane. CRITICAL "
-        "LIGHTING DETAIL: high-key, even studio lighting with a single large "
+        "LIGHTING DETAIL: controlled, even studio lighting with a single large "
         "soft-box key light positioned at the TOP-LEFT of the frame. This "
         "produces a gentle directional wash: the floor area in front of and "
-        "around the product is fractionally BRIGHTER (about RGB 252,249,242) "
-        "than the upper portion of the backdrop, which softens by 4–6 RGB "
-        "values toward the top edge. The gradient is subtle but visible — "
-        "the lower third of the frame should clearly read as the brightest "
-        "zone. The overall exposure is high-key (bright, airy, no deep "
-        "midtones in the backdrop). SHADOW SPEC: a single soft diffused drop "
-        "shadow anchors the product to the floor. The shadow is densest "
-        "directly beneath the product's contact footprint (warm mid-grey "
-        "RGB 215,208,196, roughly 30–40 percent opacity at its core), and "
-        "feathers out smoothly toward the RIGHT side of the frame — the "
-        "natural shadow direction for a top-left key light. The shadow's "
-        "right edge fades gradually to invisibility within roughly 35–45 "
-        "centimeters of the product, with heavily blurred, gaussian-soft "
-        "edges throughout. No second shadow on the left side. TEXTURE: the "
+        "around the product is fractionally brighter (about RGB 250,249,246) "
+        "than the upper portion of the backdrop, which softens by only 2–3 RGB "
+        "values toward the top edge. Preserve midtone and highlight separation "
+        "on every pale textile; the bedding must never clip into a featureless "
+        "white mass. SHADOW SPEC: one faint, compact contact shadow anchors the "
+        "product directly at its floor contact. It is a pale neutral warm-grey "
+        "at only 8–12 percent opacity, feathering slightly right and disappearing "
+        "within 10–15 centimeters. No broad ellipse, no dark cast shadow and no "
+        "second shadow. TEXTURE: the "
         "entire backdrop is completely smooth and matte — zero film grain, "
         "zero specular reflections, zero environmental detail, zero texture "
         "noise, no paper fibers, no wall imperfections. Absolutely no props, "
         "no furniture, no plants, no architectural elements, no signage"
     ),
 }
+
+# ---------------------------------------------------------------------------
+# Catalog profile — the "one shoot" contract.
+#
+# Two products photographed with identical wizard settings still land on
+# different subject scales, because every framing string in the table above is
+# qualitative: "breathing room above and below" means one thing for a low
+# platform bed and another for a continental bed with a tall headboard. Across
+# a product grid that reads as eight separate photo sessions.
+#
+# Catalog mode fixes both halves of the problem:
+#   * _CATALOG_LOCKS pins every look-defining setting to one value, so no two
+#     products can be shot on different backdrops or lenses by accident. Yaw is
+#     deliberately NOT locked — which side a product is turned toward is a real
+#     per-product decision, unlike the backdrop.
+#   * _CATALOG_FRAMING_CONTRACT states subject scale, centring and floor-contact
+#     height as percentages of the frame, so the model has nothing left to
+#     interpret.
+#
+# The percentages match studio/normalize.py's PackshotProfile. That is the point:
+# the render should land close enough that the deterministic normalization pass
+# only has to nudge it, rather than upscale a small product and soften it.
+# ---------------------------------------------------------------------------
+_CATALOG_LOCKS = {
+    "shot":   "hero",
+    "height": "eye",
+    "lens":   "85mm_product",
+    "dof":    "deep",               # f/8 — no background separation on a cyclorama
+    "tod":    "noon_neutral",
+    "shadow": "soft_diffuse",
+}
+
+# Catalog backdrop id → (cyclorama prompt profile, locked shadow, locked light).
+# Each entry pairs the written description the model renders against with the
+# PackshotProfile of the same name in studio/normalize.py, which rebuilds that
+# same look exactly afterwards. Keeping the two in step is what lets the
+# normalization pass be a nudge rather than a repaint.
+#
+# `ivory` is the default: a pure-white cyclorama is the correct answer for a
+# marketplace that composites onto its own background, and the wrong one for a
+# warm interiors brand, where it reads as clinical.
+_CATALOG_PROFILE_ENV = {
+    "ivory":      {"env": "cyclorama_architectural", "shadow": "directional_4",
+                   "tod": "noon_neutral"},
+    "atelier":    {"env": "cyclorama_atelier_gradient", "shadow": "soft_diffuse",
+                   "tod": "noon_neutral"},
+    "softblush":  {"env": "cyclorama_softblush",     "shadow": "soft_diffuse",
+                   "tod": "noon_neutral"},
+    "neutral":    {"env": "cyclorama_neutral",       "shadow": "soft_diffuse",
+                   "tod": "noon_neutral"},
+    "paperwhite": {"env": "cyclorama_paperwhite",    "shadow": "soft_diffuse",
+                   "tod": "noon_neutral"},
+}
+_CATALOG_PROFILE_DEFAULT = "ivory"
+
+
+def _catalog_profile_locks(profile: str) -> dict:
+    """Merge the shared locks with the chosen backdrop's own settings."""
+    chosen = _CATALOG_PROFILE_ENV.get(
+        (profile or "").strip().lower(), _CATALOG_PROFILE_ENV[_CATALOG_PROFILE_DEFAULT]
+    )
+    return {**_CATALOG_LOCKS, **chosen}
+
+# Shot type → numeric framing clause. Detail and close-up shots are absent on
+# purpose: a macro crop has no "subject scale within the frame" to lock, and
+# normalize.py refuses to touch those renders for the same reason.
+_CATALOG_FRAMING_CONTRACT = {
+    "hero": (
+        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
+        "framing language above): the product's widest visible extent spans "
+        "78-84 percent of the frame width. The product's total height occupies "
+        "no more than 70 percent of the frame height. The product is centred "
+        "horizontally with equal empty margins left and right. The product's "
+        "lowest point of contact with the floor sits at 86-90 percent of the "
+        "frame height, measured downward from the top edge of the frame. The "
+        "backdrop fills every remaining margin. Do not crop the product at any "
+        "frame edge, do not zoom in tighter than this, and do not pull back "
+        "further than this."
+    ),
+    "wide": (
+        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
+        "framing language above): the product's widest visible extent spans "
+        "50-56 percent of the frame width, centred horizontally with equal "
+        "margins. The product's lowest point of contact with the floor sits at "
+        "78-82 percent of the frame height, measured downward from the top "
+        "edge. Do not crop the product at any frame edge."
+    ),
+    "three_quarter": (
+        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
+        "framing language above): the product's widest visible extent spans "
+        "88-94 percent of the frame width, centred horizontally. The product's "
+        "lowest point of contact with the floor sits at 88-92 percent of the "
+        "frame height, measured downward from the top edge. Do not crop the "
+        "product at any frame edge."
+    ),
+}
+
+
+def _catalog_framing_contract(shot_id: str) -> str:
+    """Numeric framing clause for a shot type, or "" when it doesn't apply."""
+    return _CATALOG_FRAMING_CONTRACT.get(shot_id, "")
+
 
 # Environment id (from data.jsx ENVIRONMENTS) → (mode, scene description).
 # Mode drives the two branches of the SCENE block in generator.py:
@@ -232,6 +365,8 @@ _ENV_TO_SCENE = {
     "cyclorama_architectural": ("packshot", _CYCLORAMA_PROFILES["cyclorama_architectural"]),
     "cyclorama_softlight":     ("packshot", _CYCLORAMA_PROFILES["cyclorama_softlight"]),
     "cyclorama_paperwhite":    ("packshot", _CYCLORAMA_PROFILES["cyclorama_paperwhite"]),
+    "cyclorama_atelier_gradient": ("packshot", _CYCLORAMA_PROFILES["cyclorama_atelier_gradient"]),
+    "cyclorama_softblush":       ("packshot", _CYCLORAMA_PROFILES["cyclorama_softblush"]),
     # Legacy aliases — point at the new locked profiles so existing wizard
     # users automatically inherit the consistency upgrade.
     "studio_white":          ("packshot", _CYCLORAMA_PROFILES["cyclorama_warm"]),
@@ -412,11 +547,11 @@ _SHADOW_DEFAULT = {"direction": "soft diffuse",
 # ---------------------------------------------------------------------------
 _BEDDING_TO_PROMPT = {
     "none":          "no bedding at all — the bare mattress is visible, no sheets, no duvet, no pillows",
-    "linen_white":   "crisp white pure-linen sheets and a matching white linen duvet, gentle natural creases, soft matte texture",
+    "linen_white":   "crisp white pure-linen sheets and a matching white linen duvet, matte rather than luminous, gentle natural creases with clearly visible tonal modelling and weave in every highlight",
     "linen_natural": "natural undyed flax linen sheets and duvet in warm ecru / oatmeal tone, visible weave, soft wrinkles",
     "linen_grey":    "stone-grey washed linen sheets and duvet, gently rumpled, slightly cool undertone",
     "linen_sage":    "muted sage-green washed linen sheets and duvet, soft and matte",
-    "cotton_white":  "smooth white percale cotton sheets and duvet, crisp and lightly pressed, hotel-look finish",
+    "cotton_white":  "smooth white percale cotton sheets and duvet, crisp and lightly pressed, hotel-look finish, with preserved seam relief and soft upper-mid-grey fold definition rather than clipped pure-white planes",
     "jersey_warm":   "soft cream cotton-jersey sheets and a matching jersey duvet, cozy and relaxed drape",
 }
 _THROW_TO_PROMPT = {

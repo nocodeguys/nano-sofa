@@ -150,7 +150,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "sofaAspect": 2.4,
   "sofaRadius": 22,
   "shadowStrength": 34,
-  "stageVignette": true,
+  "stageVignette": false,
   "stageZoom": 100,
   "showFloorTag": true,
   "showVariantRail": false,
@@ -173,6 +173,7 @@ const PRESET_FIELDS = [
   "kind", "color", "colorCustom", "colorCustomHex", "mat", "matNotes", "size", "legs", "bedLegs",
   "cam", "lens", "tod", "shadow", "shot", "yaw", "height", "dof", "detailRegion",
   "env", "envNote", "envMode", "refsLock", "preserveBaseCamera",
+  "catalog", "catalogProfile", "anchorRef",
   "bedding", "beddingCustom", "throw", "tidy", "density", "accents", "bedNote",
   "model", "aspect", "res", "outputFormat", "outputQuality",
 ];
@@ -192,6 +193,30 @@ const CAM_PRESET_DEFAULTS = {
   top:    { shot: "hero",          yaw: "front",    height: "overhead", lens: "50mm_natural",  dof: "standard" },
 };
 
+// Catalog backdrops. Each id maps to a cyclorama prompt profile AND to the
+// PackshotProfile of the same name in studio/normalize.py — the model renders
+// the look, the normalization pass then reproduces it exactly. `top`/`floor`
+// are only for the swatch preview; the real tones live server-side.
+const CATALOG_BACKDROPS = [
+  { id: "ivory", name: "Naturalna kość słoniowa", hex: "#F7F5F1",
+    top: "#F4F2EE", floor: "#FAF9F6",
+    note: "neutralne ivory bez żółtego zafarbu, kontrolowane światła i mały, bardzo delikatny cień kontaktowy" },
+  { id: "atelier", name: "Atelier — ciepły gradient", hex: "#A8A292 → #EEE7E7",
+    top: "#A8A292", floor: "#EEE7E7",
+    preview: "linear-gradient(135deg, #A8A292 0%, #BDB6AA 38%, #DCD6D1 67%, #EEE7E7 100%)",
+    note: "kierunkowo oświetlona cyklorama: oliwkowy cień po lewej, kamień i pudrowy róż po prawej — tło ma głębię, ale nadal pozostaje czystym studiem" },
+  { id: "softblush", name: "Pudrowy krem", hex: "#FAF8F6",
+    top: "#FAF8F6", floor: "#FAF8F6",
+    preview: "linear-gradient(180deg, #FAF8F6 0%, #FAF8F6 72%, #F8F5F2 100%)",
+    note: "stały różowo-kremowy kolor #FAF8F6 i tylko miękki cień produktu — spokojny, jasny katalog w stylu premium marek wnętrzarskich" },
+  { id: "paperwhite", name: "Jasna biel papierowa", hex: "#FCFAF7",
+    top: "#FAF8F5", floor: "#FEFCFA",
+    note: "lekka, powietrzna biel z ledwo wyczuwalnym ciepłym podtonem, prawie bez gradientu" },
+  { id: "neutral", name: "Neutralna biel", hex: "#FAFAFA",
+    top: "#FFFFFF", floor: "#FAFAFA",
+    note: "czysta biel studyjna, bez podtonu — pod marketplace’y, które i tak podmieniają tło" },
+];
+
 function App({ t }) {
   const [apiKey, setApiKey] = useState(() => {
     try { return localStorage.getItem(API_KEY_STORAGE) || ""; } catch { return ""; }
@@ -207,9 +232,9 @@ function App({ t }) {
   // Server-driven config: models + per-model constraints (max_refs, resolutions).
   // Falls back to a single Flash entry if the request fails so the UI still loads.
   const [serverConfig, setServerConfig] = useState({
-    models: [{ id: "gemini-2.5-flash-image", label: "gemini-2.5-flash-image", tier: "flash",
-               max_refs: 3, resolutions: ["1K"] }],
-    default_model: "gemini-2.5-flash-image",
+    models: [{ id: "gemini-3.1-flash-image", label: "Nano Banana 2", tier: "flash",
+               max_refs: 14, max_resolution: "4K", resolutions: ["1K", "2K", "4K"] }],
+    default_model: "gemini-3.1-flash-image",
   });
   useEffect(() => {
     fetch("/api/config")
@@ -236,6 +261,11 @@ function App({ t }) {
     detailRegion: "weave",
     env: "scandi", envFile: null, envNote: "", envMode: "reference",
     refs: [null, null, null], refsLock: false,
+    // Catalog profile (section 01b). Locks backdrop / lens / light / camera
+    // height to one shared profile, adds the numeric framing contract, and
+    // normalizes the finished render onto that profile. `anchorRef` optionally
+    // names an approved earlier render whose look every later product inherits.
+    catalog: true, catalogProfile: "ivory", anchorRef: "",
     // Lock camera angle + framing + object pose to the base photo (section 02).
     // Wizard color/material/size/scene still apply — the model just keeps the
     // exact same viewpoint as the uploaded base image. Useful for detail crops
@@ -248,7 +278,7 @@ function App({ t }) {
     density: "balanced",
     accents: [],            // array of BED_ACCENTS ids
     bedNote: "",            // optional free-text styling note
-    model: "gemini-3.1-flash-image-preview", aspect: "4:3", res: "1K", seed: "",
+    model: "gemini-3.1-flash-image", aspect: "4:3", res: "1K", seed: "",
     outputFormat: "jpg", outputQuality: 82,
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
@@ -348,7 +378,7 @@ function App({ t }) {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genElapsed, setGenElapsed] = useState(0);   // seconds, live while generating
-  const [eta, setEta] = useState(() => localEta("gemini-3.1-flash-image-preview", "1K", 0));
+  const [eta, setEta] = useState(() => localEta("gemini-3.1-flash-image", "1K", 0));
   // When true, the next /api/generate call attaches the most recent gallery
   // image as scene_image — locking the backdrop pixel-perfectly across
   // re-renders. Same mechanism the Warianty tab uses for cross-variant
@@ -564,18 +594,24 @@ function App({ t }) {
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
     fd.append("legs", effectiveLegs);
-    fd.append("cam", st.cam);
-    fd.append("lens", st.lens);
-    fd.append("tod", st.tod);
-    fd.append("shadow", st.shadow);
-    fd.append("shot", st.shot || "");
-    fd.append("yaw", st.yaw || "");
-    fd.append("height", st.height || "");
-    fd.append("dof", st.dof || "");
-    fd.append("detail_region", st.detailRegion || "");
-    fd.append("env", st.env || "");
-    fd.append("env_note", st.envNote || "");
-    fd.append("env_mode", st.envMode || "");
+    if (st.catalog) {
+      // Catalog has exactly one source of truth: profile + product rotation.
+      // Do not send stale lifestyle/camera values for the server to override.
+      fd.append("yaw", st.yaw || "34_left");
+    } else {
+      fd.append("cam", st.cam);
+      fd.append("lens", st.lens);
+      fd.append("tod", st.tod);
+      fd.append("shadow", st.shadow);
+      fd.append("shot", st.shot || "");
+      fd.append("yaw", st.yaw || "");
+      fd.append("height", st.height || "");
+      fd.append("dof", st.dof || "");
+      fd.append("detail_region", st.detailRegion || "");
+      fd.append("env", st.env || "");
+      fd.append("env_note", st.envNote || "");
+      fd.append("env_mode", st.envMode || "");
+    }
     fd.append("model", st.model);
     fd.append("aspect", st.aspect);
     fd.append("res", st.res);
@@ -590,7 +626,7 @@ function App({ t }) {
     // lands on the same backdrop pixels as the first. Overrides any
     // env=custom upload — the lock takes priority.
     let backgroundLocked = false;
-    if (lockBackground && gallery[0]?.url) {
+    if (!st.catalog && lockBackground && gallery[0]?.url) {
       try {
         const prev = await fetch(gallery[0].url);
         const blob = await prev.blob();
@@ -603,20 +639,24 @@ function App({ t }) {
         console.warn("Background lock failed, continuing without it:", e);
       }
     }
-    if (!backgroundLocked && st.envFile && st.envFile instanceof File) {
+    if (!st.catalog && !backgroundLocked && st.envFile && st.envFile instanceof File) {
       fd.append("scene_image", st.envFile);
     }
     // Section 09 "Referencje" — moodboard uploads. Send each picked file as a
     // separate `references` entry so FastAPI receives them as list[UploadFile].
     const hasAnyRef = st.refs.some(r => r && r.file instanceof File);
     for (const r of st.refs) {
-      if (r && r.file instanceof File) fd.append("references", r.file);
+      if (!st.catalog && r && r.file instanceof File) fd.append("references", r.file);
     }
     // Reference-lock: makes the uploaded reference the source of truth for
     // camera/lighting/scene; suppresses the wizard's camera + scene blocks.
     // Only meaningful when at least one reference is present.
-    if (hasAnyRef && st.refsLock) fd.append("refs_lock", "1");
-    if (st.preserveBaseCamera) fd.append("preserve_base", "1");
+    if (!st.catalog && hasAnyRef && st.refsLock) fd.append("refs_lock", "1");
+    if (st.catalog) {
+      fd.append("catalog", "1");
+      fd.append("catalog_profile", st.catalogProfile || "ivory");
+    }
+    if (!st.catalog && st.preserveBaseCamera) fd.append("preserve_base", "1");
     if (st.kind === "bed") {
       fd.append("bedding", st.bedding || "");
       fd.append("bedding_custom", st.beddingCustom || "");
@@ -638,6 +678,7 @@ function App({ t }) {
         setGallery(g => [
           { url: data.image_url, generation_id: data.generation_id || null,
             color: colorObj?.hex || "#5C7A56", material: matObj?.id || null,
+            catalog_profile: data.catalog_profile || null,
             tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
           ...g,
         ]);
@@ -961,18 +1002,22 @@ function App({ t }) {
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
     fd.append("legs", effectiveLegs);
-    fd.append("cam", st.cam);
-    fd.append("lens", st.lens);
-    fd.append("tod", st.tod);
-    fd.append("shadow", st.shadow);
-    fd.append("shot", st.shot || "");
-    fd.append("yaw", st.yaw || "");
-    fd.append("height", st.height || "");
-    fd.append("dof", st.dof || "");
-    fd.append("detail_region", st.detailRegion || "");
-    fd.append("env", st.env || "");
-    fd.append("env_note", st.envNote || "");
-    fd.append("env_mode", st.envMode || "");
+    if (st.catalog) {
+      fd.append("yaw", st.yaw || "34_left");
+    } else {
+      fd.append("cam", st.cam);
+      fd.append("lens", st.lens);
+      fd.append("tod", st.tod);
+      fd.append("shadow", st.shadow);
+      fd.append("shot", st.shot || "");
+      fd.append("yaw", st.yaw || "");
+      fd.append("height", st.height || "");
+      fd.append("dof", st.dof || "");
+      fd.append("detail_region", st.detailRegion || "");
+      fd.append("env", st.env || "");
+      fd.append("env_note", st.envNote || "");
+      fd.append("env_mode", st.envMode || "");
+    }
     // Bed-styling block. Same payload shape as /api/generate so the variant
     // set inherits the textile arrangement chosen in section 10.
     if (st.kind === "bed") {
@@ -991,7 +1036,11 @@ function App({ t }) {
     fd.append("output_format", st.outputFormat || "jpg");
     fd.append("output_quality", String(st.outputQuality || 82));
     fd.append("base_image", st.baseFile);
-    if (st.envFile && st.envFile instanceof File) fd.append("scene_image", st.envFile);
+    if (!st.catalog && st.envFile && st.envFile instanceof File) fd.append("scene_image", st.envFile);
+    if (st.catalog) {
+      fd.append("catalog", "1");
+      fd.append("catalog_profile", st.catalogProfile || "ivory");
+    }
 
     setVariantBusy(true);
     try {
@@ -1008,7 +1057,9 @@ function App({ t }) {
           .filter(v => v && v.image_url && v.generation_id)
           .map(v => ({ url: v.image_url, generation_id: v.generation_id,
                        color: COLORS.find(c => c.id === v.color)?.hex || null,
-                       material: v.material || null, tag: "set", cost: v.cost, ts: Date.now() }));
+                       material: v.material || null,
+                       catalog_profile: data.catalog_profile || null,
+                       tag: "set", cost: v.cost, ts: Date.now() }));
         if (fresh.length) setGallery(g => [...fresh, ...g]);
       }
     } catch (e) {
@@ -1025,10 +1076,10 @@ function App({ t }) {
       {/* ============= LEFT — sticky stage ============= */}
       <section className="stage-pane">
         <div className="stage-tabs">
-          <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>Mockup</button>
-          <button className={stageTab === "json" ? "on" : ""} onClick={() => setStageTab("json")}>JSON</button>
+          <button className={stageTab === "mockup" ? "on" : ""} onClick={() => setStageTab("mockup")}>Podgląd</button>
           <button className={stageTab === "variants" ? "on" : ""} onClick={() => setStageTab("variants")}>Warianty</button>
-          <button className={stageTab === "photoshoot" ? "on" : ""} onClick={() => setStageTab("photoshoot")}>Fotosesja</button>
+          <button className={stageTab === "photoshoot" ? "on" : ""} onClick={() => setStageTab("photoshoot")}>Seria</button>
+          <button className={"stage-tech-tab " + (stageTab === "json" ? "on" : "")} title="Dane techniczne" onClick={() => setStageTab("json")}>•••</button>
         </div>
 
         <div className="stage-canvas" style={{
@@ -1105,7 +1156,11 @@ function App({ t }) {
             <div className="line"><span className="k">kolor</span><span className="v serif">{colorObj?.name || "—"}</span></div>
             <div className="line"><span className="k">tkanina</span><span className="v serif">{matObj?.name || "—"}</span></div>
             <div className="line"><span className="k">format</span><span className="v serif">{sizeObj?.name} · {sizeObj?.dim}</span></div>
-            <div className="line"><span className="k">scena</span><span className="v serif">{envObj?.name}</span></div>
+            <div className="line"><span className="k">scena</span><span className="v serif">
+              {st.catalog
+                ? (CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).name
+                : envObj?.name}
+            </span></div>
           </div>}
 
           {/* variant rail — vertical, right edge */}
@@ -1129,7 +1184,10 @@ function App({ t }) {
             let ext = "jpg";
             if (activeImg) {
               const tag = activeImg.tag || ("v" + (activeGallery + 1));
-              const slug = [colorObj?.id, matObj?.id, envObj?.id].filter(Boolean).join("-");
+              const sceneId = activeImg.catalog_profile
+                ? `catalog-${activeImg.catalog_profile}`
+                : envObj?.id;
+              const slug = [colorObj?.id, matObj?.id, sceneId].filter(Boolean).join("-");
               ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
               downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
             }
@@ -1782,10 +1840,24 @@ function App({ t }) {
       {/* ============= RIGHT — scrolling form ============= */}
       <section className="form-pane">
         <div className="form-intro">
-          <div className="eyebrow">Studio · v2 · konfigurator · <a href="/help" target="_blank" rel="noopener" style={{color:"inherit", textDecoration:"underline", textUnderlineOffset:"2px"}}>dokumentacja parametrów ↗</a></div>
-          <h1>Złóż wariant zdjęcia produktu — <em>pojedynczy formularz, jeden render.</em></h1>
-          <p>Wszystkie ustawienia widoczne na raz, żywy podgląd po lewej. Przewiń od góry, ustaw co chcesz, naciśnij Generuj.</p>
+          <div className="eyebrow">Nano Sofa · Brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></div>
+          <h1>Jedno studio.<br/><em>Każdy produkt w tym samym świecie.</em></h1>
+          <p>Najpierw definiujesz sesję, potem produkt i wykończenie. Pokazujemy tylko ustawienia aktywnego trybu, dzięki czemu nic nie konkuruje z wybranym profilem.</p>
         </div>
+
+        <nav className="workflow-strip" aria-label="Etapy konfiguracji">
+          {[
+            { num:"01", title:"Sesja", meta: st.catalog ? "Katalog" : "Lifestyle", target:"section-01", done:true },
+            { num:"02", title:"Produkt", meta: st.uploaded ? "Zdjęcie gotowe" : "Dodaj zdjęcie", target:"section-02", done:st.uploaded },
+            { num:"03", title:"Wykończenie", meta:`${colorObj?.name || "Kolor"} · ${matObj?.name || "Tkanina"}`, target:"section-03", done:true },
+          ].map(step => (
+            <button type="button" key={step.num} className={step.done ? "done" : ""}
+              onClick={() => document.getElementById(step.target)?.scrollIntoView({behavior:"smooth", block:"start"})}>
+              <span className="workflow-num">{step.done ? "✓" : step.num}</span>
+              <span><strong>{step.title}</strong><small>{step.meta}</small></span>
+            </button>
+          ))}
+        </nav>
 
         {/* API key banner — sticks until a key is entered. Inline so it can't be missed. */}
         {!apiKey && (
@@ -1812,9 +1884,9 @@ function App({ t }) {
           </div>
         )}
 
-        {/* 01 — output (was 09) */}
-        <Section num="01" title="Wyjście" summary={`${st.model.includes("pro") ? "pro" : "flash"} · ${st.aspect} · ${st.res.split(" ")[0]}`}
-          help="Model, proporcje, rozdzielczość. Flash: szybki, do 1K, max 3 referencje. Pro: do 2K, droższy 4×.">
+        {/* Technical output settings stay available, but no longer lead the workflow. */}
+        <AdvancedSection title="Ustawienia techniczne" summary={`${st.model.includes("pro") ? "pro" : "flash"} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          help="Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki.">
           <div className="out-grid">
             <div>
               <div className="field-lbl">model</div>
@@ -1870,6 +1942,128 @@ function App({ t }) {
               </div>
             )}
           </div>
+        </AdvancedSection>
+
+        {/* 01 — mutually exclusive workflow mode */}
+        <Section num="01" title="Tryb zdjęcia"
+          summary={(() => {
+            if (!st.catalog) return "Lifestyle / wnętrze";
+            const b = CATALOG_BACKDROPS.find(x => x.id === st.catalogProfile) || CATALOG_BACKDROPS[0];
+            return `Katalog · ${b.name}`;
+          })()}
+          help="Katalog tworzy spójną serię w jednym studiu. Lifestyle pozwala swobodnie ustawić wnętrze, kamerę i referencje. Tryby nie dzielą ustawień sceny.">
+          <div className="mode-switch">
+            {[
+              { catalog:true, title:"Katalog", sub:"stałe studio, 85 mm, f/8" },
+              { catalog:false, title:"Lifestyle / wnętrze", sub:"scena, kamera i referencje" },
+            ].map(mode => (
+              <button type="button" className={st.catalog === mode.catalog ? "selected" : ""} key={String(mode.catalog)} onClick={() => {
+                set({ catalog:mode.catalog, anchorRef:"", refsLock:false, preserveBaseCamera:false });
+                setLockBackground(false);
+              }}>
+                <span className="mode-title">{mode.title}</span>
+                <span className="mode-sub">{mode.sub}</span>
+              </button>
+            ))}
+          </div>
+
+          {st.catalog && (
+            <div style={{marginTop:12}}>
+              <div className="field-lbl">tło katalogowe</div>
+              <div className="profile-grid">
+                {CATALOG_BACKDROPS.filter(b => ["ivory", "atelier", "softblush"].includes(b.id)).map(b => (
+                  <button type="button" className={"profile-card " + (st.catalogProfile === b.id ? "selected" : "")} key={b.id} onClick={() => set({ catalogProfile: b.id })}>
+                    <span style={{display:"flex", alignItems:"center", gap:8}}>
+                      <span className="profile-swatch" style={{
+                                    border:"1px solid var(--line-2)",
+                                    background: b.preview || `linear-gradient(${b.top}, ${b.floor})`}} />
+                      <span>
+                        <span style={{display:"block", fontSize:12, fontWeight:600}}>{b.name}</span>
+                        <span style={{display:"block", fontSize:10, color:"var(--ink-3)",
+                                      fontFamily:"'Geist Mono', monospace"}}>{b.hex}</span>
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div style={{fontSize:10, color:"var(--ink-3)", marginTop:6, fontFamily:"Geist Mono", lineHeight:1.5}}>
+                {(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).note}
+              </div>
+              <div style={{
+                marginTop:10, padding:"9px 11px", borderRadius:8,
+                background:"var(--bg-1)", border:"1px solid var(--line-2)",
+                fontSize:10.5, color:"var(--ink-2)", lineHeight:1.5,
+              }}>
+                <strong style={{fontWeight:650}}>Aktywne źródło prawdy:</strong>{" "}
+                profil ustawia tło, światło, obiektyw, przysłonę i wysokość kamery.
+                Zmieniasz niżej tylko produkt oraz jego obrót.
+              </div>
+            </div>
+          )}
+
+          {false && st.catalog && (() => {
+            // Optional second lever, on top of the profile. The backdrop is
+            // already identical without it — an anchor additionally carries
+            // camera and lighting over from one approved render. Picking it
+            // is a visual decision, so the picker shows the renders, not a
+            // dropdown of sixty text summaries nobody can read.
+            const recent = (historyItems || []).slice(0, 6);
+            const picked = (historyItems || []).find(h => h.generation_id === st.anchorRef);
+            return (
+              <div style={{marginTop:12, paddingTop:12, borderTop:"1px solid var(--line-2)"}}>
+                <div className="field-lbl" style={{display:"flex", justifyContent:"space-between"}}>
+                  <span>kotwica — opcjonalny wzorzec kamery i światła</span>
+                  <button onClick={loadHistory} disabled={historyBusy}
+                          style={{border:"none", background:"none", cursor:"pointer",
+                                  color:"var(--ink-3)", fontSize:10, fontFamily:"Geist Mono"}}>
+                    {historyBusy ? "…" : "odśwież"}
+                  </button>
+                </div>
+
+                {picked ? (
+                  <div style={{display:"flex", alignItems:"center", gap:10, marginTop:6}}>
+                    <img src={picked.image_url} alt=""
+                         style={{width:64, height:48, objectFit:"cover", borderRadius:6,
+                                 border:"2px solid var(--accent, #5f7a56)"}} />
+                    <div style={{flex:1, minWidth:0, fontSize:11, lineHeight:1.4}}>
+                      <div style={{fontWeight:600}}>Kotwica ustawiona</div>
+                      <div style={{color:"var(--ink-3)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                        {picked.prompt_summary || picked.generation_id}
+                      </div>
+                    </div>
+                    <button onClick={() => set({ anchorRef: "" })}
+                            style={{border:"1px solid var(--line-2)", background:"var(--bg-1)",
+                                    borderRadius:6, padding:"4px 10px", cursor:"pointer", fontSize:11}}>
+                      usuń
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{display:"flex", gap:6, marginTop:6, flexWrap:"wrap"}}>
+                      {recent.map(h => (
+                        <button key={h.generation_id}
+                                onClick={() => set({ anchorRef: h.generation_id })}
+                                title={h.prompt_summary || h.generation_id}
+                                style={{padding:0, border:"1px solid var(--line-2)", borderRadius:6,
+                                        background:"none", cursor:"pointer", lineHeight:0}}>
+                          <img src={h.image_url} alt=""
+                               style={{width:64, height:48, objectFit:"cover", borderRadius:5}} />
+                        </button>
+                      ))}
+                      {!recent.length && (
+                        <span style={{fontSize:11, color:"var(--ink-3)"}}>
+                          {historyBusy ? "wczytuję…" : "brak wcześniejszych renderów"}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{fontSize:10, color:"var(--ink-3)", marginTop:6, fontFamily:"Geist Mono", lineHeight:1.5}}>
+                      niepotrzebne dla samego tła — tło jest identyczne również bez kotwicy
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </Section>
 
         {/* 02 — photo */}
@@ -2028,9 +2222,31 @@ function App({ t }) {
           </div>
         </Section>
 
-        {/* 06 — environment */}
-        <Section num="07" title="Otoczenie" summary={envObj?.name}
+        {/* 06 — environment: lifestyle only. Catalog has one source of truth. */}
+        {!st.catalog && (
+        <Section num="07" title="Otoczenie"
+          summary={st.catalog
+            ? `sterowane profilem · ${(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).name}`
+            : envObj?.name}
           help="Scena, w której pokażemy mebel. „Bez tła” oddaje PNG z alfą. „Własne zdjęcie” pozwala wgrać Twoje wnętrze.">
+          {st.catalog ? (
+            <div style={{
+              display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
+              border:"1px solid rgba(95,122,86,.28)", borderRadius:10,
+              background:"rgba(95,122,86,.06)", fontSize:12.5, lineHeight:1.45,
+            }}>
+              <span style={{
+                width:34, height:34, borderRadius:6, flexShrink:0,
+                border:"1px solid var(--line-2)",
+                background:(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).preview
+                  || `linear-gradient(${(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).top}, ${(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).floor})`,
+              }} />
+              <span>
+                <strong style={{fontWeight:600}}>Otoczenie wyłączone</strong>
+                {" — tłem zarządza profil katalogowy. Zmień je w sekcji 01b; ustawienia i pliki z tej sekcji nie są wysyłane do modelu."}
+              </span>
+            </div>
+          ) : (<>
           <div className="env-grid">
             {ENVIRONMENTS.map(e => (
               <div key={e.id}
@@ -2095,10 +2311,16 @@ function App({ t }) {
               </div>
             </div>
           )}
+          </>)}
         </Section>
+        )}
 
         {/* 07 — camera */}
         <Section num="08" title="Kamera i kadrowanie" summary={(() => {
+          if (st.catalog) {
+            const yawObj = CAMERA_YAWS.find(y => y.id === st.yaw);
+            return `profil 85 mm · f/8 · ${yawObj?.name || "obrót produktu"}`;
+          }
           if (st.preserveBaseCamera) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
           const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
           let regionTable = null;
@@ -2112,6 +2334,23 @@ function App({ t }) {
           return parts.filter(Boolean).join(" · ");
         })()}
           help="Wybierz typ kadru. Dla detali makro rezygnujemy z cyklorama tła i kierujemy model na samą fakturę.">
+          {st.catalog && (
+            <div>
+              <div style={{
+                marginBottom:12, padding:"10px 12px", borderRadius:10,
+                border:"1px solid rgba(95,122,86,.28)", background:"rgba(95,122,86,.06)",
+                fontSize:12, lineHeight:1.5,
+              }}>
+                Profil katalogowy blokuje obiektyw 85 mm, f/8, wysokość kamery,
+                ekspozycję i miękkie światło. Tutaj wybierasz tylko stronę produktu.
+              </div>
+              <div className="field-lbl">obrót produktu</div>
+              <select className="select" value={st.yaw} onChange={e => set({ yaw: e.target.value })}>
+                {CAMERA_YAWS.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
+              </select>
+            </div>
+          )}
+          {!st.catalog && (<>
           <label style={{
             display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
             padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
@@ -2274,10 +2513,11 @@ function App({ t }) {
               </select>
             </div>
           </div>
+          </>)}
         </Section>
 
-        {/* 08 — references */}
-        {(() => {
+        {/* 08 — references: lifestyle only */}
+        {!st.catalog && (() => {
           // Base product image always occupies slot 1 → user can add up to max_refs - 1 extras.
           const maxExtras = Math.max(0, (modelObj?.max_refs || 3) - 1);
           const slotCount = Math.max(0, Math.min(maxExtras, 6));   // UI hard cap of 6 to keep layout sane
@@ -2335,22 +2575,24 @@ function App({ t }) {
                   display:"flex", alignItems:"flex-start", gap:8, marginTop:10,
                   padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
                   background: (filled > 0 && st.refsLock) ? "rgba(95,122,86,.06)" : "var(--bg-1)",
-                  cursor: filled > 0 ? "pointer" : "not-allowed",
-                  opacity: filled > 0 ? 1 : 0.55,
+                  cursor: (filled > 0 && !st.catalog) ? "pointer" : "not-allowed",
+                  opacity: (filled > 0 && !st.catalog) ? 1 : 0.55,
                   fontSize:12.5, lineHeight:1.45,
                 }}>
                   <input
                     type="checkbox"
-                    checked={filled > 0 && !!st.refsLock}
-                    disabled={filled === 0}
+                    checked={filled > 0 && !!st.refsLock && !st.catalog}
+                    disabled={filled === 0 || st.catalog}
                     onChange={e => set({ refsLock: e.target.checked })}
                     style={{marginTop:2, flexShrink:0}} />
                   <span>
                     <strong style={{fontWeight:600}}>Użyj referencji jako wzorca</strong>
-                    {filled === 0
+                    {st.catalog
+                      ? " — wyłączone, ponieważ profil katalogowy korzysta z własnej referencji pustego studia."
+                      : filled === 0
                       ? " — wgraj najpierw referencję w slot powyżej, żeby włączyć tę opcję."
                       : " — "}
-                    {filled > 0 && (
+                    {filled > 0 && !st.catalog && (
                       <>
                         referencja staje się źródłem prawdy dla kąta kamery,
                         kadrowania, oświetlenia, cieni i sceny. Ustawienia z sekcji{" "}
@@ -2490,7 +2732,9 @@ function App({ t }) {
               <span className="dot">·</span>
               <span>{sizeObj?.name}</span>
               <span className="dot">·</span>
-              <span>{envObj?.name}</span>
+              <span>{st.catalog
+                ? (CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).name
+                : envObj?.name}</span>
               <span className="dot">·</span>
               <span className="mono">{st.aspect} · {st.res.split(" ")[0]}</span>
             </div>
@@ -2500,7 +2744,7 @@ function App({ t }) {
                 When ON, the next Generate re-uses that render's image as the
                 packshot SCENE reference so the backdrop stays pixel-stable
                 across angle / lens / color changes. */}
-            {gallery.length > 0 && (
+            {gallery.length > 0 && !st.catalog && (
               <label title="Następna generacja użyje ostatniego renderu jako referencji tła — kąt i kolor mogą się zmieniać, tło zostaje."
                 style={{
                   display:"inline-flex", alignItems:"center", gap: 6,
@@ -2538,7 +2782,7 @@ function App({ t }) {
 /* generic section wrapper */
 function Section({ num, title, summary, help, children }) {
   return (
-    <div className="section">
+    <section className="section" id={`section-${num}`}>
       <div className="sec-head">
         <div className="num">{num}</div>
         <div className="title serif">{title}</div>
@@ -2546,7 +2790,23 @@ function Section({ num, title, summary, help, children }) {
       </div>
       {help && <p className="sec-help">{help}</p>}
       <div className="sec-body">{children}</div>
-    </div>
+    </section>
+  );
+}
+
+function AdvancedSection({ title, summary, help, children }) {
+  return (
+    <details className="advanced-section">
+      <summary className="sec-head">
+        <div className="num">+</div>
+        <div className="title serif">{title}</div>
+        {summary && <div className="summary">{summary}</div>}
+      </summary>
+      <div className="advanced-body">
+        {help && <p className="sec-help">{help}</p>}
+        <div className="sec-body">{children}</div>
+      </div>
+    </details>
   );
 }
 

@@ -36,11 +36,72 @@ server (it serves `frontend/dist`).
 ## Files
 
 - `server.py` — FastAPI: serves the built frontend + `/api/*` (generate, generate-set, variants, video, history, config)
+- `studio/normalize.py` — deterministic packshot normalization (see below)
 - `catalog.json` — single source of truth for materials + colours (PL display + EN prompt specs); served to the browser as `window.NS_CATALOG` via `GET /catalog.js`
 - `frontend/src/data.jsx` — option tables shared by the pages (builds COLORS/MATERIALS from the catalog)
 - `frontend/src/styles-v2.css` — design system (sage accent, Geist)
 - `scene-references/` — curated per-environment reference images (baked into the image)
 - `requirements.txt` — Python runtime deps (what the Docker image installs)
+
+## Catalog profile
+
+The v3 configurator exposes two mutually exclusive workflows. **Katalog** sends
+only product choices, profile and yaw; the profile owns the backdrop, light,
+lens, aperture and camera height. **Lifestyle / wnętrze** exposes and sends the
+environment, camera and extra references instead. Hidden controls are omitted
+from the request rather than merely losing an override contest in the backend.
+
+A product grid only reads as one photo session if the backdrop, the subject
+scale and the floor line are identical on every tile. Three layers get it
+there, all enabled by the section-01b "Profil katalogowy" toggle (`catalog=1`
+on `/api/generate` and `/api/generate-set`):
+
+1. **Locked settings** (`_CATALOG_LOCKS` + `_CATALOG_PROFILE_ENV` in
+   `studio/mappings.py`) — 85 mm, f/8, eye-level camera, plus one of three
+   backdrops picked with `catalog_profile`:
+
+   | id | tone | look |
+   |----|------|------|
+   | `ivory` (default) | #F7F5F1 | restrained neutral architectural ivory, without a yellow cast |
+   | `atelier` | #A8A292 → #EEE7E7 | two-axis lit cyclorama measured from the supplied studio reference: olive-grey upper-left opening into pale dusty blush lower-right, with fixed fine grain |
+   | `softblush` | #FAF8F6 | calm blush-cream field measured from the supplied bed-catalog reference; constant tone, depth carried only by the product shadow |
+   | `paperwhite` | #FCFAF7 | bright airy off-white, barely any gradient |
+   | `neutral` | #FAFAFA | clinical photo-studio white, for marketplaces that composite onto their own background |
+
+   Each id names both a cyclorama prompt profile and the `PackshotProfile` of
+   the same name in `studio/normalize.py`; keeping the two in step is what
+   lets normalization be a nudge rather than a repaint. Yaw stays with the
+   user — which way a product faces is a real per-product choice, unlike the
+   backdrop.
+2. **Numeric framing contract** (`_CATALOG_FRAMING_CONTRACT`) — subject width,
+   centring and floor-contact height as percentages of the frame. The
+   qualitative framing strings ("breathing room above and below") are read
+   differently for a low platform bed than for a tall continental one, which
+   is what makes a grid look like eight separate shoots.
+3. **Safe photographic calibration** (`studio/normalize.py`) — the brand-facing
+   pale profiles calibrate the complete photograph against a fixed low-frequency
+   studio field. This preserves pale bouclé edges and the natural product shadow;
+   no semantic cut-out or synthetic ellipse is used. The neutral marketplace
+   profile retains the stricter matte/rescale path where contrast is sufficient.
+   The guaranteed-empty upper and lower frame bands are then locked to the
+   canonical plate, eliminating the changing strip of floor visible across a row.
+
+   Every brand profile also has a curated empty-studio image in
+   `scene-references/`. It is attached automatically before generation, while
+   section-07 uploads and moodboard scene locks are ignored in catalog mode.
+   The prompt therefore starts from the same studio plate and the finishing
+   pass removes the remaining low-frequency colour drift without damaging the
+   product.
+
+Optionally pass `anchor_ref` (a generation id or an output basename) to make an
+approved earlier render the authority for camera, lighting and backdrop, so
+product #40 matches product #1 rather than merely obeying the same written
+spec.
+
+The strict neutral-profile matte refuses renders it should not touch — lifestyle
+scenes, macro crops, anything where the product bleeds off the frame edge — and
+logs why. Every profile keeps the pre-normalization render beside the master as
+`<stem>.raw.png`.
 
 Cache busting is automatic: Vite hashes asset filenames; `/catalog.js` is
 `Cache-Control: no-store`.

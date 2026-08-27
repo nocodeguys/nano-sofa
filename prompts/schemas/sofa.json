@@ -14,10 +14,10 @@
       "type": "string",
       "enum": [
         "gemini-2.5-flash-image",
-        "gemini-3.1-flash-image-preview",
-        "gemini-3-pro-image-preview"
+        "gemini-3.1-flash-image",
+        "gemini-3-pro-image"
       ],
-      "description": "Active Nano Banana model ID. Must be one of the three currently live IDs as of 2026-05-08. gemini-2.5-flash-image-preview is SHUT DOWN (Jan 15 2026) — do not use. gemini-2.5-flash-image is GA but scheduled for deprecation Oct 2 2026. gemini-3.1-flash-image-preview and gemini-3-pro-image-preview are preview-tier; both carry thinking-token billing overhead and ~30-45% peak-hour failure rates."
+      "description": "Active Nano Banana model ID, verified against official Google docs updated 2026-08-26. gemini-3.1-flash-image (Nano Banana 2) is the recommended general-purpose production model; gemini-3-pro-image is the precision/brand-consistency tier. gemini-2.5-flash-image remains available only as the legacy low-resolution option."
     },
 
     "model_constraints": {
@@ -33,7 +33,7 @@
             "deprecation_date": { "const": "2026-10-02" }
           }
         },
-        "gemini-3.1-flash-image-preview": {
+        "gemini-3.1-flash-image": {
           "type": "object",
           "properties": {
             "max_reference_images": { "const": 14 },
@@ -43,7 +43,7 @@
             "deprecation_date": { "const": null }
           }
         },
-        "gemini-3-pro-image-preview": {
+        "gemini-3-pro-image": {
           "type": "object",
           "properties": {
             "max_reference_images": { "const": 14 },
@@ -76,7 +76,7 @@
         },
         "slot_4_swatch": {
           "type": "string",
-          "description": "Optional fabric swatch reference. Only reachable on gemini-3.1-flash-image-preview or gemini-3-pro-image-preview (14-ref cap). Leave absent on gemini-2.5-flash-image."
+          "description": "Optional fabric swatch reference. Use gemini-3.1-flash-image or gemini-3-pro-image for multi-reference consistency. Leave absent on gemini-2.5-flash-image when its smaller input cap is reached."
         }
       }
     },
@@ -260,13 +260,13 @@
         "aspect_ratio": {
           "type": "string",
           "enum": ["1:1", "4:3", "3:2", "16:9", "9:16", "4:5"],
-          "description": "Supported on all three active models. 9:16 is the Instagram Stories / Reels vertical. 4:5 is the Instagram feed portrait (the most common social vertical for product photography). Do not add 1:4, 4:1, 1:8, 8:1 — those are only available on gemini-3.1-flash-image-preview and are not needed for sofa product photography."
+          "description": "Supported on all three active models. 9:16 is the Instagram Stories / Reels vertical. 4:5 is the Instagram feed portrait (the most common social vertical for product photography). The extreme 1:4, 4:1, 1:8 and 8:1 ratios supported by Gemini 3.1 Flash Image are intentionally omitted because they are not useful for furniture catalog photography."
         },
         "resolution": {
           "type": "string",
           "enum": ["1K", "2K", "4K"],
           "default": "1K",
-          "description": "Target output resolution. IMPORTANT: gemini-2.5-flash-image is capped at 1K (1024px max) — do not request 2K or 4K on that model. 2K and 4K are only available on gemini-3.1-flash-image-preview and gemini-3-pro-image-preview via the resolution parameter in ImageConfig. The Gradio app must enforce this per-model cap. Previous default of 2K was incorrect for the Flash stable model."
+          "description": "Target output resolution. gemini-2.5-flash-image is capped at 1K. Gemini 3.1 Flash Image and Gemini 3 Pro Image support 1K, 2K and 4K via ImageConfig.image_size; the UI enforces the per-model cap."
         },
         "style": {
           "type": "string",

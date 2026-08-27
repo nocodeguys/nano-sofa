@@ -181,6 +181,16 @@ class GenerationRequest:
     # checkbox in the UI.
     lock_to_reference: bool = False
 
+    # Quantified framing contract emitted by catalog mode — subject scale,
+    # horizontal centring and floor-contact height stated as percentages of
+    # the frame. The qualitative `framing` string ("breathing room above and
+    # below") is read differently for a low platform bed than for a tall
+    # continental one, which is what makes a product grid look like eight
+    # separate shoots. Numbers remove the interpretation. Emitted verbatim in
+    # its own block and deliberately NOT suppressed by lock_to_reference: the
+    # anchor was rendered under the same contract, so the two agree.
+    catalog_framing_contract: str = ""
+
     # Output
     aspect_ratio: str = "4:3"
     resolution: str = "1K"
@@ -461,6 +471,19 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
     if req.env_mode == "packshot":
         tod_clause = f" Lighting: {req.tod_description}." if req.tod_description else ""
         scene_desc = req.env_description or "neutral grey studio backdrop, packshot lighting"
+        exposure_clause = (
+            " WHITE-TEXTILE EXPOSURE — PASS/FAIL REQUIREMENT: expose for the "
+            "white bedding, not for the backdrop, using a neutral D55 white balance. "
+            "The duvet, sheets and pillows must remain visibly darker than the brightest "
+            "part of the cyclorama. Preserve separate tonal bands in every fold, seam, "
+            "piping edge and weave: broad white textile areas live around RGB 232-244, "
+            "fold highlights may reach RGB 246, and no fabric-sized region may reach "
+            "RGB 250-255. Pure white is permitted only in pin-point reflections. The "
+            "result must still show textile relief when viewed as a small catalog tile; "
+            "a featureless white duvet is an exposure failure. Do not compensate by "
+            "greying, yellowing or darkening the canonical backdrop and do not create "
+            "a bright halo around the product."
+        )
         is_detail = req.shot_type in ("detail_fabric", "detail_corner")
         # Detail crop: at macro distance the cyclorama sweep, top-light
         # gradient, and contact shadow are not in the frame — emitting the
@@ -497,13 +520,15 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
                 f"{tod_clause}"
                 f"{lens_clause}"
                 f"{shadow_clause}"
+                f"{exposure_clause}"
                 f" No environment objects, no room context — product only on the backdrop."
                 f"\n\nBACKDROP / CYCLORAMA REFERENCE: An additional reference image is "
                 f"attached (slot 2) that shows the canonical cyclorama look for this "
-                f"shoot. Match its backdrop tone, its visible soft top-down lighting "
-                f"gradient, its anchored contact-shadow quality (warm-grey, heavily "
-                f"blurred edges, no directional cast), and its floor-to-wall seamless "
-                f"blend exactly. Use ONLY the backdrop characteristics from this "
+                f"shoot. Match its backdrop tone, restrained luminance field, neutral "
+                f"white balance, and floor-to-wall seamless blend exactly. The reference "
+                f"is an EMPTY studio plate, so create only the small contact shadow "
+                f"specified above; do not invent a broad cast shadow. Use ONLY the "
+                f"backdrop characteristics from this "
                 f"reference — do not copy the product, the camera angle, the framing, "
                 f"or any geometry from it. The {product_noun}'s pose and angle come "
                 f"from the base image (slot 1)."
@@ -513,6 +538,7 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
             f"{tod_clause}"
             f"{lens_clause}"
             f"{shadow_clause}"
+            f"{exposure_clause}"
             f" No environment objects, no room context — product only on the backdrop."
         )
 
@@ -854,6 +880,14 @@ def _build_prompt_text(req: GenerationRequest) -> str:
                 f"Focal length equivalent {req.focal_length_mm} mm, {req.aperture} aperture. "
                 f"Framing: {req.framing}."
             )
+
+    # ------------------------------------------------------------------ #
+    # Catalog framing contract — the numeric half of the camera spec. Placed
+    # after the CAMERA / reference-lock blocks so it reads as the tightening
+    # clause on whatever framing was just described, not as a competing one.
+    # ------------------------------------------------------------------ #
+    if req.catalog_framing_contract:
+        lines.append(f"\n{req.catalog_framing_contract}")
 
     # ------------------------------------------------------------------ #
     # Shadow direction — required for leg swap and scene ref.

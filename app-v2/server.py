@@ -67,7 +67,7 @@ def main() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", 7861))
     log_level = os.environ.get("LOG_LEVEL", "info")
-    logger.info("Nano Sofa v2 starting on http://%s:%d  (outputs=%s)", host, port, _OUTPUT_DIR)
+    logger.info("Nano Sofa Studio v3 starting on http://%s:%d  (outputs=%s)", host, port, _OUTPUT_DIR)
     uvicorn.run(app, host=host, port=port, log_level=log_level)
 
 

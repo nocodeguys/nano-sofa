@@ -28,6 +28,7 @@ from studio.mappings import (
     _YAW_TO_ANGLE,
 )
 from studio.media import _MEDIA_TYPES, _read_png_meta
+from studio.normalize import is_raw_copy as _is_raw
 from studio.openrouter import OPENROUTER_MODELS
 from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger
 
@@ -73,7 +74,7 @@ def healthz():
         "ok": True,
         "model_ids": list(schema.model_ids),
         "outputs_dir": str(_OUTPUT_DIR),
-        "n_outputs": sum(1 for p in _OUTPUT_DIR.glob("*.png")),
+        "n_outputs": sum(1 for p in _OUTPUT_DIR.glob("*.png") if not _is_raw(p)),
     }
 
 
@@ -85,22 +86,26 @@ def api_config():
     Source of truth: prompts/schemas/sofa.json (via app.core.schema_loader).
     """
     models = []
+    model_labels = {
+        "gemini-2.5-flash-image": "Nano Banana · legacy 1K",
+        "gemini-3.1-flash-image": "Nano Banana 2 · polecany",
+        "gemini-3-pro-image": "Nano Banana Pro · precyzja",
+    }
     for mid in schema.model_ids:
         tier = "pro" if "pro" in mid else "flash"
         models.append({
             "id": mid,
-            "label": mid,
+            "label": model_labels.get(mid, mid),
             "tier": tier,
             "max_refs": schema.max_refs_for_model(mid),
             "max_resolution": schema.max_resolution_for_model(mid),
             "supports_resolution_param": schema.supports_resolution_param(mid),
             "resolutions": schema.resolution_choices_for_model(mid),
         })
-    # Default model preference: prefer Nano Banana 2 (3.1-flash-image-preview)
-    # for its richer scene adherence, 14-ref cap, and 4K resolution support
-    # over the GA 2.5-flash-image (which deprecates 2026-10-02). Fall back to
-    # the first model in the enum if 3.1 isn't available.
-    preferred = "gemini-3.1-flash-image-preview"
+    # Official Google guidance (updated 2026-08-26) recommends Nano Banana 2
+    # as the general-purpose image model: stronger multi-reference consistency
+    # and up to 4K output. Keep 2.5 only as a legacy fallback.
+    preferred = "gemini-3.1-flash-image"
     default_id = (
         preferred
         if any(m["id"] == preferred for m in models)
@@ -220,9 +225,11 @@ def api_history(limit: int = 60):
         pass
 
     # Master PNGs live directly under _OUTPUT_DIR (uploads are in a subdir;
-    # derived jpg/webp aren't .png). Newest first by mtime.
+    # derived jpg/webp aren't .png). The pre-normalization .raw.png kept beside
+    # each normalized master is a diagnostic copy, not a render — listing it
+    # would show every catalog shot twice. Newest first by mtime.
     try:
-        masters = [p for p in _OUTPUT_DIR.glob("*.png") if p.is_file()]
+        masters = [p for p in _OUTPUT_DIR.glob("*.png") if p.is_file() and not _is_raw(p)]
     except Exception:
         masters = []
     masters.sort(key=lambda p: p.stat().st_mtime, reverse=True)

@@ -1,7 +1,7 @@
 """
 cost_tracker.py — Per-request cost calculation and session-level accumulation.
 
-Pricing is sourced from docs/research/nano-banana-state.md (2026-05-08).
+Pricing is sourced from the official Google pricing page, verified 2026-08-27.
 All prices are USD. Never hardcode prices in other modules — import from here.
 """
 
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 # --------------------------------------------------------------------------- #
-# Pricing tables (from nano-banana-state.md, 2026-05-08)
+# Pricing tables (official Gemini Developer API pricing, 2026-08-27)
 # --------------------------------------------------------------------------- #
 
 # Standard (non-batch) output image prices per generated image
@@ -25,12 +25,12 @@ OUTPUT_IMAGE_PRICE_STD: dict[str, dict[str, float]] = {
         "2K": 0.039,   # Flash is capped at 1K; this entry is defensive
         "4K": 0.039,
     },
-    "gemini-3.1-flash-image-preview": {
+    "gemini-3.1-flash-image": {
         "1K": 0.067,
         "2K": 0.101,
         "4K": 0.151,
     },
-    "gemini-3-pro-image-preview": {
+    "gemini-3-pro-image": {
         "1K": 0.134,
         "2K": 0.134,   # Pro pricing covers 1K–2K at same rate
         "4K": 0.240,
@@ -44,12 +44,12 @@ OUTPUT_IMAGE_PRICE_BATCH: dict[str, dict[str, float]] = {
         "2K": 0.0195,
         "4K": 0.0195,
     },
-    "gemini-3.1-flash-image-preview": {
+    "gemini-3.1-flash-image": {
         "1K": 0.034,
         "2K": 0.050,
         "4K": 0.076,
     },
-    "gemini-3-pro-image-preview": {
+    "gemini-3-pro-image": {
         "1K": 0.067,
         "2K": 0.067,
         "4K": 0.120,
@@ -61,15 +61,15 @@ OUTPUT_IMAGE_PRICE_BATCH: dict[str, dict[str, float]] = {
 # Preview models: assumed same tier text input rate
 INPUT_IMAGE_TOKEN_COST: dict[str, float] = {
     "gemini-2.5-flash-image": 0.000077,   # 258 tok × $0.30/1M
-    "gemini-3.1-flash-image-preview": 0.000129,  # 258 tok × $0.50/1M (estimated)
-    "gemini-3-pro-image-preview": 0.000516,      # 258 tok × $2.00/1M (estimated)
+    "gemini-3.1-flash-image": 0.000129,  # 258 tok × $0.50/1M
+    "gemini-3-pro-image": 0.000516,      # 258 tok × $2.00/1M
 }
 
 # Thinking token cost (Pro only, per 1M tokens)
 THINKING_TOKEN_PRICE_PER_1M: dict[str, float] = {
     "gemini-2.5-flash-image": 0.0,
-    "gemini-3.1-flash-image-preview": 3.50,   # approximate — not independently verified
-    "gemini-3-pro-image-preview": 12.00,      # from third-party analysis
+    "gemini-3.1-flash-image": 3.00,
+    "gemini-3-pro-image": 12.00,
 }
 
 # Estimated thinking tokens for a complex multi-reference sofa prompt
@@ -80,8 +80,8 @@ THINKING_TOKEN_ESTIMATE_COMPLEX = 600
 # Text input prices per 1M tokens
 TEXT_INPUT_PRICE_PER_1M: dict[str, float] = {
     "gemini-2.5-flash-image": 0.30,
-    "gemini-3.1-flash-image-preview": 0.50,
-    "gemini-3-pro-image-preview": 2.00,
+    "gemini-3.1-flash-image": 0.50,
+    "gemini-3-pro-image": 2.00,
 }
 
 # Average sofa prompt token count (estimated from schema + system instruction)

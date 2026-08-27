@@ -11,6 +11,10 @@ python-multipart==0.0.27
 # --- Gemini SDK + image handling (shared with app/core/generator.py) ---
 google-genai==2.0.0
 Pillow==12.2.0
+# Packshot normalization (studio/normalize.py) mattes the product off the
+# backdrop with array maths. It used to arrive transitively; pinned here now
+# that it is a direct import.
+numpy==2.4.4
 
 # OpenRouter Images API (editorial tab alternative models)
 httpx>=0.27

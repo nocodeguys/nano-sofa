@@ -66,7 +66,7 @@ function App() {
 
   // ---- model catalog from /api/config ------------------------------------
   const [models, setModels] = useState([]);
-  const [modelId, setModelId] = useState("gemini-2.5-flash-image");
+  const [modelId, setModelId] = useState("gemini-3.1-flash-image");
   useEffect(() => {
     fetch("/api/config").then(r => r.ok ? r.json() : null).then(c => {
       const list = (c && (c.editorial_models || c.models)) || [];

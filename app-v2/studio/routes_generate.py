@@ -24,6 +24,7 @@ from studio.media import (
     _resolve_anchor_path,
     _save_upload,
 )
+from studio.normalize import normalize_packshot, resolve_profile
 from studio.openrouter import OPENROUTER_MODELS, OpenRouterError, generate_openrouter
 from studio.paths import logger
 from studio.request_builder import (
@@ -40,6 +41,11 @@ router = APIRouter()
 # gate. Created lazily so it binds to the running event loop; per-process.
 _BATCH_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "3"))
 _gen_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _truthy(raw: str) -> bool:
+    """Form checkboxes arrive as any of these depending on how they're posted."""
+    return str(raw).strip().lower() in ("1", "true", "on", "yes")
 
 
 def _batch_semaphore() -> asyncio.Semaphore:
@@ -79,7 +85,7 @@ async def api_generate(
     env: str = Form(""),
     env_note: str = Form(""),
     env_mode: str = Form(""),
-    model: str = Form("gemini-2.5-flash-image"),
+    model: str = Form("gemini-3.1-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -90,6 +96,13 @@ async def api_generate(
     references: list[UploadFile] = File(default_factory=list),
     refs_lock: str = Form(""),
     preserve_base: str = Form(""),
+    # Catalog mode: lock the look-defining settings to the shared profile,
+    # emit the numeric framing contract, and normalize the render onto that
+    # profile afterwards. `anchor_ref` optionally names an approved earlier
+    # render whose camera and lighting this one should inherit.
+    catalog: str = Form(""),
+    catalog_profile: str = Form(""),
+    anchor_ref: str = Form(""),
     bedding: str = Form(""),
     bedding_custom: str = Form(""),
     throw: str = Form(""),
@@ -127,6 +140,32 @@ async def api_generate(
         except Exception as exc:
             logger.warning("Reference #%d unreadable, ignoring: %s", idx, exc)
 
+    catalog_mode = _truthy(catalog)
+    refs_locked = _truthy(refs_lock)
+
+    # The catalog profile is the sole authority for backdrop and lighting.
+    # Ignore section-07 uploads and section-09 moodboards here, before they can
+    # turn into stronger image instructions than the catalog prompt.  A catalog
+    # anchor selected below is the one deliberate exception.
+    if catalog_mode:
+        scene_upload_path = None
+        extra_ref_paths = []
+        refs_locked = False
+
+    # Catalog anchor: an approved earlier render becomes the authority for
+    # camera, lighting and backdrop, so product #40 matches product #1 instead
+    # of merely obeying the same written spec. It goes in front of the user's
+    # own moodboard references because the reference lock reads slot 1.
+    if anchor_ref.strip():
+        anchor_path = _resolve_anchor_path(anchor_ref)
+        if anchor_path is None:
+            return _validation_error(
+                f"Nie znaleziono kotwicy katalogowej: {anchor_ref}", "ANCHOR_NOT_FOUND"
+            )
+        extra_ref_paths.insert(0, anchor_path)
+        refs_locked = True
+        logger.info("Catalog anchor: %s", anchor_path.name)
+
     bedding_desc = ""
     if kind == "bed":
         bedding_desc = _compose_bedding_description(
@@ -151,9 +190,11 @@ async def api_generate(
         base_image_path=upload_path,
         scene_image_path=scene_upload_path,
         extra_reference_paths=extra_ref_paths,
-        lock_to_reference=refs_lock.strip().lower() in ("1", "true", "on", "yes"),
-        preserve_camera_from_base=preserve_base.strip().lower() in ("1", "true", "on", "yes"),
+        lock_to_reference=refs_locked,
+        preserve_camera_from_base=(not catalog_mode) and _truthy(preserve_base),
         bedding_description=bedding_desc,
+        catalog=catalog_mode,
+        catalog_profile=catalog_profile,
     )
 
     logger.info("Generating: %s / %s / %s", req.upholstery_color, req.upholstery_material, req.camera_angle)
@@ -166,11 +207,22 @@ async def api_generate(
     if not result.success or result.output_path is None:
         return _result_error(result)
 
+    # Catalog mode: force the render onto the shared profile before anything is
+    # derived from it, so the delivered JPG, the history thumbnail and any later
+    # anchor all carry the normalized geometry and backdrop.
+    normalized = False
+    if catalog_mode:
+        _, normalized = await asyncio.to_thread(
+            normalize_packshot, result.output_path, catalog_profile
+        )
+
     # Derive the user-facing download file (default JPG) off the lossless PNG
     # master, then trim the storage volume. The master is kept for reference reuse.
+    # Catalog mode composites onto an opaque backdrop, so its output is never
+    # transparent regardless of which env the caller asked for.
     image_url, fmt_used, downgraded = await _derived_url(
         result.output_path, output_format, _parse_quality(output_quality),
-        env in _TRANSPARENT_ENVS,
+        (not catalog_mode) and env in _TRANSPARENT_ENVS,
     )
     await asyncio.to_thread(_prune_storage)
 
@@ -184,6 +236,9 @@ async def api_generate(
         "model": result.model_id,
         "resolution": result.resolution,
         "elapsed_ms": result.elapsed_ms,
+        "catalog": catalog_mode,
+        "catalog_profile": resolve_profile(catalog_profile).name if catalog_mode else None,
+        "normalized": normalized,
     }
 
 
@@ -225,12 +280,16 @@ async def api_generate_set(
     density: str = Form(""),
     accents: str = Form(""),
     bed_note: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image-preview"),
+    model: str = Form("gemini-3.1-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
     output_format: str = Form("jpg"),
     output_quality: str = Form("82"),
+    # Catalog mode applies to the whole set: the anchor and every variant are
+    # built with the same locked profile and normalized onto it afterwards.
+    catalog: str = Form(""),
+    catalog_profile: str = Form(""),
     base_image: Optional[UploadFile] = File(None),
     scene_image: Optional[UploadFile] = File(None),
 ):
@@ -252,6 +311,8 @@ async def api_generate_set(
         return _validation_error("Brak klucza API.", "MISSING_API_KEY")
     if base_image is None:
         return _validation_error("Brak zdjęcia bazowego.", "MISSING_BASE_IMAGE")
+
+    catalog_mode = _truthy(catalog)
 
     color_ids = [c.strip() for c in colors_csv.split(",") if c.strip()]
     if len(color_ids) < 2:
@@ -325,6 +386,8 @@ async def api_generate_set(
         base_image_path=base_path,
         scene_image_path=scene_path,
         bedding_description=bedding_desc,
+        catalog=catalog_mode,
+        catalog_profile=catalog_profile,
     )
 
     anchor_result = await asyncio.to_thread(generate, anchor_req)
@@ -332,7 +395,16 @@ async def api_generate_set(
     if not anchor_result.success or anchor_result.output_path is None:
         return _result_error(anchor_result)
 
-    transparent_env = env in _TRANSPARENT_ENVS
+    # Normalize the anchor BEFORE the variants read it. They use its PNG as
+    # their scene reference, so if the anchor is normalized first the whole
+    # set inherits the profile geometry from the model rather than only from
+    # their own post-pass — the two then agree instead of fighting.
+    if catalog_mode:
+        await asyncio.to_thread(
+            normalize_packshot, anchor_result.output_path, catalog_profile
+        )
+
+    transparent_env = (not catalog_mode) and env in _TRANSPARENT_ENVS
     qual = _parse_quality(output_quality)
     anchor_url, _afmt, _adn = await _derived_url(
         anchor_result.output_path, output_format, qual, transparent_env
@@ -370,6 +442,8 @@ async def api_generate_set(
             base_image_path=base_path,
             scene_image_path=anchor_result.output_path,  # anchor PNG locks the scene
             bedding_description=bedding_desc,
+            catalog=catalog_mode,
+            catalog_profile=catalog_profile,
         )
         v_req = dataclass_replace(
             v_req,
@@ -392,6 +466,8 @@ async def api_generate_set(
         if not r.success or r.output_path is None:
             variants_payload.append(_item_error({"color": cid, "material": mid}, r))
             continue
+        if catalog_mode:
+            await asyncio.to_thread(normalize_packshot, r.output_path, catalog_profile)
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, transparent_env)
         variants_payload.append({
             "color": cid,
@@ -412,6 +488,8 @@ async def api_generate_set(
         "variants": variants_payload,
         "total_cost": total_cost,
         "model": model,
+        "catalog": catalog_mode,
+        "catalog_profile": resolve_profile(catalog_profile).name if catalog_mode else None,
     }
 
 
@@ -448,7 +526,7 @@ async def api_generate_variants(
     density: str = Form(""),
     accents: str = Form(""),
     bed_note: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image-preview"),
+    model: str = Form("gemini-3.1-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -618,7 +696,7 @@ async def api_regenerate_variant(
     density: str = Form(""),
     accents: str = Form(""),
     bed_note: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image-preview"),
+    model: str = Form("gemini-3.1-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -685,7 +763,7 @@ async def api_generate_free(
     color: str = Form(""),
     mat: str = Form(""),
     people: str = Form(""),
-    model: str = Form("gemini-2.5-flash-image"),
+    model: str = Form("gemini-3.1-flash-image"),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),

@@ -37,6 +37,8 @@ from studio.mappings import (
     _TOD_TO_PROMPT,
     _YAW_TO_ANGLE,
     _build_freeform_prompt,
+    _catalog_framing_contract,
+    _catalog_profile_locks,
     _resolve_id,
 )
 from studio.paths import _SCENE_REFS_DIR, logger
@@ -81,6 +83,8 @@ def _build_generation_request(
     height: str = "",
     dof: str = "",
     detail_region: str = "",
+    catalog: bool = False,
+    catalog_profile: str = "",
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
@@ -88,6 +92,35 @@ def _build_generation_request(
     Resolves legacy Polish strings via the alias tables so stale browser caches
     keep working.
     """
+    # ---- Catalog profile ---------------------------------------------- #
+    # One locked look for a whole product range: backdrop, lens, aperture,
+    # light and camera height stop being per-render variables. Yaw stays with
+    # the caller — which way a product faces is a real editorial choice, unlike
+    # the backdrop. A detail or close-up shot keeps its shot type: the locks
+    # exist to make hero packshots interchangeable, and forcing a macro crop
+    # back to a hero shot would just discard what the caller asked for.
+    if catalog:
+        locks = _catalog_profile_locks(catalog_profile)
+        requested_shot = shot.strip() or _CAM_PRESET_TO_STRUCTURED.get(cam, ("hero",))[0]
+        keeps_shot = requested_shot in ("detail_fabric", "detail_corner", "close_up")
+        env = locks["env"]
+        shot = requested_shot if keeps_shot else locks["shot"]
+        height = locks["height"]
+        lens = locks["lens"]
+        dof = locks["dof"]
+        tod = locks["tod"]
+        shadow = locks["shadow"]
+
+        # Catalog mode owns the scene completely.  A stale selection/upload
+        # from section 07 must never compete with the chosen catalog profile.
+        # If a curated empty-studio reference exists, attach that canonical
+        # field automatically; it is much more reliable than asking the model
+        # to recreate a calibrated backdrop from RGB prose alone.
+        scene_image_path = _scene_reference_path(env)
+        env_note = ""
+        env_mode = ""
+        preserve_camera_from_base = False
+
     upholstery_color = (
         color_custom.strip()
         if color == "custom" and color_custom.strip()
@@ -198,6 +231,7 @@ def _build_generation_request(
     return GenerationRequest(
         model_id=model,
         base_product_image=str(base_image_path),
+        catalog_framing_contract=_catalog_framing_contract(shot_id) if catalog else "",
         scene_reference_image=str(scene_image_path) if scene_image_path else None,
         extra_reference_images=[str(p) for p in (extra_reference_paths or [])],
         lock_to_reference=lock_to_reference,
@@ -273,7 +307,7 @@ def _build_freeform_request(
     color: str = "",
     mat: str = "",
     people: str = "",
-    model: str = "gemini-2.5-flash-image",
+    model: str = "gemini-3.1-flash-image",
     aspect: str = "4:3",
     res: str = "1K",
     seed: str = "",
