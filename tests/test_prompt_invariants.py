@@ -73,6 +73,18 @@ def test_user_notes_do_not_drop_texture_spec(server, base_image):
     assert note in prompt, "user note itself missing from the prompt"
 
 
+def test_boucle_prompt_disambiguates_real_loops_from_teddy_and_foam(
+    server, base_image
+):
+    req = _request(server, base_image, mat="boucle")
+    prompt = _build_prompt_text(req)
+
+    assert "irregular open and closed yarn loops" in prompt
+    assert "tiny darker cavities between the loops" in prompt
+    assert "teddy or sherpa fleece" in prompt
+    assert "uniform pebbled foam" in prompt
+
+
 def test_catalog_ids_match_schema_enum(server):
     """catalog.json and prompts/schemas/sofa.json must agree on material ids."""
     schema = json.loads(
@@ -85,3 +97,20 @@ def test_catalog_ids_match_schema_enum(server):
     assert set(MATERIAL_IDS) <= enum, (
         f"materials missing from schema enum: {set(MATERIAL_IDS) - enum}"
     )
+
+
+def test_catalog_light_source_is_explicitly_outside_the_frame(server, base_image):
+    req = server._build_generation_request(
+        api_key="test-key", kind="bed",
+        color="greige", color_custom="", mat="boucle", mat_notes="",
+        size="160", legs="keep", cam="studio",
+        lens="50mm_natural", tod="noon_neutral", shadow="soft_diffuse",
+        env="cyclorama_warm", env_note="", env_mode="",
+        model="gemini-3.1-flash-image", aspect="4:3", res="2K", seed="",
+        base_image_path=base_image, scene_image_path=None,
+        catalog=True, catalog_profile="ivory",
+    )
+    prompt = _build_prompt_text(req)
+    assert "OUTSIDE the image bounds" in prompt
+    assert "must remain completely off-camera" in prompt
+    assert "soft-box key light positioned at the TOP-LEFT" not in prompt

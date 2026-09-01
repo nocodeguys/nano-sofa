@@ -19,7 +19,8 @@
       "finish_pl": "matowy",
       "tex": "linen",
       "noun_en": "soft knit fabric",
-      "texture_en": "Soft, smooth knit with a subtle fine interlocking loop structure; medium weight, drapes softly and follows the furniture contours closely; matte finish, slightly stretchy appearance."
+      "texture_en": "Soft, smooth knit with a subtle fine interlocking loop structure; medium weight, drapes softly and follows the furniture contours closely; matte finish, slightly stretchy appearance.",
+      "avoid_en": []
     },
     {
       "id": "boucle",
@@ -28,7 +29,17 @@
       "finish_pl": "matowy",
       "tex": "boucle",
       "noun_en": "bouclé fabric",
-      "texture_en": "Highly textured looped and curled yarns forming a nubby, irregular surface; heavy and bulky, holds its shape with a structured, substantial drape; matte finish, high dimensional depth, cozy and tactile."
+      "texture_en": "Authentic heavy upholstery bouclé made from clearly visible looped yarns. The surface is built from irregular open and closed yarn loops in mixed small-to-medium sizes, with uneven clusters, occasional larger curls, and tiny darker cavities between the loops. The loop scale remains readable at normal furniture-photography distance instead of collapsing into uniform grain. Soft wool-and-cotton character, dense and substantial, tactile three-dimensional relief, diffuse matte highlights, and subtle warm tonal variation between individual yarns. The distribution is organic and non-repeating, never a perfectly even pebble texture.",
+      "avoid_en": [
+        "teddy or sherpa fleece",
+        "terry-towel pile",
+        "chenille",
+        "velvet",
+        "uniform pebbled foam",
+        "stucco or plaster texture",
+        "matted synthetic fur",
+        "flat printed grain"
+      ]
     },
     {
       "id": "basketweave",
@@ -38,7 +49,8 @@
       "tex": "weave",
       "noun_en": "finely woven textured upholstery fabric",
       "note": "NOT 'basketweave woven fabric' — the texture spec describes a fine, irregular, non-repeating weave, and the literal noun pulled the model toward a coarse regular basketweave that contradicted it (2026-08).",
-      "texture_en": "Medium-to-heavy upholstery fabric with a fine, irregular woven texture. Densely woven from slightly varied yarns, creating a subtle nubby, grainy surface with small broken horizontal and vertical threads. Soft tonal variation and a lightly mélange appearance give the fabric natural depth. Matte finish, substantial and durable, with a structured upholstery drape. The weave is small-scale, intricate and organic rather than a regular basketweave, with no large repeating pattern."
+      "texture_en": "Medium-to-heavy upholstery fabric with a fine, irregular woven texture. Densely woven from slightly varied yarns, creating a subtle nubby, grainy surface with small broken horizontal and vertical threads. Soft tonal variation and a lightly mélange appearance give the fabric natural depth. Matte finish, substantial and durable, with a structured upholstery drape. The weave is small-scale, intricate and organic rather than a regular basketweave, with no large repeating pattern.",
+      "avoid_en": []
     },
     {
       "id": "chenille",
@@ -48,7 +60,8 @@
       "tex": "chenille",
       "noun_en": "woven textured chenille fabric",
       "note": "'woven' carries weight here — the bare noun let the model drift to velvet, which the texture spec explicitly rules out (2026-08). Picker CSS shows no glossy sheen sweep for the same reason.",
-      "texture_en": "Textured chenille upholstery fabric with a dense, irregular woven surface made from soft fuzzy chenille yarns. Medium-scale tactile texture with short uneven yarn segments, tiny soft ridges and subtle nubby loops creating a broken, organic crosshatched pattern. Plush and soft to the touch, with the woven yarn structure clearly visible across the whole surface. Rich dimensional surface with gentle tonal variation and soft shadowing between the yarns. Mostly matte with only a very subtle soft luster. Heavy, substantial upholstery fabric with a cozy, tactile appearance. Light scatters evenly across the surface in every direction, holding the same tone whichever way the fabric is brushed. Every part of the panel reads as discrete woven yarn segments with visible gaps between them. Highlights stay broad, diffuse and matte. The weave remains visibly irregular and broken across the entire panel."
+      "texture_en": "Textured chenille upholstery fabric with a dense, irregular woven surface made from soft fuzzy chenille yarns. Medium-scale tactile texture with short uneven yarn segments, tiny soft ridges and subtle nubby loops creating a broken, organic crosshatched pattern. Plush and soft to the touch, with the woven yarn structure clearly visible across the whole surface. Rich dimensional surface with gentle tonal variation and soft shadowing between the yarns. Mostly matte with only a very subtle soft luster. Heavy, substantial upholstery fabric with a cozy, tactile appearance. Light scatters evenly across the surface in every direction, holding the same tone whichever way the fabric is brushed. Every part of the panel reads as discrete woven yarn segments with visible gaps between them. Highlights stay broad, diffuse and matte. The weave remains visibly irregular and broken across the entire panel.",
+      "avoid_en": []
     },
     {
       "id": "ecoleather",
@@ -57,7 +70,8 @@
       "finish_pl": "połysk",
       "tex": "leather",
       "noun_en": "eco-leather (faux leather)",
-      "texture_en": "Smooth, slightly grained surface mimicking natural leather with a subtle uniform pore pattern; medium weight, structured and relatively stiff drape holding clean lines; slightly glossy, wipe-clean, modern and sleek."
+      "texture_en": "Smooth, slightly grained surface mimicking natural leather with a subtle uniform pore pattern; medium weight, structured and relatively stiff drape holding clean lines; slightly glossy, wipe-clean, modern and sleek.",
+      "avoid_en": []
     },
     {
       "id": "velour",
@@ -66,7 +80,8 @@
       "finish_pl": "połysk",
       "tex": "velvet",
       "noun_en": "velour fabric",
-      "texture_en": "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows."
+      "texture_en": "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows.",
+      "avoid_en": []
     }
   ],
   "colors": [

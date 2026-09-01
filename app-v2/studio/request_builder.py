@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.generator import GenerationRequest
-from studio.catalog import _COLOR_PL_TO_EN, _MATERIAL_PL_TO_EN, _MATERIAL_TEXTURE_EN
+from studio.catalog import (
+    _COLOR_PL_TO_EN,
+    _MATERIAL_NEGATIVES_EN,
+    _MATERIAL_PL_TO_EN,
+    _MATERIAL_TEXTURE_EN,
+)
 from studio.mappings import (
     _BED_CONFIG,
     _CAM_PRESET_TO_STRUCTURED,
@@ -41,7 +46,7 @@ from studio.mappings import (
     _catalog_profile_locks,
     _resolve_id,
 )
-from studio.paths import _SCENE_REFS_DIR, logger
+from studio.paths import _MATERIAL_REFS_DIR, _SCENE_REFS_DIR, logger
 
 
 def _scene_reference_path(env_id: str) -> Optional[Path]:
@@ -50,6 +55,17 @@ def _scene_reference_path(env_id: str) -> Optional[Path]:
         return None
     for ext in (".jpg", ".jpeg", ".png"):
         candidate = _SCENE_REFS_DIR / f"{env_id}{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _material_reference_path(material_id: str) -> Optional[Path]:
+    """Return the canonical close-up swatch for a material, when curated."""
+    if not material_id:
+        return None
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        candidate = _MATERIAL_REFS_DIR / f"{material_id}{ext}"
         if candidate.is_file():
             return candidate
     return None
@@ -127,6 +143,7 @@ def _build_generation_request(
         else _COLOR_PL_TO_EN.get(color, "neutral")
     )
     upholstery_material = _MATERIAL_PL_TO_EN.get(mat, "fabric")
+    material_reference_path = _material_reference_path(mat)
     if mat and mat not in _MATERIAL_PL_TO_EN:
         # Stale browser cache or a hand-rolled request: we silently fell back to
         # a bare "fabric" with no texture spec, which renders an arbitrary
@@ -233,6 +250,11 @@ def _build_generation_request(
         base_product_image=str(base_image_path),
         catalog_framing_contract=_catalog_framing_contract(shot_id) if catalog else "",
         scene_reference_image=str(scene_image_path) if scene_image_path else None,
+        swatch_reference_image=(
+            str(material_reference_path) if material_reference_path else None
+        ),
+        use_swatch_for_fabric=material_reference_path is not None,
+        swatch_texture_only=material_reference_path is not None,
         extra_reference_images=[str(p) for p in (extra_reference_paths or [])],
         lock_to_reference=lock_to_reference,
         product_type="bed" if is_bed else "sofa",
@@ -263,6 +285,7 @@ def _build_generation_request(
         aspect_ratio=aspect,
         resolution=resolution,
         notes=" | ".join(notes_parts),
+        negative_list=list(_MATERIAL_NEGATIVES_EN.get(mat, [])),
         api_key=api_key.strip(),
     )
 

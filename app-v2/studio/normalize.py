@@ -6,13 +6,15 @@ on the same backdrop RGB or the same subject scale twice. For a catalog grid
 that reads as one photo session, "close" is not enough — the eye picks up a
 two-percent difference in background tone across adjacent tiles instantly.
 
-So after the render lands we normalize it deterministically.  Pale brand
-profiles use a safe whole-frame calibration: estimate the source cyclorama's
-smooth two-axis light field, subtract it, then add the canonical profile field.
-That changes only low-frequency colour/exposure and keeps every product edge,
-fabric detail and natural contact shadow intact.  The neutral marketplace
-profile can still use the stricter matte/rescale/composite path because a white
-or isolated product is not its primary use case.
+So after the render lands we normalize it deterministically. Pale brand
+profiles estimate the source cyclorama's smooth two-axis light field, then
+replace only smooth background pixels connected to the frame with the clean
+canonical studio plate. The product receives only a tightly limited colour
+nudge. This keeps every
+product edge, fabric detail and natural contact shadow intact without letting a
+dark source studio lift pale upholstery into clipped white. The neutral
+marketplace profile can still use the stricter matte/rescale/composite path
+because a white or isolated product is not its primary use case.
 
 Everything here is pure Pillow + numpy; no model call, no network.
 
@@ -591,7 +593,9 @@ def _rolloff_highlights(src: Image.Image, prof: PackshotProfile) -> Image.Image:
     return Image.fromarray(np.clip(arr + 0.5, 0, 255).astype(np.uint8), "RGB")
 
 
-def _recover_pale_textile_detail(src: Image.Image) -> Image.Image:
+def _recover_pale_textile_detail(
+    src: Image.Image, subject_weight: Optional[np.ndarray] = None
+) -> Image.Image:
     """Restore restrained local contrast in bright, textured textile areas.
 
     A global exposure change would ruin the now-stable ivory cyclorama. Instead
@@ -616,6 +620,15 @@ def _recover_pale_textile_detail(src: Image.Image) -> Image.Image:
     neutral = np.clip((24.0 - chroma) / 14.0, 0.0, 1.0)
     textured = np.clip((detail_energy - 0.25) / 2.2, 0.0, 1.0)
     mask = (pale * neutral * textured)[..., None]
+    if subject_weight is not None:
+        weight = np.asarray(subject_weight, dtype=np.float32)
+        if weight.ndim == 2:
+            weight = weight[..., None]
+        if weight.shape != mask.shape:
+            raise ValueError(
+                f"subject_weight has shape {weight.shape}, expected {mask.shape}"
+            )
+        mask *= np.clip(weight, 0.0, 1.0)
 
     # Strengthen existing folds/weave and pull only their broadest bright
     # peaks down a few values. The result remains white, but no longer reads
@@ -626,6 +639,71 @@ def _recover_pale_textile_detail(src: Image.Image) -> Image.Image:
     # regain enough separation to read at catalog-tile size.
     recovered = arr + np.minimum(high, 0.0) * (1.8 * mask) - peak * (0.35 * mask)
     return Image.fromarray(np.clip(recovered + 0.5, 0, 255).astype(np.uint8), "RGB")
+
+
+def _destroys_highlight_separation(src: Image.Image, candidate: Image.Image) -> bool:
+    """Reject a finish that turns a large part of the subject band near-white.
+
+    Calibrate-only profiles infer a low-frequency exposure correction from the
+    empty border and apply it to the complete photograph.  That is normally a
+    gentle white-balance nudge, but a darker model-rendered cyclorama can yield
+    a +20 RGB correction which also lifts cream upholstery and white bedding.
+    The geometry is unknown here, so use the catalog's guaranteed subject band
+    and compare it before/after.  A large new near-white population combined
+    with a material mean lift is the signature of the observed blown-textile
+    failure.  In that case the untouched Gemini render is safer.
+    """
+    src_rgb = src.convert("RGB")
+    before = np.asarray(src_rgb).astype(np.float32)
+    after = np.asarray(candidate.convert("RGB")).astype(np.float32)
+    h, w = before.shape[:2]
+
+    # Detect real textile/fold information in the source before cropping the
+    # subject band.  A smooth cyclorama may legitimately become paperwhite;
+    # it must not count as lost product detail.  Upholstery weave, seams and
+    # bedding folds carry local high-frequency energy and therefore do count.
+    detail_radius = max(4.0, min(w, h) * 0.010)
+    smooth = np.asarray(src_rgb.filter(ImageFilter.GaussianBlur(detail_radius))).astype(
+        np.float32
+    )
+    detail_energy = np.mean(np.abs(before - smooth), axis=2)
+
+    # Ignore the guaranteed empty top/bottom strips.  This band contains the
+    # product for every hero framing contract, while leaving a little margin
+    # for benign changes to the cyclorama itself.
+    y0, y1 = round(h * 0.30), max(round(h * 0.90), round(h * 0.30) + 1)
+    x0, x1 = round(w * 0.04), max(round(w * 0.96), round(w * 0.04) + 1)
+    before = before[y0:y1, x0:x1]
+    after = after[y0:y1, x0:x1]
+    detail_energy = detail_energy[y0:y1, x0:x1]
+
+    weights = np.array((0.2126, 0.7152, 0.0722), dtype=np.float32)
+    before_luma = before @ weights
+    after_luma = after @ weights
+    chroma = before.max(axis=2) - before.min(axis=2)
+    textile = (before_luma > 198.0) & (chroma < 32.0) & (detail_energy > 0.55)
+    textile_count = int(textile.sum())
+    if textile_count < max(64, round(textile.size * 0.002)):
+        return False
+
+    near_white_growth = float(
+        (after_luma[textile] > 248.0).mean() - (before_luma[textile] > 248.0).mean()
+    )
+    mean_lift = float((after_luma[textile] - before_luma[textile]).mean())
+
+    # Eight percentage points already represents a conspicuous loss on a pale
+    # sofa/bed; requiring a simultaneous mean lift avoids rejecting a normal
+    # highlight roll-off or a small change in the rebuilt floor field.
+    if near_white_growth > 0.08 and mean_lift > 8.0:
+        logger.warning(
+            "Packshot normalization rejected: near-white coverage in the subject "
+            "band would grow by %.1f percentage points (mean lift %+0.1f RGB). "
+            "Keeping the raw render to protect pale upholstery and bedding.",
+            near_white_growth * 100.0,
+            mean_lift,
+        )
+        return True
+    return False
 
 
 def _compose(
@@ -690,50 +768,126 @@ def _repaint_background(
     return Image.composite(target, protected, mask)
 
 
-def _calibrate_field(src: Image.Image, prof: PackshotProfile) -> Image.Image:
-    """Relight the complete photograph onto the profile without cutting it out.
+def _smooth_background_alpha(
+    src: Image.Image, arr: np.ndarray, source_field: np.ndarray
+) -> np.ndarray:
+    """Return a feathered confidence mask for the empty studio surface.
 
-    The source border gives us the model's smooth cyclorama light field.  The
-    difference between that field and the canonical field is a low-frequency
-    colour/exposure correction which can be applied to the whole photograph.
-    Product shading and the native contact shadow remain relative to the floor,
-    while the studio palette becomes repeatable and pale edges cannot be eaten
-    by a matte.
+    Colour alone cannot separate ivory upholstery from an ivory cyclorama.
+    Empty studio pixels have two additional properties we can use safely: they
+    follow the fitted border light field very closely and carry almost no local
+    structure. Finally, requiring connection to a frame edge prevents an
+    enclosed pale cushion or duvet panel from being treated as background.
+
+    This is deliberately a confidence mask, not a semantic product cut-out.
+    Uncertain pixels stay protected and receive only the limited correction in
+    `_calibrate_field`.
     """
-    arr = np.asarray(src.convert("RGB")).astype(np.float32)
+    h, w = arr.shape[:2]
+    residual = np.max(np.abs(arr - source_field), axis=2)
+
+    detail_radius = max(4.0, min(w, h) * 0.010)
+    smooth = np.asarray(
+        src.convert("RGB").filter(ImageFilter.GaussianBlur(detail_radius))
+    ).astype(np.float32)
+    detail_energy = np.mean(np.abs(arr - smooth), axis=2)
+
+    # A tight field residual is the primary safeguard for pale products. The
+    # detail gate rejects weave, seams and bedding folds even when their mean
+    # colour happens to match the cyclorama.
+    candidates = (residual <= 7.0) & (detail_energy <= 0.85)
+    small, _ = _downscale_mask(candidates)
+    reached_small = _border_connected(small)
+    reached = np.asarray(
+        Image.fromarray((reached_small * 255).astype(np.uint8)).resize(
+            (w, h), Image.BILINEAR
+        )
+    ).astype(np.float32) / 255.0
+
+    # Preserve the full-resolution confidence test after the topological pass.
+    # The result MUST then be reduced to a very low-frequency field. Using the
+    # detailed confidence mask directly can turn faint residual texture into a
+    # visible stencil: a larger correction is applied between individual yarn-
+    # like residuals but not on them, effectively embossing that pattern onto
+    # an otherwise clean wall.
+    confident = reached * candidates.astype(np.float32)
+    mask_img = Image.fromarray(
+        np.clip(confident * 255.0, 0, 255).astype(np.uint8)
+    )
+    coarse_extent = 96
+    scale = min(1.0, coarse_extent / max(w, h))
+    coarse_size = (max(1, round(w * scale)), max(1, round(h * scale)))
+    coarse = mask_img.resize(coarse_size, Image.BOX).filter(
+        ImageFilter.GaussianBlur(max(1.2, coarse_extent * 0.025))
+    )
+    alpha = np.asarray(
+        coarse.resize((w, h), Image.BICUBIC)
+    ).astype(np.float32) / 255.0
+    return np.clip(alpha, 0.0, 1.0)[..., None]
+
+
+def _calibrate_field(src: Image.Image, prof: PackshotProfile) -> Image.Image:
+    """Lock the studio field while protecting product exposure and texture.
+
+    The full fitted-field correction belongs only to confidently smooth,
+    frame-connected background. Everywhere else — product, contact shadow and
+    ambiguous integration pixels — luminance movement is tightly capped while
+    a small white-balance correction is retained. This removes the previous
+    failure mode where making a dark cyclorama canonical also added +15/+25 RGB
+    to already-white bedding.
+    """
+    rgb = src.convert("RGB")
+    arr = np.asarray(rgb).astype(np.float32)
     source_field = _background_surface(arr)
     target_field = np.asarray(_backdrop(src.size, prof)).astype(np.float32)
     correction = np.clip(target_field - source_field, -72.0, 72.0)
-    calibrated = Image.fromarray(
-        np.clip(arr + correction + 0.5, 0, 255).astype(np.uint8), "RGB"
+
+    background_alpha = _smooth_background_alpha(rgb, arr, source_field)
+
+    # Preserve product exposure. The low-frequency colour cast can still be
+    # nudged toward the studio profile, but an uncertain/pale subject may gain
+    # at most three luma values. Negative correction is allowed a little more
+    # room because recovering a clipped highlight never requires lifting it.
+    luma_correction = correction.mean(axis=2, keepdims=True)
+    chroma_correction = correction - luma_correction
+    protected_correction = (
+        np.clip(luma_correction, -10.0, 3.0)
+        + np.clip(chroma_correction, -5.0, 5.0)
     )
-    finished = _recover_pale_textile_detail(_rolloff_highlights(calibrated, prof))
+    protected = arr + protected_correction
 
-    # The upper and lower edges are guaranteed empty space in the catalog
-    # framing contract. Lock those bands to the canonical studio plate after
-    # calibration so a grid never shows a changing strip of floor at its
-    # bottom edge. The feather begins well below the product baseline/contact
-    # shadow and prevents a visible seam. This is intentionally not a product
-    # matte: no semantic edge or shadow pixels around the furniture are cut.
-    out = np.asarray(finished).astype(np.float32).copy()
-    target = np.asarray(_rolloff_highlights(_backdrop(src.size, prof), prof)).astype(np.float32)
-    h = out.shape[0]
+    # On confident studio pixels use the clean canonical plate itself, not
+    # `arr + correction`. The latter preserves every residual relative to the
+    # fitted source field — including cloudy halos, compression stains and
+    # weak-reference background artifacts. Direct plate replacement removes
+    # those defects deterministically. The alpha is intentionally very low-
+    # frequency, so its own edge can never imprint material texture; uncertain
+    # product/shadow pixels stay on the protected photographic path.
+    calibrated_arr = (
+        target_field * background_alpha
+        + protected * (1.0 - background_alpha)
+    )
+    calibrated = Image.fromarray(
+        np.clip(calibrated_arr + 0.5, 0, 255).astype(np.uint8), "RGB"
+    )
+    rolled = _rolloff_highlights(calibrated, prof)
 
-    top_full = max(1, round(h * 0.08))
-    top_feather_end = max(top_full + 1, round(h * 0.11))
-    out[:top_full] = target[:top_full]
-    for y in range(top_full, min(h, top_feather_end)):
-        alpha = 1.0 - (y - top_full) / max(1, top_feather_end - top_full)
-        out[y] = out[y] * (1.0 - alpha) + target[y] * alpha
+    # Textile recovery is a local product operation. Without this domain mask,
+    # faint compression noise or stains in a weak source reference can satisfy
+    # the same "pale + neutral + detailed" test as bouclé and get sharpened on
+    # the wall. Convert the smooth background confidence into a conservative
+    # subject weight: only pixels clearly outside the background field receive
+    # detail recovery.
+    subject_weight = np.clip(
+        (0.72 - background_alpha) / 0.42, 0.0, 1.0
+    )
 
-    bottom_feather_start = min(h - 1, round(h * 0.92))
-    bottom_full = min(h, max(bottom_feather_start + 1, round(h * 0.95)))
-    for y in range(bottom_feather_start, bottom_full):
-        alpha = (y - bottom_feather_start) / max(1, bottom_full - bottom_feather_start)
-        out[y] = out[y] * (1.0 - alpha) + target[y] * alpha
-    out[bottom_full:] = target[bottom_full:]
-
-    return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8), "RGB")
+    # Do not hard-replace nominally empty top/bottom strips after calibration.
+    # Even a short feather creates a visible horizontal exposure band when the
+    # model's native field differs from the canonical plate. The smooth,
+    # frame-connected calibration already gives those regions the strongest
+    # correction and keeps the original photographic field continuous.
+    return _recover_pale_textile_detail(rolled, subject_weight)
 
 
 # ---------------------------------------------------------------------------
@@ -775,6 +929,9 @@ def normalize_packshot(
                 if profile.repaint_only
                 else _compose(src, alpha, box, profile)
             )
+
+        if _destroys_highlight_separation(src, out):
+            return master, False
 
         # Preserve the nano_sofa_* identity chunks — history, EXIF derivation
         # and the variant chain all key off them.

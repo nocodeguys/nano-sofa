@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from studio.paths import _DIST_DIR
-from studio import routes_generate, routes_pages, routes_video
+from studio import routes_admin, routes_generate, routes_pages, routes_video
 
 app = FastAPI(title="Nano Sofa Studio v2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -19,6 +19,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(routes_pages.router)
 app.include_router(routes_generate.router)
 app.include_router(routes_video.router)
+app.include_router(routes_admin.router)
 
 # Static files for the prototype JS / CSS — mounted last so dynamic routes win.
 app.mount("/", StaticFiles(directory=str(_DIST_DIR), html=True), name="static")

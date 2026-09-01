@@ -1,7 +1,9 @@
 """catalog.json — the single source of truth for materials + colours.
 
-Loaded once here; the browser gets the same data as window.NS_CATALOG via
-GET /catalog.js (see routes_pages).
+The dictionaries in this module deliberately keep a stable object identity.
+The admin panel can therefore reload their contents after a validated save and
+every module that imported them sees the new values immediately — no server
+restart and no split brain between the prompt builder and ``/catalog.js``.
 """
 
 from __future__ import annotations
@@ -16,8 +18,14 @@ from studio.paths import _REPO_ROOT, _THIS, logger
 # Per-entry "note" fields in the JSON carry the hard-won prompt rules (EN noun
 # must agree with the texture spec — see ARCHITECTURE.md invariant #1).
 _CATALOG_PATH = _THIS / "catalog.json"
-with open(_CATALOG_PATH, encoding="utf-8") as _f:
-    CATALOG = json.load(_f)
+
+
+def _read_catalog() -> dict:
+    with open(_CATALOG_PATH, encoding="utf-8") as catalog_file:
+        return json.load(catalog_file)
+
+
+CATALOG = _read_catalog()
 
 # Colour id → English term the prompt uses (TreeTale fabric-matrix GROUPS;
 # each carries its representative hex so the model can anchor the exact shade).
@@ -30,6 +38,44 @@ _MATERIAL_PL_TO_EN = {m["id"]: m["noun_en"] for m in CATALOG["materials"]}
 # "Texture detail:" clause when the user hasn't typed their own material notes
 # — see _build_generation_request.
 _MATERIAL_TEXTURE_EN = {m["id"]: m["texture_en"] for m in CATALOG["materials"]}
+
+# Material-specific failure modes that should be excluded explicitly.  Text
+# alone is less reliable than the canonical swatch, but these negatives stop
+# visually adjacent fabrics from winning when the product is shown at hero
+# distance and the individual yarn loops become small.
+_MATERIAL_NEGATIVES_EN = {
+    m["id"]: list(m.get("avoid_en", [])) for m in CATALOG["materials"]
+}
+
+
+def reload_catalog(catalog: dict | None = None) -> dict:
+    """Atomically refresh all in-memory catalogue views in place.
+
+    ``request_builder`` and ``routes_pages`` import these dicts directly.  A
+    reassignment here would leave those imports stale, so every mapping is
+    mutated in place.  The caller validates the payload before invoking this
+    function; reading from disk remains useful for startup and recovery.
+    """
+    fresh = catalog if catalog is not None else _read_catalog()
+
+    colors = {c["id"]: c["prompt_en"] for c in fresh["colors"]}
+    material_nouns = {m["id"]: m["noun_en"] for m in fresh["materials"]}
+    material_textures = {m["id"]: m["texture_en"] for m in fresh["materials"]}
+    material_negatives = {
+        m["id"]: list(m.get("avoid_en", [])) for m in fresh["materials"]
+    }
+
+    CATALOG.clear()
+    CATALOG.update(fresh)
+    _COLOR_PL_TO_EN.clear()
+    _COLOR_PL_TO_EN.update(colors)
+    _MATERIAL_PL_TO_EN.clear()
+    _MATERIAL_PL_TO_EN.update(material_nouns)
+    _MATERIAL_TEXTURE_EN.clear()
+    _MATERIAL_TEXTURE_EN.update(material_textures)
+    _MATERIAL_NEGATIVES_EN.clear()
+    _MATERIAL_NEGATIVES_EN.update(material_negatives)
+    return CATALOG
 
 
 def _validate_catalog() -> None:

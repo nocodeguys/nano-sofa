@@ -145,6 +145,12 @@ class GenerationRequest:
     # batch pass to lock fabric appearance across N angle renders.
     use_swatch_for_fabric: bool = False
 
+    # Canonical material-library swatches describe microscopic construction
+    # only. Their photographed colour must not override the colour selected in
+    # the configurator. User/anchor swatches can keep the historical
+    # colour+texture behaviour by leaving this False.
+    swatch_texture_only: bool = False
+
     # When True, the CAMERA block emits "preserve angle/framing/pose from
     # the base image" instead of the wizard-configured camera_angle. Used
     # by the photoshoot session where every render's correct angle is
@@ -531,7 +537,17 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
                 f"backdrop characteristics from this "
                 f"reference — do not copy the product, the camera angle, the framing, "
                 f"or any geometry from it. The {product_noun}'s pose and angle come "
-                f"from the base image (slot 1)."
+                f"from the base image (slot 1). The cyclorama is a separate physical "
+                f"surface from the product: it must remain perfectly smooth and must "
+                f"not inherit, project, magnify, echo, or cast a silhouette of any "
+                f"fabric texture supplied in another reference slot.\n\nSOURCE "
+                f"BACKGROUND DISCARD — HARD REQUIREMENT: Treat every pixel outside "
+                f"the product silhouette in slot 1 as transparent and unusable. "
+                f"Completely discard slot 1's background, floor, cast shadow, halo, "
+                f"lighting gradient, compression noise, stains and edge glow. Never "
+                f"average, blend or reconcile slot 1's background with slot 2. Every "
+                f"output pixel outside the product and its small new contact shadow "
+                f"must come only from the clean empty studio plate in slot 2."
             )
         return (
             f"\nSCENE (packshot): {scene_desc}."
@@ -760,21 +776,47 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # only and not geometry.
     # ------------------------------------------------------------------ #
     if req.use_swatch_for_fabric and req.swatch_reference_image is not None:
-        lines.append(
-            f"\nFABRIC / COLOR REFERENCE (slot 2): Slot 2 is a wider product "
-            f"render that shows the target upholstery color, fabric weave, and "
-            f"surface texture. Copy ONLY those two properties — color and "
-            f"fabric appearance — and apply them to the upholstery surfaces of "
-            f"the {product_noun} in slot 1. "
-            f"\n\nSlot 1 is the FRAMING AUTHORITY. Slot 2 is the FABRIC AUTHORITY. "
-            f"Do NOT inherit anything from slot 2 except color and fabric: "
-            f"specifically, do NOT inherit the camera angle, the framing, the "
-            f"crop, the distance, the perspective, the {product_noun}'s pose, "
-            f"the lighting setup, or the shadow direction from slot 2. If slot 2 "
-            f"is a wide hero shot and slot 1 is a tight macro detail crop, the "
-            f"output is a tight macro detail crop with slot 2's fabric color "
-            f"painted onto slot 1's upholstery."
+        swatch_slot = 2 + int(req.leg_reference_image is not None) + int(
+            req.scene_reference_image is not None
         )
+        if req.swatch_texture_only:
+            lines.append(
+                f"\nMATERIAL TEXTURE AUTHORITY (slot {swatch_slot}): Slot "
+                f"{swatch_slot} is a close-up photograph of the real target "
+                f"fabric. Copy ONLY its microscopic yarn construction: loop "
+                f"shape, loop-size variation, density, depth, cavities between "
+                f"yarns, and matte tactile relief. Apply that authentic surface "
+                f"to every upholstered part of the {product_noun} in slot 1. "
+                f"The individual irregular loops must remain visibly readable "
+                f"at normal product-photography distance. "
+                f"\n\nCRITICAL ROLE SEPARATION: Slot 1 is the PRODUCT GEOMETRY "
+                f"authority. Slot {swatch_slot} is the MATERIAL MICROSTRUCTURE "
+                f"authority only. IGNORE the photographed colour, folds, scale, "
+                f"lighting, shadows, crop, and perspective of slot {swatch_slot}. "
+                f"The upholstery colour must remain exactly the selected colour: "
+                f"{req.upholstery_color}. Do not copy the fold visible in the "
+                f"swatch onto the furniture.\n\nMATERIAL DOMAIN MASK — HARD "
+                f"REQUIREMENT: apply slot {swatch_slot}'s microstructure ONLY inside "
+                f"the upholstered product surfaces from slot 1. Never apply it to "
+                f"bedding, mattress, pillows, floor, wall, cyclorama, background, "
+                f"shadow, or empty pixels. The cyclorama must be uniformly smooth "
+                f"matte paint: absolutely no enlarged loops, weave, fabric relief, "
+                f"textile pattern, projected texture, or fabric-shaped shadow outside "
+                f"the product. Keep the three reference roles independent; do not "
+                f"blend visual properties across their domains."
+            )
+        else:
+            lines.append(
+                f"\nFABRIC / COLOR REFERENCE (slot {swatch_slot}): Slot "
+                f"{swatch_slot} is the authoritative reference for the target "
+                f"upholstery color, fabric weave, and surface texture. Copy ONLY "
+                f"those properties and apply them to the upholstery surfaces of "
+                f"the {product_noun} in slot 1. "
+                f"\n\nSlot 1 is the FRAMING AUTHORITY. Slot {swatch_slot} is "
+                f"the FABRIC AUTHORITY. Do NOT inherit camera angle, framing, "
+                f"crop, distance, perspective, product pose, lighting setup, or "
+                f"shadow direction from slot {swatch_slot}."
+            )
 
     # ------------------------------------------------------------------ #
     # View-consistency instruction — when the caller wants the model to

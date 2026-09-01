@@ -26,7 +26,8 @@ logger = logging.getLogger("nano-sofa-v2")
 # Built frontend (Vite). Local dev: run `npm run build` in app-v2/frontend
 # (run.sh does it automatically when dist/ is missing), or use `npm run dev`
 # for the hot-reloading dev server, which proxies /api here.
-_DIST_DIR = _THIS / "frontend" / "dist"
+_FRONTEND_DIR = _THIS / "frontend"
+_DIST_DIR = _FRONTEND_DIR / "dist"
 if not _DIST_DIR.is_dir():
     raise RuntimeError(
         "app-v2/frontend/dist not found — build the frontend first: "
@@ -46,6 +47,19 @@ _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # best-effort — if no reference is found for an env_id, the prompt falls back
 # to the text-only profile.
 _SCENE_REFS_DIR = _THIS / "scene-references"
+
+# Canonical close-up fabric swatches.  A file named after the material id
+# (for example material-references/boucle.png) is attached as a dedicated
+# texture authority; it must never become the source of product geometry,
+# lighting, or the selected upholstery colour.
+_MATERIAL_REFS_DIR = _THIS / "material-references"
+
+# Recoverable snapshots made by the local catalogue admin before every save.
+# They contain the previous catalog.json and only the reference files touched
+# by that save.  Keeping a small rolling set makes operator mistakes reversible
+# without putting runtime artefacts in git.
+_CATALOG_BACKUPS_DIR = _OUTPUT_DIR / "catalog-backups"
+_CATALOG_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Override the generator's hardcoded outputs dir so it writes to the volume too.
 # generator.py reads its dir at import time, so this must run before any call.

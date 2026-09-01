@@ -15,6 +15,20 @@ The script installs FastAPI/uvicorn into the project venv, builds the frontend
 once if `frontend/dist` is missing, and starts the server on port 7861
 (override with `PORT=...`).
 
+### Catalogue admin
+
+Open [http://localhost:7861/admin](http://localhost:7861/admin) or choose
+**Katalog** in the top menu. The panel edits the Polish labels and English
+prompt descriptions for fabrics, manages canonical texture-reference images,
+and edits or adds colours (name, HEX, covered swatches and model description).
+
+**Zapisz i przebuduj** validates the data and images, runs a Vite build in a
+staging directory, snapshots the previous version, promotes the new files and
+reloads the stable in-memory catalogue mappings used by the running backend.
+If any step fails, the previous working version is restored. The latest 10
+snapshots live under `outputs/catalog-backups/`. The admin page and API are
+restricted to localhost.
+
 ## Frontend dev loop
 
 ```bash
@@ -30,6 +44,7 @@ server (it serves `frontend/dist`).
 - `/` → `frontend/index.html` — main configurator (`src/app-v2.jsx`)
 - `/video` → `frontend/video.html` — video studio (`src/video.jsx`)
 - `/editorial` → `frontend/editorial.html` — freeform editorial shots, no base photo (`src/editorial.jsx`)
+- `/admin` → `frontend/admin.html` — local catalogue administration (`src/admin.jsx`)
 - `/help` → `frontend/help.html` — user guide (`src/help.js`)
 - `/docs` → FastAPI Swagger UI
 
@@ -79,19 +94,25 @@ on `/api/generate` and `/api/generate-set`):
    differently for a low platform bed than for a tall continental one, which
    is what makes a grid look like eight separate shoots.
 3. **Safe photographic calibration** (`studio/normalize.py`) — the brand-facing
-   pale profiles calibrate the complete photograph against a fixed low-frequency
-   studio field. This preserves pale bouclé edges and the natural product shadow;
-   no semantic cut-out or synthetic ellipse is used. The neutral marketplace
-   profile retains the stricter matte/rescale path where contrast is sufficient.
-   The guaranteed-empty upper and lower frame bands are then locked to the
-   canonical plate, eliminating the changing strip of floor visible across a row.
+   pale profiles estimate a fixed low-frequency studio field, then replace only
+   smooth backdrop pixels connected to the frame with the clean canonical plate.
+   This removes halos, stains and compression artifacts inherited from weak source
+   references. Product and uncertain integration pixels receive a tightly limited
+   colour nudge, preserving
+   pale bouclé, white bedding and the natural contact shadow without a semantic
+   cut-out or synthetic ellipse. The neutral marketplace profile retains the
+   stricter matte/rescale path where contrast is sufficient. Frame edges are
+   corrected as part of the same continuous low-frequency field — they are not
+   replaced with hard strips, which avoids visible horizontal exposure bands.
 
    Every brand profile also has a curated empty-studio image in
    `scene-references/`. It is attached automatically before generation, while
    section-07 uploads and moodboard scene locks are ignored in catalog mode.
    The prompt therefore starts from the same studio plate and the finishing
    pass removes the remaining low-frequency colour drift without damaging the
-   product.
+   product. Canonical material close-ups are assigned a separate texture-only
+   role and explicitly forbidden from affecting bedding, shadows or the studio
+   plate, preventing enlarged bouclé loops from leaking onto the backdrop.
 
 Optionally pass `anchor_ref` (a generation id or an output basename) to make an
 approved earlier render the authority for camera, lighting and backdrop, so

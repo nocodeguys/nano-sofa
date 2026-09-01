@@ -15,18 +15,19 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_V2 = REPO_ROOT / "app-v2"
 if str(APP_V2) not in sys.path:
     sys.path.insert(0, str(APP_V2))
 
-from app.core.generator import _build_prompt_text  # noqa: E402
+from app.core.generator import _build_prompt_text, _collect_reference_images  # noqa: E402
 from studio.normalize import (  # noqa: E402
     CATALOG_PROFILE,
     PROFILES,
     _backdrop,
+    _destroys_highlight_separation,
     _recover_pale_textile_detail,
     is_raw_copy,
     normalize_packshot,
@@ -109,6 +110,50 @@ def test_catalog_uses_its_canonical_empty_studio_reference(
     assert Path(req.scene_reference_image).name == filename
     assert "yellow sunset" not in req.notes
     assert not req.preserve_camera_from_base
+
+
+def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
+    server, base_image
+):
+    """Product, studio, and real fabric have separate visual authorities."""
+    req = _request(server, base_image, catalog=True, mat="boucle")
+
+    assert Path(req.swatch_reference_image).name == "boucle.png"
+    assert req.use_swatch_for_fabric
+    assert req.swatch_texture_only
+    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+
+    text = _build_prompt_text(req)
+    assert "MATERIAL TEXTURE AUTHORITY (slot 3)" in text
+    assert "IGNORE the photographed colour" in text
+    assert req.upholstery_color in text
+    assert "Do not copy the fold" in text
+    assert "MATERIAL DOMAIN MASK" in text
+    assert "Never apply it to bedding" in text
+    assert "no enlarged loops" in text
+    assert "do not blend visual properties across their domains" in text
+
+
+def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
+    server, base_image
+):
+    req = _request(server, base_image, catalog=True, mat="boucle")
+    text = _build_prompt_text(req)
+
+    assert "separate physical surface from the product" in text
+    assert "must not inherit, project, magnify, echo" in text
+    assert "no bouclé loops" in text
+    assert "SOURCE BACKGROUND DISCARD" in text
+    assert "Treat every pixel outside the product silhouette" in text
+    assert "Never average, blend or reconcile slot 1's background" in text
+
+
+def test_material_without_canonical_swatch_keeps_the_old_reference_count(
+    server, base_image
+):
+    req = _request(server, base_image, catalog=True, mat="basketweave")
+    assert req.swatch_reference_image is None
+    assert len(_collect_reference_images(req, Image.open(base_image))) == 2
 
 
 def test_catalog_mode_keeps_yaw(server, base_image):
@@ -246,9 +291,8 @@ def test_backdrop_is_lit_not_flat_filled(tmp_path):
     assert np.abs(np.diff(col, axis=0)).max() <= 1, "visible banding in the backdrop"
 
 
-def test_pale_profiles_lock_the_bottom_catalog_band(tmp_path):
-    """The last five percent is guaranteed empty floor and must be identical
-    across products, even when Gemini supplies two different source washes."""
+def test_pale_profiles_keep_the_bottom_catalog_band_consistent(tmp_path):
+    """The empty floor should converge without a hard pasted-on strip."""
     a = _packshot(tmp_path / "warm.png", bg=(246, 239, 224), box=(105, 150, 390, 330))
     b = _packshot(tmp_path / "cool.png", bg=(229, 235, 241), box=(190, 125, 510, 320))
     normalize_packshot(a, "ivory")
@@ -257,7 +301,12 @@ def test_pale_profiles_lock_the_bottom_catalog_band(tmp_path):
     arr_a = np.asarray(Image.open(a).convert("RGB"))
     arr_b = np.asarray(Image.open(b).convert("RGB"))
     y = round(arr_a.shape[0] * 0.95)
-    assert np.array_equal(arr_a[y:], arr_b[y:])
+    assert np.abs(arr_a[y:].astype(int) - arr_b[y:].astype(int)).mean() <= 2.0
+
+    # No abrupt seam near either of the old 8/95-percent hard-lock boundaries.
+    for arr in (arr_a, arr_b):
+        col = arr[:, 8].astype(int)
+        assert np.abs(np.diff(col, axis=0)).max() <= 2
 
 
 def test_white_textile_detail_recovery_leaves_smooth_backdrop_untouched():
@@ -273,6 +322,97 @@ def test_white_textile_detail_recovery_leaves_smooth_backdrop_untouched():
     assert np.array_equal(out[:55], before[:55]), "smooth canonical backdrop changed"
     assert out[82:128, 65:175].std() > before[82:128, 65:175].std()
     assert out[82:128, 65:175].max() <= before[82:128, 65:175].max()
+
+
+def test_textile_recovery_respects_subject_domain_mask():
+    """Noise in a weak reference must never be enhanced on the studio wall."""
+    yy, xx = np.mgrid[0:180, 0:240]
+    faint_wall = 244 + np.rint(1.8 * np.sin(xx / 5.0) * np.sin(yy / 7.0))
+    arr = np.repeat(faint_wall[..., None], 3, axis=2).astype(np.uint8)
+    src = Image.fromarray(arr, "RGB")
+
+    out = np.asarray(
+        _recover_pale_textile_detail(src, np.zeros((180, 240, 1), dtype=np.float32))
+    )
+
+    assert np.array_equal(out, arr)
+
+
+def test_highlight_guard_detects_a_blown_pale_subject_band():
+    """A global lift must not turn textured ivory upholstery into white mass."""
+    h, w = 450, 600
+    before = np.full((h, w, 3), (232, 229, 224), dtype=np.uint8)
+    yy, xx = np.mgrid[0:210, 0:420]
+    textile = 239 + np.rint(4.0 * np.sin(xx / 7.0) + 2.0 * np.sin(yy / 5.0))
+    before[145:355, 90:510] = np.clip(textile[..., None], 0, 255).astype(np.uint8)
+    after = np.clip(before.astype(np.int16) + 16, 0, 255).astype(np.uint8)
+
+    assert _destroys_highlight_separation(
+        Image.fromarray(before, "RGB"), Image.fromarray(after, "RGB")
+    )
+
+
+def test_highlight_guard_accepts_a_small_colour_calibration():
+    before = Image.new("RGB", (600, 450), (240, 237, 231))
+    after = Image.new("RGB", (600, 450), (244, 242, 238))
+    assert not _destroys_highlight_separation(before, after)
+
+
+def test_ivory_normalization_locks_background_without_blowing_pale_product(tmp_path):
+    p = tmp_path / "pale-bed.png"
+    arr = np.full((450, 600, 3), (228, 226, 222), dtype=np.uint8)
+    yy, xx = np.mgrid[0:210, 0:420]
+    textile = 239 + np.rint(4.0 * np.sin(xx / 7.0) + 2.0 * np.sin(yy / 5.0))
+    arr[145:355, 90:510] = np.clip(textile[..., None], 0, 255).astype(np.uint8)
+    Image.fromarray(arr, "RGB").save(p)
+    before = arr.astype(np.float32)
+
+    _, applied = normalize_packshot(p, "ivory")
+
+    assert applied
+    after = np.asarray(Image.open(p).convert("RGB")).astype(np.float32)
+    before_textile = before[145:355, 90:510].mean(axis=2)
+    after_textile = after[145:355, 90:510].mean(axis=2)
+    assert float((after_textile - before_textile).mean()) <= 3.5
+    assert float((after_textile > 248.0).mean()) <= float(
+        (before_textile > 248.0).mean()
+    ) + 0.02
+    assert np.allclose(after[0, 6], PROFILES["ivory"].top_rgb, atol=2)
+    assert p.with_suffix(".raw.png").exists()
+
+
+def test_selective_calibration_suppresses_faint_backdrop_texture(tmp_path):
+    """A detailed correction mask must never become visible on a smooth wall.
+
+    Regression for the real bouclé run where an almost imperceptible residual
+    in Gemini's raw backdrop became a huge fabric-like stencil after the
+    background correction was blended through a pixel-detailed alpha mask.
+    """
+    p = tmp_path / "faint-backdrop-pattern.png"
+    h, w = 450, 600
+    yy, xx = np.mgrid[0:h, 0:w]
+    faint = 228.0 + 2.4 * np.sin(xx / 17.0) * np.sin(yy / 23.0)
+    arr = np.repeat(faint[..., None], 3, axis=2)
+    arr[185:350, 135:465] = (104, 92, 80)
+    Image.fromarray(np.clip(arr + 0.5, 0, 255).astype(np.uint8), "RGB").save(p)
+
+    _, applied = normalize_packshot(p, "ivory")
+
+    assert applied
+    after = np.asarray(Image.open(p).convert("RGB")).astype(np.float32)
+    # Empty wall above the product may keep a trace of the model's native wash,
+    # but the correction must not amplify it into visible relief.
+    before_wall = arr[80:165, 45:555, 0]
+    after_wall = after[80:165, 45:555, 0]
+    before_smooth = np.asarray(
+        Image.fromarray(before_wall.astype(np.uint8)).filter(ImageFilter.GaussianBlur(8))
+    ).astype(np.float32)
+    after_smooth = np.asarray(
+        Image.fromarray(after_wall.astype(np.uint8)).filter(ImageFilter.GaussianBlur(8))
+    ).astype(np.float32)
+    before_residual = np.abs(before_wall - before_smooth).mean()
+    after_residual = np.abs(after_wall - after_smooth).mean()
+    assert float(after_residual) <= float(before_residual) * 0.70
 
 
 def test_normalization_gives_different_products_the_same_geometry(tmp_path):

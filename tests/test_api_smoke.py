@@ -25,11 +25,21 @@ def test_index_serves_built_frontend(client):
     assert "/assets/" in r.text, "index.html does not reference hashed assets"
 
 
-@pytest.mark.parametrize("route", ["/video", "/help"])
+@pytest.mark.parametrize("route", ["/video", "/help", "/admin"])
 def test_secondary_pages(client, route):
     r = client.get(route)
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
+
+
+def test_admin_catalog_is_local_and_reports_references(client):
+    r = client.get("/api/admin/catalog")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["catalog"]["materials"]
+    assert body["catalog"]["colors"]
+    assert set(body["references"]) == {m["id"] for m in body["catalog"]["materials"]}
+    assert body["build"]["state"]
 
 
 def test_catalog_js(client):
