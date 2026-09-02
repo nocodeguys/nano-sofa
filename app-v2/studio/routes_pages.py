@@ -45,6 +45,11 @@ def editorial_page():
     return FileResponse(_DIST_DIR / "editorial.html")
 
 
+@router.get("/experiments")
+def experiments_page():
+    return FileResponse(_DIST_DIR / "experiments.html")
+
+
 @router.get("/catalog.js")
 def catalog_js():
     # Synchronous script-tag bridge: data.jsx builds its COLORS/MATERIALS from
@@ -251,3 +256,123 @@ def api_history(limit: int = 60):
             "ts": int(ts_raw) if ts_raw.isdigit() else rec.get("timestamp"),
         })
     return {"items": items}
+
+
+@router.get("/api/experiments")
+def api_experiments(limit: int = 120):
+    """Generation runs prepared for visual A/B comparison.
+
+    New renders are backed by full key-free manifests. Older DB rows are kept
+    visible as legacy runs, but are explicitly marked as incomplete so the UI
+    never implies that their prompts or references were verified as identical.
+    """
+    limit = max(2, min(int(limit or 120), 300))
+    trace_dir = _OUTPUT_DIR / "traces"
+    trace_paths = sorted(
+        (p for p in trace_dir.glob("*.json") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ) if trace_dir.is_dir() else []
+
+    try:
+        legacy_rows = recent_generations(limit * 2)
+    except Exception:
+        legacy_rows = []
+    db_by_id = {
+        str(rec.get("generation_id")): rec
+        for rec in legacy_rows if rec.get("generation_id")
+    }
+
+    items: list[dict] = []
+    seen_ids: set[str] = set()
+    for path in trace_paths[:limit]:
+        try:
+            trace = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        generation_id = str(trace.get("generation_id") or "")
+        if not generation_id:
+            continue
+        seen_ids.add(generation_id)
+        rec = db_by_id.get(generation_id, {})
+        result = trace.get("result") or {}
+        variant = trace.get("variant") or {}
+        output_name = Path(str(result.get("output_path") or "")).name
+        output_file = _OUTPUT_DIR / output_name if output_name else None
+        references = [
+            {
+                "slot": ref.get("slot"),
+                "role": ref.get("role"),
+                "filename": Path(str(ref.get("source") or "")).name,
+                "sha256": ref.get("sha256_rgb"),
+                "width": ref.get("width"),
+                "height": ref.get("height"),
+            }
+            for ref in (trace.get("references") or [])
+        ]
+        items.append({
+            "generation_id": generation_id,
+            "tracked": True,
+            "created_at": trace.get("created_at") or path.stat().st_mtime,
+            "status": trace.get("status"),
+            "model": trace.get("model_id"),
+            "resolution": trace.get("resolution"),
+            "aspect_ratio": trace.get("aspect_ratio"),
+            "prompt": trace.get("prompt") or "",
+            "prompt_sha256": trace.get("prompt_sha256"),
+            "setup_fingerprint": trace.get("setup_fingerprint"),
+            "exact_fingerprint": trace.get("exact_fingerprint"),
+            "references": references,
+            "elapsed_ms": result.get("elapsed_ms"),
+            "actual_cost": result.get("actual_cost"),
+            "attempts": result.get("attempts"),
+            "material": variant.get("material") or rec.get("upholstery_material"),
+            "color": variant.get("color") or rec.get("upholstery_color"),
+            "prompt_summary": rec.get("prompt_summary"),
+            "image_url": (
+                f"/api/outputs/{output_name}"
+                if output_file and output_file.is_file() else None
+            ),
+        })
+
+    # Backfill the screen with older renders. These remain useful visually,
+    # while `tracked=False` prevents them from being treated as controlled A/B.
+    if len(items) < limit:
+        for rec in legacy_rows:
+            generation_id = str(rec.get("generation_id") or "")
+            if not generation_id or generation_id in seen_ids:
+                continue
+            output_name = Path(str(rec.get("output_path") or "")).name
+            output_file = _OUTPUT_DIR / output_name if output_name else None
+            if not output_file or not output_file.is_file():
+                continue
+            items.append({
+                "generation_id": generation_id,
+                "tracked": False,
+                "created_at": rec.get("timestamp"),
+                "status": rec.get("status"),
+                "model": rec.get("model_id"),
+                "resolution": rec.get("resolution"),
+                "aspect_ratio": None,
+                "prompt": "",
+                "prompt_sha256": None,
+                "setup_fingerprint": None,
+                "exact_fingerprint": None,
+                "references": [],
+                "elapsed_ms": rec.get("elapsed_ms"),
+                "actual_cost": rec.get("actual_cost"),
+                "attempts": None,
+                "material": rec.get("upholstery_material"),
+                "color": rec.get("upholstery_color"),
+                "prompt_summary": rec.get("prompt_summary"),
+                "image_url": f"/api/outputs/{output_name}",
+            })
+            if len(items) >= limit:
+                break
+
+    items.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
+    return {
+        "items": items[:limit],
+        "tracked_count": sum(1 for item in items[:limit] if item["tracked"]),
+        "legacy_count": sum(1 for item in items[:limit] if not item["tracked"]),
+    }

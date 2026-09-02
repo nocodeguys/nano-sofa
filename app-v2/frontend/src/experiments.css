@@ -1,0 +1,38 @@
+:root { --ab-ink:#25231f; --ab-muted:#77736b; --ab-line:#dedbd4; --ab-paper:#f7f5f0; --ab-green:#315f49; --ab-orange:#b76732; }
+body { margin:0; background:#eeece6; color:var(--ab-ink); }
+.experiments-app { min-height:100vh; }
+.experiments-main { width:min(1440px, calc(100% - 48px)); margin:0 auto; padding:42px 0 90px; }
+.eyebrow { display:block; color:#8b857b; font:500 10px/1.2 "Geist Mono",monospace; letter-spacing:.16em; text-transform:uppercase; margin-bottom:8px; }
+.experiments-intro { display:grid; grid-template-columns:minmax(0,1fr) 310px; gap:44px; align-items:end; padding:34px 0 42px; border-bottom:1px solid var(--ab-line); }
+.experiments-intro h1 { margin:0; font-size:clamp(40px,5vw,72px); line-height:.95; letter-spacing:-.055em; font-weight:500; }
+.experiments-intro p { max-width:720px; margin:20px 0 0; color:var(--ab-muted); font-size:17px; line-height:1.55; }
+.experiment-rule { background:var(--ab-ink); color:white; border-radius:16px; padding:22px; display:grid; gap:9px; }
+.experiment-rule b { font-size:15px; margin-bottom:3px; }
+.experiment-rule span { color:#c9c5bc; font-size:12px; padding-top:9px; border-top:1px solid #45423d; }
+.comparison-placeholder { margin:28px 0 54px; min-height:104px; border:1px dashed #bbb6ab; border-radius:18px; display:flex; align-items:center; justify-content:center; gap:18px; color:var(--ab-muted); }
+.comparison-placeholder > span { display:grid; place-items:center; width:48px; height:48px; border-radius:50%; background:#dfdcd4; font:500 12px "Geist Mono",monospace; }
+.comparison-placeholder div { display:grid; gap:4px; }.comparison-placeholder b { color:var(--ab-ink); }.comparison-placeholder small { font-size:12px; }
+.comparison-panel { margin:28px 0 58px; padding:26px; background:#e5e1d8; border-radius:22px; }
+.comparison-title,.runs-toolbar { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:20px; }
+.comparison-title h2,.runs-toolbar h2 { margin:0; font-size:25px; letter-spacing:-.03em; font-weight:500; }
+.comparison-title button,.run-controls button { border:1px solid #c7c2b8; background:transparent; border-radius:9px; padding:9px 12px; cursor:pointer; color:var(--ab-muted); }
+.comparison-images { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.ab-result { background:var(--ab-paper); border-radius:15px; overflow:hidden; }
+.ab-result-head { display:flex; align-items:center; gap:12px; padding:14px; }
+.ab-letter { display:grid; place-items:center; width:34px; height:34px; border-radius:9px; background:var(--ab-ink); color:white; font:600 14px "Geist Mono",monospace; }
+.ab-result-head div { display:grid; gap:2px; }.ab-result-head small { color:var(--ab-muted); font-size:11px; }
+.trace-chip { margin-left:auto; color:#8a684f; background:#ede0d2; border-radius:99px; padding:5px 8px; font-size:10px; }.trace-chip.good { color:var(--ab-green); background:#deebe2; }
+.ab-hero-image { aspect-ratio:4/3; display:grid; place-items:center; overflow:hidden; background:#dedbd4; }.ab-hero-image img { width:100%; height:100%; object-fit:contain; }
+.ab-run-meta { display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--ab-line); }.ab-run-meta span { display:grid; gap:3px; padding:13px 15px; border-right:1px solid var(--ab-line); }.ab-run-meta span:last-child{border:0}.ab-run-meta b{font:500 12px "Geist Mono",monospace}.ab-run-meta small{color:var(--ab-muted);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.ab-result details { border-top:1px solid var(--ab-line); padding:12px 15px; }.ab-result summary{cursor:pointer;font-size:11px;color:var(--ab-muted)}.ab-result pre{white-space:pre-wrap;max-height:260px;overflow:auto;font:10px/1.55 "Geist Mono",monospace;color:#5b574f}
+.comparison-audit { margin-top:12px; display:grid; grid-template-columns:1.35fr repeat(4,1fr); gap:8px; }
+.control-verdict,.compare-fact { background:var(--ab-paper); min-height:74px; border-radius:11px; padding:13px; display:grid; align-content:center; gap:4px; }.control-verdict b{font-size:12px}.control-verdict span{font-size:10px;color:var(--ab-muted);line-height:1.4}.control-verdict.ready{box-shadow:inset 3px 0 var(--ab-green)}.control-verdict.legacy{box-shadow:inset 3px 0 var(--ab-orange)}
+.compare-fact span{font-size:10px;color:var(--ab-muted);text-transform:uppercase;letter-spacing:.08em}.compare-fact b{font-size:12px}.compare-fact b.same{color:var(--ab-green)}.compare-fact b.different{color:var(--ab-orange)}.compare-fact small{font:9px "Geist Mono",monospace;color:#99948a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.runs-section { padding-top:4px; }.run-controls { display:flex; gap:8px; }.run-controls input,.run-controls select { border:1px solid #d1cdc4; border-radius:9px; background:#f7f5f0; padding:9px 11px; color:var(--ab-ink); }.run-controls input{width:180px}
+.runs-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+.run-card { padding:0; text-align:left; border:1px solid transparent; background:#f7f5f0; border-radius:13px; overflow:hidden; cursor:pointer; color:inherit; transition:.15s ease; }.run-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px #3c372d16}.run-card.selected{border-color:var(--ab-green);box-shadow:0 0 0 2px #315f4922}
+.run-thumb { aspect-ratio:1; position:relative; display:grid; place-items:center; overflow:hidden; background:#e2dfd8; }.run-thumb img{width:100%;height:100%;object-fit:cover}.run-thumb i{position:absolute;right:9px;top:9px;width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:#faf9f6dc;color:var(--ab-ink);font-style:normal}.run-card.selected .run-thumb i{background:var(--ab-green);color:white}
+.run-copy{display:grid;gap:5px;padding:12px}.run-copy strong{font-size:12px}.run-copy em{font:400 10px "Geist Mono",monospace;color:var(--ab-muted);font-style:normal}.run-copy span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#625e56}.run-copy small{font-size:9px;color:#979188}
+.experiment-empty,.experiment-error{padding:48px;border:1px dashed #c4bfb5;border-radius:14px;text-align:center;color:var(--ab-muted);display:grid;gap:6px}.experiment-error{color:#9a452e;background:#f2e3dc;border-style:solid}
+@media(max-width:1100px){.runs-grid{grid-template-columns:repeat(3,1fr)}.comparison-audit{grid-template-columns:repeat(2,1fr)}.control-verdict{grid-column:1/-1}}
+@media(max-width:720px){.experiments-main{width:min(100% - 24px,1440px);padding-top:20px}.experiments-intro{grid-template-columns:1fr}.comparison-images{grid-template-columns:1fr}.comparison-audit{grid-template-columns:1fr}.runs-toolbar{align-items:stretch;flex-direction:column}.run-controls{flex-wrap:wrap}.run-controls input{flex:1}.runs-grid{grid-template-columns:repeat(2,1fr)}}

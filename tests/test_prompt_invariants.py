@@ -85,6 +85,32 @@ def test_boucle_prompt_disambiguates_real_loops_from_teddy_and_foam(
     assert "uniform pebbled foam" in prompt
 
 
+def test_cremona_prompt_preserves_the_irregular_reference_character(server, base_image):
+    req = _request(server, base_image, mat="cremona")
+    prompt = _build_prompt_text(req)
+
+    assert "only a few millimetres across" in prompt
+    assert "many dozens span a cushion" in prompt
+    assert "subtle anisotropic response" in prompt
+    assert "calm, continuous and finely tactile" in prompt
+    assert "local, soft-edged and low-contrast" in prompt
+    assert "never form broad panel-scale clouds" in prompt
+    assert "leopard, dalmatian or polka-dot spots" in prompt
+    assert "broad panel-scale cloudy blotches" in prompt
+    assert "crushed velvet marbling" in prompt
+    assert "crisp high-frequency separation" in prompt
+    assert "dark micro-occlusion and tiny contact shadows" in prompt
+    assert "delicate fuzzy halo" in prompt
+    assert "sparse, narrow satin micro-highlights" in prompt
+    assert "generic flat linen weave" in prompt
+    assert "foam or sponge texture" in prompt
+    assert "regular grid or checkerboard" in prompt
+    assert "repeating rectangular cells" in prompt
+    assert "open loop bouclé" in prompt
+    assert "flat printed grid" in prompt
+    assert "physical-sample photographs are the absolute authority" in prompt
+
+
 def test_catalog_ids_match_schema_enum(server):
     """catalog.json and prompts/schemas/sofa.json must agree on material ids."""
     schema = json.loads(

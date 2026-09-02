@@ -15,7 +15,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 import time
 import zipfile
@@ -30,7 +29,6 @@ from studio.catalog import CATALOG, _CATALOG_PATH, reload_catalog
 from studio.paths import (
     _CATALOG_BACKUPS_DIR,
     _DIST_DIR,
-    _FRONTEND_DIR,
     _MATERIAL_REFS_DIR,
     logger,
 )
@@ -171,7 +169,39 @@ def _reference_path(material_id: str) -> Path | None:
     return None
 
 
-def _prepare_reference(data: bytes, material_id: str, target_dir: Path) -> Path:
+def _application_reference_path(material_id: str) -> Path | None:
+    for extension in _REFERENCE_EXTENSIONS:
+        candidate = _MATERIAL_REFS_DIR / f"{material_id}-application{extension}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+_VIEW_REFERENCE_SUFFIXES = {
+    "left": "-left",
+    "right": "-right",
+    "behavior": "-behavior",
+}
+
+
+def _view_reference_path(material_id: str, role: str) -> Path | None:
+    suffix = _VIEW_REFERENCE_SUFFIXES.get(role)
+    if suffix is None:
+        return None
+    for extension in _REFERENCE_EXTENSIONS:
+        candidate = _MATERIAL_REFS_DIR / f"{material_id}{suffix}{extension}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _prepare_reference(
+    data: bytes,
+    material_id: str,
+    target_dir: Path,
+    *,
+    filename_suffix: str = "",
+) -> Path:
     if not data:
         raise ValueError(f"{material_id}: pusty plik referencji")
     if len(data) > 20 * 1024 * 1024:
@@ -185,7 +215,7 @@ def _prepare_reference(data: bytes, material_id: str, target_dir: Path) -> Path:
             if image.width > 4096 or image.height > 4096:
                 image.thumbnail((4096, 4096), Image.Resampling.LANCZOS)
             image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-            destination = target_dir / f"{material_id}.png"
+            destination = target_dir / f"{material_id}{filename_suffix}.png"
             image.save(destination, format="PNG", optimize=True)
             return destination
     except (UnidentifiedImageError, OSError) as exc:
@@ -196,37 +226,35 @@ def _set_build_state(state: str, message: str) -> None:
     _BUILD_STATE.update({"state": state, "message": message, "updated_at": int(time.time())})
 
 
-def _build_frontend(staging_dist: Path) -> str:
-    vite = _FRONTEND_DIR / "node_modules" / ".bin" / "vite"
-    if not vite.is_file():
-        raise RuntimeError(
-            "Brakuje zależności frontendu. Uruchom raz: cd app-v2/frontend && npm install"
-        )
-    process = subprocess.run(
-        [str(vite), "build", "--outDir", str(staging_dist), "--emptyOutDir"],
-        cwd=_FRONTEND_DIR,
-        text=True,
-        capture_output=True,
-        timeout=180,
-        check=False,
-    )
-    build_log = "\n".join(part.strip() for part in (process.stdout, process.stderr) if part.strip())
-    if process.returncode != 0:
-        raise RuntimeError("Build frontendu nie powiódł się.\n" + build_log[-4000:])
-    if not (staging_dist / "index.html").is_file() or not (staging_dist / "admin.html").is_file():
-        raise RuntimeError("Build zakończył się bez wymaganych stron index.html/admin.html.")
-    return build_log[-2000:]
-
-
-def _write_backup(old_catalog: bytes, touched_ids: set[str]) -> Path:
+def _write_backup(
+    old_catalog: bytes,
+    touched_ids: set[str],
+    touched_application_ids: set[str],
+    touched_view_keys: set[tuple[str, str]],
+) -> Path:
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     destination = _CATALOG_BACKUPS_DIR / f"catalog-{timestamp}-{time.time_ns() % 1_000_000:06d}.zip"
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("catalog.json", old_catalog)
-        manifest: dict[str, str | None] = {}
+        manifest: dict[str, dict[str, str | None]] = {
+            "texture": {},
+            "application": {},
+            "views": {},
+        }
         for material_id in sorted(touched_ids):
             path = _reference_path(material_id)
-            manifest[material_id] = path.name if path else None
+            manifest["texture"][material_id] = path.name if path else None
+            if path:
+                archive.write(path, f"material-references/{path.name}")
+        for material_id in sorted(touched_application_ids):
+            path = _application_reference_path(material_id)
+            manifest["application"][material_id] = path.name if path else None
+            if path:
+                archive.write(path, f"material-references/{path.name}")
+        for material_id, role in sorted(touched_view_keys):
+            path = _view_reference_path(material_id, role)
+            key = f"{material_id}:{role}"
+            manifest["views"][key] = path.name if path else None
             if path:
                 archive.write(path, f"material-references/{path.name}")
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -236,37 +264,78 @@ def _write_backup(old_catalog: bytes, touched_ids: set[str]) -> Path:
     return destination
 
 
-def _commit_update(catalog: dict, replacements: dict[str, bytes], deletions: set[str]) -> dict:
+def _commit_update(
+    catalog: dict,
+    replacements: dict[str, bytes],
+    deletions: set[str],
+    application_replacements: dict[str, bytes] | None = None,
+    application_deletions: set[str] | None = None,
+    view_replacements: dict[tuple[str, str], bytes] | None = None,
+    view_deletions: set[tuple[str, str]] | None = None,
+) -> dict:
+    application_replacements = application_replacements or {}
+    application_deletions = application_deletions or set()
+    view_replacements = view_replacements or {}
+    view_deletions = view_deletions or set()
     old_catalog = _CATALOG_PATH.read_bytes()
     touched_ids = set(replacements) | set(deletions)
+    touched_application_ids = set(application_replacements) | set(application_deletions)
+    touched_view_keys = set(view_replacements) | set(view_deletions)
     old_references: dict[str, tuple[str, bytes] | None] = {}
     for material_id in touched_ids:
         existing = _reference_path(material_id)
         old_references[material_id] = (existing.suffix, existing.read_bytes()) if existing else None
+    old_application_references: dict[str, tuple[str, bytes] | None] = {}
+    for material_id in touched_application_ids:
+        existing = _application_reference_path(material_id)
+        old_application_references[material_id] = (
+            (existing.suffix, existing.read_bytes()) if existing else None
+        )
+    old_view_references: dict[tuple[str, str], tuple[str, bytes] | None] = {}
+    for material_id, role in touched_view_keys:
+        existing = _view_reference_path(material_id, role)
+        old_view_references[(material_id, role)] = (
+            (existing.suffix, existing.read_bytes()) if existing else None
+        )
 
     _MATERIAL_REFS_DIR.mkdir(parents=True, exist_ok=True)
-    staging_parent = Path(tempfile.mkdtemp(prefix=".admin-build-", dir=_FRONTEND_DIR))
-    staging_dist = staging_parent / "dist"
+    # Keep staging on the same filesystem as the runtime catalogue. In Docker
+    # that target is a mounted volume; same-filesystem os.replace gives us an
+    # atomic promotion and avoids EXDEV across the container layer boundary.
+    staging_parent = Path(
+        tempfile.mkdtemp(prefix=".admin-save-", dir=_CATALOG_PATH.parent)
+    )
     staged_refs = staging_parent / "references"
     staged_refs.mkdir()
-    old_dist = _FRONTEND_DIR / ".dist-before-admin-save"
     temp_catalog = _CATALOG_PATH.with_suffix(".json.admin-tmp")
-    promoted_dist = False
     backup_path: Path | None = None
     try:
         for material_id, data in replacements.items():
             _prepare_reference(data, material_id, staged_refs)
+        for material_id, data in application_replacements.items():
+            _prepare_reference(
+                data,
+                material_id,
+                staged_refs,
+                filename_suffix="-application",
+            )
+        for (material_id, role), data in view_replacements.items():
+            _prepare_reference(
+                data,
+                material_id,
+                staged_refs,
+                filename_suffix=_VIEW_REFERENCE_SUFFIXES[role],
+            )
 
-        _set_build_state("building", "Walidacja zakończona. Przebudowuję aplikację…")
-        build_log = _build_frontend(staging_dist)
-        backup_path = _write_backup(old_catalog, touched_ids)
+        _set_build_state("building", "Walidacja zakończona. Zapisuję katalog…")
+        backup_path = _write_backup(
+            old_catalog,
+            touched_ids,
+            touched_application_ids,
+            touched_view_keys,
+        )
 
         temp_catalog.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        if old_dist.exists():
-            shutil.rmtree(old_dist)
-        os.replace(_DIST_DIR, old_dist)
-        os.replace(staging_dist, _DIST_DIR)
-        promoted_dist = True
         os.replace(temp_catalog, _CATALOG_PATH)
 
         for material_id in touched_ids:
@@ -274,15 +343,34 @@ def _commit_update(catalog: dict, replacements: dict[str, bytes], deletions: set
                 (_MATERIAL_REFS_DIR / f"{material_id}{extension}").unlink(missing_ok=True)
         for material_id in replacements:
             os.replace(staged_refs / f"{material_id}.png", _MATERIAL_REFS_DIR / f"{material_id}.png")
+        for material_id in touched_application_ids:
+            for extension in _REFERENCE_EXTENSIONS:
+                (_MATERIAL_REFS_DIR / f"{material_id}-application{extension}").unlink(missing_ok=True)
+        for material_id in application_replacements:
+            os.replace(
+                staged_refs / f"{material_id}-application.png",
+                _MATERIAL_REFS_DIR / f"{material_id}-application.png",
+            )
+        for material_id, role in touched_view_keys:
+            suffix = _VIEW_REFERENCE_SUFFIXES[role]
+            for extension in _REFERENCE_EXTENSIONS:
+                (_MATERIAL_REFS_DIR / f"{material_id}{suffix}{extension}").unlink(
+                    missing_ok=True
+                )
+        for material_id, role in view_replacements:
+            suffix = _VIEW_REFERENCE_SUFFIXES[role]
+            os.replace(
+                staged_refs / f"{material_id}{suffix}.png",
+                _MATERIAL_REFS_DIR / f"{material_id}{suffix}.png",
+            )
 
         reload_catalog(catalog)
-        shutil.rmtree(old_dist, ignore_errors=True)
-        _set_build_state("ready", "Zapisano, przebudowano i przeładowano katalog.")
+        _set_build_state("ready", "Zapisano i przeładowano katalog — bez przebudowy aplikacji.")
         return {
             "ok": True,
             "message": "Katalog działa już w nowej wersji.",
             "backup": backup_path.name if backup_path else None,
-            "build_log": build_log,
+            "build_log": "Pominięto: katalog jest ładowany dynamicznie.",
         }
     except Exception:
         logger.exception("admin catalog transaction failed; restoring previous version")
@@ -296,10 +384,23 @@ def _commit_update(catalog: dict, replacements: dict[str, bytes], deletions: set
                 if previous:
                     suffix, data = previous
                     (_MATERIAL_REFS_DIR / f"{material_id}{suffix}").write_bytes(data)
-            if promoted_dist:
-                shutil.rmtree(_DIST_DIR, ignore_errors=True)
-                if old_dist.exists():
-                    os.replace(old_dist, _DIST_DIR)
+            for material_id in touched_application_ids:
+                for extension in _REFERENCE_EXTENSIONS:
+                    (_MATERIAL_REFS_DIR / f"{material_id}-application{extension}").unlink(missing_ok=True)
+                previous = old_application_references[material_id]
+                if previous:
+                    suffix, data = previous
+                    (_MATERIAL_REFS_DIR / f"{material_id}-application{suffix}").write_bytes(data)
+            for material_id, role in touched_view_keys:
+                filename_suffix = _VIEW_REFERENCE_SUFFIXES[role]
+                for extension in _REFERENCE_EXTENSIONS:
+                    (_MATERIAL_REFS_DIR / f"{material_id}{filename_suffix}{extension}").unlink(
+                        missing_ok=True
+                    )
+                previous = old_view_references[(material_id, role)]
+                if previous:
+                    suffix, data = previous
+                    (_MATERIAL_REFS_DIR / f"{material_id}{filename_suffix}{suffix}").write_bytes(data)
             reload_catalog(json.loads(old_catalog))
         except Exception:
             logger.exception("admin catalog rollback failed")
@@ -310,6 +411,8 @@ def _commit_update(catalog: dict, replacements: dict[str, bytes], deletions: set
 
 def _admin_payload() -> dict:
     references = {}
+    application_references = {}
+    view_references = {}
     for material in CATALOG["materials"]:
         material_id = material["id"]
         path = _reference_path(material_id)
@@ -321,9 +424,33 @@ def _admin_payload() -> dict:
                 if path else None
             ),
         }
+        application_path = _application_reference_path(material_id)
+        application_references[material_id] = {
+            "exists": bool(application_path),
+            "filename": application_path.name if application_path else None,
+            "url": (
+                f"/api/admin/material-application-reference/{material_id}"
+                f"?v={application_path.stat().st_mtime_ns}"
+                if application_path else None
+            ),
+        }
+        view_references[material_id] = {}
+        for role in _VIEW_REFERENCE_SUFFIXES:
+            view_path = _view_reference_path(material_id, role)
+            view_references[material_id][role] = {
+                "exists": bool(view_path),
+                "filename": view_path.name if view_path else None,
+                "url": (
+                    f"/api/admin/material-view-reference/{role}/{material_id}"
+                    f"?v={view_path.stat().st_mtime_ns}"
+                    if view_path else None
+                ),
+            }
     return {
         "catalog": CATALOG,
         "references": references,
+        "application_references": application_references,
+        "view_references": view_references,
         "build": dict(_BUILD_STATE),
         "catalog_updated_at": int(_CATALOG_PATH.stat().st_mtime),
     }
@@ -355,6 +482,30 @@ def material_reference(material_id: str, request: Request):
     path = _reference_path(material_id)
     if not path:
         raise HTTPException(404, "Nie znaleziono referencji.")
+    media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/admin/material-application-reference/{material_id}")
+def material_application_reference(material_id: str, request: Request):
+    _require_local(request)
+    if not _ID_RE.fullmatch(material_id):
+        raise HTTPException(404, "Nie znaleziono referencji na meblu.")
+    path = _application_reference_path(material_id)
+    if not path:
+        raise HTTPException(404, "Nie znaleziono referencji na meblu.")
+    media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/admin/material-view-reference/{role}/{material_id}")
+def material_view_reference(role: str, material_id: str, request: Request):
+    _require_local(request)
+    if not _ID_RE.fullmatch(material_id) or role not in _VIEW_REFERENCE_SUFFIXES:
+        raise HTTPException(404, "Nie znaleziono dodatkowej referencji materiału.")
+    path = _view_reference_path(material_id, role)
+    if not path:
+        raise HTTPException(404, "Nie znaleziono dodatkowej referencji materiału.")
     media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-store"})
 
@@ -391,8 +542,93 @@ async def save_admin_catalog(request: Request):
                 raise ValueError("Lista usuwanych referencji zawiera nieznaną tkaninę.")
             deletions -= set(replacements)
 
+            application_reference_ids = [
+                str(v) for v in form.getlist("application_reference_ids")
+            ]
+            application_reference_files = form.getlist("application_reference_files")
+            if len(application_reference_ids) != len(application_reference_files):
+                raise ValueError(
+                    "Nie udało się powiązać referencji na meblach z tkaninami."
+                )
+            application_replacements: dict[str, bytes] = {}
+            for material_id, upload in zip(
+                application_reference_ids,
+                application_reference_files,
+            ):
+                if material_id not in material_ids:
+                    raise ValueError(
+                        f"Nieznana tkanina referencji na meblu: {material_id}"
+                    )
+                if not hasattr(upload, "read"):
+                    raise ValueError(f"{material_id}: brak pliku referencji na meblu")
+                application_replacements[material_id] = await upload.read()
+
+            raw_application_deletions = form.get(
+                "delete_application_reference_ids_json",
+                "[]",
+            )
+            application_deletions = set(
+                json.loads(str(raw_application_deletions))
+            )
+            if any(
+                not isinstance(v, str) or v not in material_ids
+                for v in application_deletions
+            ):
+                raise ValueError(
+                    "Lista usuwanych referencji na meblach zawiera nieznaną tkaninę."
+                )
+            application_deletions -= set(application_replacements)
+
+            view_reference_keys = [
+                str(v) for v in form.getlist("view_reference_keys")
+            ]
+            view_reference_files = form.getlist("view_reference_files")
+            if len(view_reference_keys) != len(view_reference_files):
+                raise ValueError(
+                    "Nie udało się powiązać dodatkowych referencji z tkaninami."
+                )
+            view_replacements: dict[tuple[str, str], bytes] = {}
+            for raw_key, upload in zip(view_reference_keys, view_reference_files):
+                material_id, separator, role = raw_key.partition(":")
+                if (
+                    not separator
+                    or material_id not in material_ids
+                    or role not in _VIEW_REFERENCE_SUFFIXES
+                ):
+                    raise ValueError(f"Nieznana dodatkowa referencja: {raw_key}")
+                if not hasattr(upload, "read"):
+                    raise ValueError(f"{raw_key}: brak pliku referencji")
+                view_replacements[(material_id, role)] = await upload.read()
+
+            raw_view_deletions = form.get(
+                "delete_view_reference_keys_json",
+                "[]",
+            )
+            view_deletions: set[tuple[str, str]] = set()
+            for raw_key in json.loads(str(raw_view_deletions)):
+                if not isinstance(raw_key, str):
+                    raise ValueError("Nieprawidłowa lista dodatkowych referencji.")
+                material_id, separator, role = raw_key.partition(":")
+                if (
+                    not separator
+                    or material_id not in material_ids
+                    or role not in _VIEW_REFERENCE_SUFFIXES
+                ):
+                    raise ValueError(f"Nieznana usuwana referencja: {raw_key}")
+                view_deletions.add((material_id, role))
+            view_deletions -= set(view_replacements)
+
             _set_build_state("validating", "Sprawdzam katalog i referencje…")
-            result = await asyncio.to_thread(_commit_update, catalog, replacements, deletions)
+            result = await asyncio.to_thread(
+                _commit_update,
+                catalog,
+                replacements,
+                deletions,
+                application_replacements,
+                application_deletions,
+                view_replacements,
+                view_deletions,
+            )
             return {**result, **_admin_payload()}
         except json.JSONDecodeError as exc:
             _set_build_state("error", "Nieprawidłowy format danych.")

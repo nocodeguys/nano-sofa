@@ -10,16 +10,13 @@ from __future__ import annotations
 
 import json
 
-from studio.paths import _REPO_ROOT, _THIS, logger
+from studio.paths import _CATALOG_PATH, _REPO_ROOT, logger
 
 # Materials + colours live in catalog.json — the single source of truth shared
 # with the browser (served as window.NS_CATALOG via GET /catalog.js). The dicts
 # below keep their historical names so the rest of this file is unchanged.
 # Per-entry "note" fields in the JSON carry the hard-won prompt rules (EN noun
 # must agree with the texture spec — see ARCHITECTURE.md invariant #1).
-_CATALOG_PATH = _THIS / "catalog.json"
-
-
 def _read_catalog() -> dict:
     with open(_CATALOG_PATH, encoding="utf-8") as catalog_file:
         return json.load(catalog_file)

@@ -8,7 +8,7 @@
 import React from "react";
 
 export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false }) {
-  const suffix = active === "video" ? "wideo" : active === "editorial" ? "editorial" : active === "admin" ? "katalog" : "studio";
+  const suffix = active === "video" ? "wideo" : active === "editorial" ? "editorial" : active === "admin" ? "katalog" : active === "experiments" ? "eksperymenty" : "studio";
   const forget = () => setApiKey?.("");
   return (
     <header className="topbar">
@@ -21,6 +21,7 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
         <a href="/" className={active === "photos" ? "on" : ""}>Zdjęcia</a>
         <a href="/video" className={active === "video" ? "on" : ""}>Wideo</a>
         <a href="/editorial" className={active === "editorial" ? "on" : ""}>Editorial</a>
+        <a href="/experiments" className={active === "experiments" ? "on" : ""}>Eksperymenty</a>
         <a href="/admin" className={active === "admin" ? "on" : ""}>Katalog</a>
       </nav>
 

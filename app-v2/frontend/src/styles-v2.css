@@ -373,6 +373,15 @@ button { font-family: inherit; }
 .fabric-overlay.chenille {
   background: repeating-linear-gradient(48deg, rgba(255,255,255,.22) 0 2px, rgba(0,0,0,.12) 2px 6px);
 }
+.fabric-overlay.cremona {
+  background:
+    radial-gradient(ellipse at 17% 24%, rgba(255,255,255,.3) 0 1.5px, transparent 2.5px),
+    radial-gradient(ellipse at 61% 68%, rgba(0,0,0,.22) 0 1.5px, transparent 2.5px),
+    repeating-linear-gradient(4deg, rgba(255,255,255,.17) 0 1px, rgba(0,0,0,.12) 1px 2px, transparent 2px 5px),
+    linear-gradient(112deg, rgba(0,0,0,.12), rgba(255,255,255,.2) 46%, rgba(0,0,0,.08));
+  background-size: 9px 7px, 12px 8px, 19px 15px, 100% 100%;
+  background-position: 0 1px, 4px 2px, 2px 0, 0 0;
+}
 .fabric-overlay.leather {
   background:
     radial-gradient(circle at 30% 38%, rgba(0,0,0,.3) 0 5px, transparent 6px),
@@ -893,6 +902,16 @@ button { font-family: inherit; }
 }
 .mat-tex.chenille::after {        /* soft ribbed sheen */
   background: repeating-linear-gradient(48deg, rgba(255,255,255,.3) 0 2px, rgba(0,0,0,.14) 2px 5px);
+  mix-blend-mode: soft-light;
+}
+.mat-tex.cremona::after {         /* fine irregular chenille + directional nap */
+  background:
+    radial-gradient(ellipse at 18% 28%, rgba(255,255,255,.44) 0 1.5px, transparent 2.5px),
+    radial-gradient(ellipse at 67% 63%, rgba(0,0,0,.3) 0 1.5px, transparent 2.5px),
+    repeating-linear-gradient(4deg, rgba(255,255,255,.28) 0 1px, rgba(0,0,0,.17) 1px 2px, transparent 2px 5px),
+    linear-gradient(112deg, rgba(0,0,0,.14), rgba(255,255,255,.32) 46%, rgba(0,0,0,.1));
+  background-size: 9px 7px, 12px 8px, 19px 15px, 100% 100%;
+  background-position: 0 1px, 4px 2px, 2px 0, 0 0;
   mix-blend-mode: soft-light;
 }
 .mat-tex.leather::after {         /* eco leather — grain + gloss */

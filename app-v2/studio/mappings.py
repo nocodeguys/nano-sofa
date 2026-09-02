@@ -298,7 +298,7 @@ _CATALOG_LOCKS = {
 # marketplace that composites onto its own background, and the wrong one for a
 # warm interiors brand, where it reads as clinical.
 _CATALOG_PROFILE_ENV = {
-    "ivory":      {"env": "cyclorama_architectural", "shadow": "directional_4",
+    "ivory":      {"env": "cyclorama_architectural", "shadow": "soft_diffuse",
                    "tod": "noon_neutral"},
     "atelier":    {"env": "cyclorama_atelier_gradient", "shadow": "soft_diffuse",
                    "tod": "noon_neutral"},

@@ -32,8 +32,7 @@ function Field({ label, hint, wide, children }) {
   );
 }
 
-function MaterialCard({ material, reference, pendingFile, deleted, onChange, onFile, onDeleteReference }) {
-  const [open, setOpen] = useState(material.id === "boucle");
+function ReferencePanel({ title, description, alt, reference, pendingFile, deleted, onFile, onDelete }) {
   const preview = useMemo(() => {
     if (pendingFile) return URL.createObjectURL(pendingFile);
     return deleted ? null : reference?.url;
@@ -41,6 +40,46 @@ function MaterialCard({ material, reference, pendingFile, deleted, onChange, onF
   useEffect(() => () => {
     if (pendingFile && preview) URL.revokeObjectURL(preview);
   }, [pendingFile, preview]);
+
+  return (
+    <div className="reference-panel">
+      <div className="reference-preview">
+        {preview ? <img src={preview} alt={alt} /> : <span>brak<br />referencji</span>}
+      </div>
+      <div className="reference-actions">
+        <strong>{title}</strong>
+        <p>{description}</p>
+        <label className="admin-button secondary file-button">
+          {preview ? "Zamień zdjęcie" : "Dodaj zdjęcie"}
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => onFile(event.target.files?.[0] || null)} />
+        </label>
+        {preview && <button className="admin-text-button danger" type="button" onClick={onDelete}>Usuń referencję</button>}
+        {pendingFile && <span className="pending-note">nowy plik: {pendingFile.name}</span>}
+      </div>
+    </div>
+  );
+}
+
+function MaterialCard({
+  material,
+  reference,
+  applicationReference,
+  viewReferences,
+  pendingFile,
+  pendingApplicationFile,
+  pendingViewFiles,
+  deleted,
+  applicationDeleted,
+  deletedViewKeys,
+  onChange,
+  onFile,
+  onApplicationFile,
+  onViewFile,
+  onDeleteReference,
+  onDeleteApplicationReference,
+  onDeleteViewReference,
+}) {
+  const [open, setOpen] = useState(material.id === "boucle");
 
   const patch = values => onChange({ ...material, ...values });
   const avoidText = (material.avoid_en || []).join("\n");
@@ -59,20 +98,57 @@ function MaterialCard({ material, reference, pendingFile, deleted, onChange, onF
 
       {open && (
         <div className="material-body">
-          <div className="reference-panel">
-            <div className="reference-preview">
-              {preview ? <img src={preview} alt={`Referencja ${material.name_pl}`} /> : <span>brak<br />referencji</span>}
-            </div>
-            <div className="reference-actions">
-              <strong>Wzorzec faktury</strong>
-              <p>Model dostaje go jako nadrzędną referencję struktury tkaniny, bez kopiowania koloru i geometrii.</p>
-              <label className="admin-button secondary file-button">
-                {preview ? "Zamień zdjęcie" : "Dodaj zdjęcie"}
-                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => onFile(event.target.files?.[0] || null)} />
-              </label>
-              {preview && <button className="admin-text-button danger" type="button" onClick={onDeleteReference}>Usuń referencję</button>}
-              {pendingFile && <span className="pending-note">nowy plik: {pendingFile.name}</span>}
-            </div>
+          <div className="reference-stack">
+            <ReferencePanel
+              title="Wzorzec faktury"
+              description="Makro lub płaska próbka. Model kopiuje z niej mikrosplot i skalę, bez koloru i geometrii."
+              alt={`Wzorzec faktury ${material.name_pl}`}
+              reference={reference}
+              pendingFile={pendingFile}
+              deleted={deleted}
+              onFile={onFile}
+              onDelete={onDeleteReference}
+            />
+            <ReferencePanel
+              title="Widok pod kątem — lewa strona"
+              description="Płaska próbka oglądana z lewej. Razem z prawym kątem pokazuje kierunkowy połysk i relief włókien."
+              alt={`Lewy kąt ${material.name_pl}`}
+              reference={viewReferences?.left}
+              pendingFile={pendingViewFiles?.left}
+              deleted={deletedViewKeys?.has(`${material.id}:left`)}
+              onFile={file => onViewFile("left", file)}
+              onDelete={() => onDeleteViewReference("left")}
+            />
+            <ReferencePanel
+              title="Widok pod kątem — prawa strona"
+              description="Płaska próbka oglądana z prawej. Model porównuje oba kąty zamiast kopiować jedno ustawienie światła."
+              alt={`Prawy kąt ${material.name_pl}`}
+              reference={viewReferences?.right}
+              pendingFile={pendingViewFiles?.right}
+              deleted={deletedViewKeys?.has(`${material.id}:right`)}
+              onFile={file => onViewFile("right", file)}
+              onDelete={() => onDeleteViewReference("right")}
+            />
+            <ReferencePanel
+              title="Zagięcie / zachowanie materiału"
+              description="Próbka na krzywiźnie lub zagnieceniu. Pokazuje zmianę włosa, mikrocienie i zachowanie skali splotu na załamaniu."
+              alt={`Zagięcie ${material.name_pl}`}
+              reference={viewReferences?.behavior}
+              pendingFile={pendingViewFiles?.behavior}
+              deleted={deletedViewKeys?.has(`${material.id}:behavior`)}
+              onFile={file => onViewFile("behavior", file)}
+              onDelete={() => onDeleteViewReference("behavior")}
+            />
+            <ReferencePanel
+              title="Materiał na meblu / konkurencja"
+              description="Zdjęcie pełnego mebla pokazujące wygląd tkaniny z dystansu. Model nie może kopiować bryły, szwów, pikowania, wnętrza ani stylizacji konkurencji."
+              alt={`Materiał ${material.name_pl} na meblu`}
+              reference={applicationReference}
+              pendingFile={pendingApplicationFile}
+              deleted={applicationDeleted}
+              onFile={onApplicationFile}
+              onDelete={onDeleteApplicationReference}
+            />
           </div>
 
           <div className="admin-grid material-fields">
@@ -87,7 +163,7 @@ function MaterialCard({ material, reference, pendingFile, deleted, onChange, onF
             </Field>
             <Field label="Typ podglądu CSS" hint="Wpływa tylko na próbkę w konfiguratorze.">
               <select value={material.tex} onChange={event => patch({ tex: event.target.value })}>
-                {["linen", "boucle", "weave", "chenille", "leather", "velvet"].map(value => <option key={value}>{value}</option>)}
+                {["linen", "boucle", "weave", "chenille", "cremona", "leather", "velvet"].map(value => <option key={value}>{value}</option>)}
               </select>
             </Field>
             <Field wide label="Nazwa dla modelu (EN)" hint="To krótkie określenie ma duży wpływ na interpretację materiału.">
@@ -143,6 +219,10 @@ function AdminApp() {
   const [tab, setTab] = useState("materials");
   const [pendingRefs, setPendingRefs] = useState({});
   const [deletedRefs, setDeletedRefs] = useState(new Set());
+  const [pendingApplicationRefs, setPendingApplicationRefs] = useState({});
+  const [deletedApplicationRefs, setDeletedApplicationRefs] = useState(new Set());
+  const [pendingViewRefs, setPendingViewRefs] = useState({});
+  const [deletedViewRefs, setDeletedViewRefs] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState({ type: "", text: "" });
   const [buildState, setBuildState] = useState(null);
@@ -163,7 +243,13 @@ function AdminApp() {
   useEffect(() => { load(); }, []);
 
   const dirty = !!catalog && (
-    JSON.stringify(catalog) !== baseline || Object.keys(pendingRefs).length > 0 || deletedRefs.size > 0
+    JSON.stringify(catalog) !== baseline
+    || Object.keys(pendingRefs).length > 0
+    || deletedRefs.size > 0
+    || Object.keys(pendingApplicationRefs).length > 0
+    || deletedApplicationRefs.size > 0
+    || Object.keys(pendingViewRefs).length > 0
+    || deletedViewRefs.size > 0
   );
   useEffect(() => {
     const handler = event => {
@@ -200,6 +286,42 @@ function AdminApp() {
     });
     setDeletedRefs(current => new Set(current).add(id));
   };
+  const setApplicationReference = (id, file) => {
+    if (!file) return;
+    setPendingApplicationRefs(current => ({ ...current, [id]: file }));
+    setDeletedApplicationRefs(current => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
+  const deleteApplicationReference = id => {
+    setPendingApplicationRefs(current => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setDeletedApplicationRefs(current => new Set(current).add(id));
+  };
+  const setViewReference = (id, role, file) => {
+    if (!file) return;
+    const key = `${id}:${role}`;
+    setPendingViewRefs(current => ({ ...current, [key]: file }));
+    setDeletedViewRefs(current => {
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  };
+  const deleteViewReference = (id, role) => {
+    const key = `${id}:${role}`;
+    setPendingViewRefs(current => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setDeletedViewRefs(current => new Set(current).add(key));
+  };
   const addColor = () => setCatalog(current => ({
     ...current,
     colors: [...current.colors, {
@@ -235,6 +357,22 @@ function AdminApp() {
         body.append("reference_files", file, file.name);
       });
       body.append("delete_reference_ids_json", JSON.stringify([...deletedRefs]));
+      Object.entries(pendingApplicationRefs).forEach(([id, file]) => {
+        body.append("application_reference_ids", id);
+        body.append("application_reference_files", file, file.name);
+      });
+      body.append(
+        "delete_application_reference_ids_json",
+        JSON.stringify([...deletedApplicationRefs]),
+      );
+      Object.entries(pendingViewRefs).forEach(([key, file]) => {
+        body.append("view_reference_keys", key);
+        body.append("view_reference_files", file, file.name);
+      });
+      body.append(
+        "delete_view_reference_keys_json",
+        JSON.stringify([...deletedViewRefs]),
+      );
       const data = await readJson(await fetch("/api/admin/catalog", { method: "POST", body }));
       const next = clone(data.catalog);
       setPayload(data);
@@ -242,6 +380,10 @@ function AdminApp() {
       setBaseline(JSON.stringify(next));
       setPendingRefs({});
       setDeletedRefs(new Set());
+      setPendingApplicationRefs({});
+      setDeletedApplicationRefs(new Set());
+      setPendingViewRefs({});
+      setDeletedViewRefs(new Set());
       setBuildState(data.build);
       setStatus({
         type: "success",
@@ -295,11 +437,25 @@ function AdminApp() {
                 key={material.id}
                 material={material}
                 reference={payload.references?.[material.id]}
+                applicationReference={payload.application_references?.[material.id]}
+                viewReferences={payload.view_references?.[material.id]}
                 pendingFile={pendingRefs[material.id]}
+                pendingApplicationFile={pendingApplicationRefs[material.id]}
+                pendingViewFiles={{
+                  left: pendingViewRefs[`${material.id}:left`],
+                  right: pendingViewRefs[`${material.id}:right`],
+                  behavior: pendingViewRefs[`${material.id}:behavior`],
+                }}
                 deleted={deletedRefs.has(material.id)}
+                applicationDeleted={deletedApplicationRefs.has(material.id)}
+                deletedViewKeys={deletedViewRefs}
                 onChange={item => updateMaterial(index, item)}
                 onFile={file => setReference(material.id, file)}
+                onApplicationFile={file => setApplicationReference(material.id, file)}
+                onViewFile={(role, file) => setViewReference(material.id, role, file)}
                 onDeleteReference={() => deleteReference(material.id)}
+                onDeleteApplicationReference={() => deleteApplicationReference(material.id)}
+                onDeleteViewReference={role => deleteViewReference(material.id, role)}
               />
             ))}
           </section>
@@ -331,7 +487,7 @@ function AdminApp() {
         <div className="save-actions">
           <a className="admin-button secondary" href="/" target="_blank" rel="noreferrer">Otwórz Studio ↗</a>
           <button className="admin-button primary" type="button" disabled={!dirty || busy} onClick={save}>
-            {busy ? "Przebudowuję…" : "Zapisz i przebuduj"}
+            {busy ? "Zapisuję…" : "Zapisz katalog"}
           </button>
         </div>
       </footer>

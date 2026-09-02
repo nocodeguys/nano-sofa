@@ -25,7 +25,7 @@ def test_index_serves_built_frontend(client):
     assert "/assets/" in r.text, "index.html does not reference hashed assets"
 
 
-@pytest.mark.parametrize("route", ["/video", "/help", "/admin"])
+@pytest.mark.parametrize("route", ["/video", "/help", "/admin", "/experiments"])
 def test_secondary_pages(client, route):
     r = client.get(route)
     assert r.status_code == 200
@@ -68,3 +68,16 @@ def test_param_docs(client):
     assert groups, "param docs empty"
     keys = {g["key"] for g in groups}
     assert len(keys) == len(groups), "duplicate param-doc group keys"
+
+
+def test_experiments_api_exposes_comparison_history(client):
+    r = client.get("/api/experiments?limit=10")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"items", "tracked_count", "legacy_count"}
+    assert isinstance(body["items"], list)
+    if body["items"]:
+        item = body["items"][0]
+        assert "generation_id" in item
+        assert "tracked" in item
+        assert "image_url" in item

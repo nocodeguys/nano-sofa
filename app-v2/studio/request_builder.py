@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.generator import GenerationRequest
+from app.core.schema_loader import schema
 from studio.catalog import (
     _COLOR_PL_TO_EN,
     _MATERIAL_NEGATIVES_EN,
@@ -66,6 +67,41 @@ def _material_reference_path(material_id: str) -> Optional[Path]:
         return None
     for ext in (".jpg", ".jpeg", ".png", ".webp"):
         candidate = _MATERIAL_REFS_DIR / f"{material_id}{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _material_behavior_reference_path(material_id: str) -> Optional[Path]:
+    """Return an oblique/touched swatch showing pile response to light."""
+    if not material_id:
+        return None
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        candidate = _MATERIAL_REFS_DIR / f"{material_id}-behavior{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _material_angle_reference_path(
+    material_id: str, direction: str
+) -> Optional[Path]:
+    """Return a flat swatch photographed from the left or right oblique angle."""
+    if not material_id or direction not in {"left", "right"}:
+        return None
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        candidate = _MATERIAL_REFS_DIR / f"{material_id}-{direction}{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _material_application_reference_path(material_id: str) -> Optional[Path]:
+    """Return a real furniture photo showing the material at normal distance."""
+    if not material_id:
+        return None
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        candidate = _MATERIAL_REFS_DIR / f"{material_id}-application{ext}"
         if candidate.is_file():
             return candidate
     return None
@@ -245,6 +281,33 @@ def _build_generation_request(
     if env_mode.strip(): notes_parts.append(f"environment use: {env_mode.strip()}")
     if seed.strip():     notes_parts.append(f"seed hint: {seed.strip()}")
 
+    max_reference_count = schema.max_refs_for_model(model)
+    named_reference_count = 1 + int(scene_image_path is not None) + int(
+        material_reference_path is not None
+    )
+
+    material_left_reference_path = _material_angle_reference_path(mat, "left")
+    if material_left_reference_path and named_reference_count < max_reference_count:
+        named_reference_count += 1
+    else:
+        material_left_reference_path = None
+
+    material_right_reference_path = _material_angle_reference_path(mat, "right")
+    if material_right_reference_path and named_reference_count < max_reference_count:
+        named_reference_count += 1
+    else:
+        material_right_reference_path = None
+
+    material_behavior_reference_path = _material_behavior_reference_path(mat)
+    if material_behavior_reference_path and named_reference_count < max_reference_count:
+        named_reference_count += 1
+    else:
+        material_behavior_reference_path = None
+
+    material_application_reference_path = _material_application_reference_path(mat)
+    if material_application_reference_path and named_reference_count >= max_reference_count:
+        material_application_reference_path = None
+
     return GenerationRequest(
         model_id=model,
         base_product_image=str(base_image_path),
@@ -252,6 +315,22 @@ def _build_generation_request(
         scene_reference_image=str(scene_image_path) if scene_image_path else None,
         swatch_reference_image=(
             str(material_reference_path) if material_reference_path else None
+        ),
+        material_left_reference_image=(
+            str(material_left_reference_path)
+            if material_left_reference_path else None
+        ),
+        material_right_reference_image=(
+            str(material_right_reference_path)
+            if material_right_reference_path else None
+        ),
+        material_behavior_reference_image=(
+            str(material_behavior_reference_path)
+            if material_behavior_reference_path else None
+        ),
+        material_application_reference_image=(
+            str(material_application_reference_path)
+            if material_application_reference_path else None
         ),
         use_swatch_for_fabric=material_reference_path is not None,
         swatch_texture_only=material_reference_path is not None,

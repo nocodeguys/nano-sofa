@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -48,11 +49,44 @@ _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # to the text-only profile.
 _SCENE_REFS_DIR = _THIS / "scene-references"
 
-# Canonical close-up fabric swatches.  A file named after the material id
-# (for example material-references/boucle.png) is attached as a dedicated
-# texture authority; it must never become the source of product geometry,
-# lighting, or the selected upholstery colour.
-_MATERIAL_REFS_DIR = _THIS / "material-references"
+# The catalogue is editable at runtime. In Docker, OUTPUTS_DIR is the mounted
+# persistent volume, so both its JSON and reference images live there and
+# survive Watchtower replacing the container. Local source development keeps
+# using the checked-in files directly, which makes prompt work visible in git.
+_BUNDLED_CATALOG_PATH = _THIS / "catalog.json"
+_BUNDLED_MATERIAL_REFS_DIR = _THIS / "material-references"
+_PERSIST_RUNTIME_CATALOG = bool(os.environ.get("OUTPUTS_DIR"))
+
+
+def _seed_runtime_catalog(
+    output_dir: Path,
+    bundled_catalog: Path,
+    bundled_references: Path,
+) -> tuple[Path, Path]:
+    """Create the persistent catalogue once, preserving all later edits."""
+    runtime_dir = output_dir / "catalog"
+    catalog_path = runtime_dir / "catalog.json"
+    references_dir = runtime_dir / "material-references"
+    if not catalog_path.is_file():
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundled_catalog, catalog_path)
+    if not references_dir.is_dir():
+        if bundled_references.is_dir():
+            shutil.copytree(bundled_references, references_dir)
+        else:
+            references_dir.mkdir(parents=True, exist_ok=True)
+    return catalog_path, references_dir
+
+
+if _PERSIST_RUNTIME_CATALOG:
+    _CATALOG_PATH, _MATERIAL_REFS_DIR = _seed_runtime_catalog(
+        _OUTPUT_DIR,
+        _BUNDLED_CATALOG_PATH,
+        _BUNDLED_MATERIAL_REFS_DIR,
+    )
+else:
+    _CATALOG_PATH = _BUNDLED_CATALOG_PATH
+    _MATERIAL_REFS_DIR = _BUNDLED_MATERIAL_REFS_DIR
 
 # Recoverable snapshots made by the local catalogue admin before every save.
 # They contain the previous catalog.json and only the reference files touched

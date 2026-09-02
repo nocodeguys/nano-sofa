@@ -29,6 +29,7 @@ from app.core.cost_tracker import (
     record_generation,
 )
 from app.core.leg_browser import leg_browser
+from app.core.generation_trace import build_generation_trace, write_generation_trace
 from app.core.schema_loader import schema
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,10 @@ class GenerationRequest:
     leg_reference_image: Optional[Any] = None   # PIL.Image or path string
     scene_reference_image: Optional[Any] = None
     swatch_reference_image: Optional[Any] = None
+    material_left_reference_image: Optional[Any] = None
+    material_right_reference_image: Optional[Any] = None
+    material_behavior_reference_image: Optional[Any] = None
+    material_application_reference_image: Optional[Any] = None
 
     # Extra moodboard-style references uploaded by the user in the UI's
     # "Referencje" section. Unlike the named slots above, these don't have a
@@ -430,6 +435,14 @@ def _count_active_refs(req: GenerationRequest) -> int:
         count += 1
     if req.swatch_reference_image is not None:
         count += 1
+    if req.material_left_reference_image is not None:
+        count += 1
+    if req.material_right_reference_image is not None:
+        count += 1
+    if req.material_behavior_reference_image is not None:
+        count += 1
+    if req.material_application_reference_image is not None:
+        count += 1
     count += len(req.extra_reference_images or [])
     return count
 
@@ -783,12 +796,17 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             lines.append(
                 f"\nMATERIAL TEXTURE AUTHORITY (slot {swatch_slot}): Slot "
                 f"{swatch_slot} is a close-up photograph of the real target "
-                f"fabric. Copy ONLY its microscopic yarn construction: loop "
-                f"shape, loop-size variation, density, depth, cavities between "
-                f"yarns, and matte tactile relief. Apply that authentic surface "
+                f"fabric. Copy ONLY its microscopic yarn construction: strand, "
+                f"nub or loop shape as actually present, real-world scale, density, "
+                f"depth, gaps between yarns, pile direction and surface relief. "
+                f"Do not invent loops or force a matte finish when the reference "
+                f"shows a different construction or optical response. Apply that authentic surface "
                 f"to every upholstered part of the {product_noun} in slot 1. "
-                f"The individual irregular loops must remain visibly readable "
-                f"at normal product-photography distance. "
+                f"Preserve its true physical scale: fine textiles must merge into "
+                f"dense tactile microdetail at normal product-photography distance, "
+                f"never enlarged into a coarse repeating motif. 'Merge' describes "
+                f"perceived scale only: do not blur, denoise or smooth away the crisp "
+                f"high-frequency separation, fibre edges and micro-shadows. "
                 f"\n\nCRITICAL ROLE SEPARATION: Slot 1 is the PRODUCT GEOMETRY "
                 f"authority. Slot {swatch_slot} is the MATERIAL MICROSTRUCTURE "
                 f"authority only. IGNORE the photographed colour, folds, scale, "
@@ -802,7 +820,7 @@ def _build_prompt_text(req: GenerationRequest) -> str:
                 f"shadow, or empty pixels. The cyclorama must be uniformly smooth "
                 f"matte paint: absolutely no enlarged loops, weave, fabric relief, "
                 f"textile pattern, projected texture, or fabric-shaped shadow outside "
-                f"the product. Keep the three reference roles independent; do not "
+                f"the product. Keep all reference roles independent; do not "
                 f"blend visual properties across their domains."
             )
         else:
@@ -817,6 +835,104 @@ def _build_prompt_text(req: GenerationRequest) -> str:
                 f"crop, distance, perspective, product pose, lighting setup, or "
                 f"shadow direction from slot {swatch_slot}."
             )
+
+    if (
+        req.material_left_reference_image is not None
+        or req.material_right_reference_image is not None
+    ):
+        first_angle_slot = (
+            2
+            + int(req.leg_reference_image is not None)
+            + int(req.scene_reference_image is not None)
+            + int(req.swatch_reference_image is not None)
+        )
+        angle_slots = []
+        if req.material_left_reference_image is not None:
+            angle_slots.append(first_angle_slot)
+        if req.material_right_reference_image is not None:
+            angle_slots.append(
+                first_angle_slot + int(req.material_left_reference_image is not None)
+            )
+        slots_label = " and ".join(str(slot) for slot in angle_slots)
+        noun = "Slots" if len(angle_slots) > 1 else "Slot"
+        lines.append(
+            f"\nFABRIC MULTI-ANGLE OPTICAL AUTHORITY ({noun.lower()} {slots_label}): "
+            f"{noun} {slots_label} show the same flat target fabric from opposing "
+            f"oblique viewpoints. Compare them to infer the stable three-dimensional "
+            f"yarn relief separately from angle-dependent brightness. Preserve the "
+            f"same fine nub and slub geometry in both bright and shaded orientations; "
+            f"do not average the two views into a smooth surface. Reproduce the short "
+            f"pile's reversible directional sheen: tiny fibres and raised yarn faces "
+            f"catch pearly grazing highlights while recessed crossings retain narrow "
+            f"micro-shadows. This evidence describes material optics only. Do not copy "
+            f"the photographed colour, white background, crop, depth of field, camera "
+            f"angle or light direction into the final composition. Keep the selected "
+            f"upholstery colour and slot 1 geometry authoritative."
+        )
+
+    if req.material_behavior_reference_image is not None:
+        behavior_slot = (
+            2
+            + int(req.leg_reference_image is not None)
+            + int(req.scene_reference_image is not None)
+            + int(req.swatch_reference_image is not None)
+            + int(req.material_left_reference_image is not None)
+            + int(req.material_right_reference_image is not None)
+        )
+        lines.append(
+            f"\nFABRIC LIGHT-RESPONSE AUTHORITY (slot {behavior_slot}): Slot "
+            f"{behavior_slot} shows the same target fabric under grazing light "
+            f"and across a curved or touched surface. Copy ONLY its optical "
+            f"behaviour: the short chenille nap changes local brightness according "
+            f"to fibre lay, surface normal and light direction. Brushed or raised "
+            f"fibres facing the light receive soft pearly highlights; fibres laid "
+            f"away from it become gently darker. These irregular luminance shifts "
+            f"must follow real curves, seams, folds and locally disturbed nap — they "
+            f"are not a printed colour pattern and must never form repeating bands. "
+            f"Keep the catalog lighting soft overall, but preserve a directional "
+            f"grazing component across the upholstery so raised fibres cast tiny "
+            f"self-shadows into the recessed weave. Render a delicate fuzzy rim at "
+            f"light-facing curves and sparse satin micro-glints on individual fibres. "
+            f"Do not flatten these into uniform roughness, and do not smooth the "
+            f"surface into generic linen, foam or sponge. The weave keeps the same "
+            f"fine physical scale around rounded edges and tufting without stretching. "
+            f"Do not copy slot {behavior_slot}'s photographed colour, crop, fold, "
+            f"camera angle, depth of field or scale. Keep the selected upholstery "
+            f"colour authoritative."
+        )
+
+    if req.material_application_reference_image is not None:
+        application_slot = (
+            2
+            + int(req.leg_reference_image is not None)
+            + int(req.scene_reference_image is not None)
+            + int(req.swatch_reference_image is not None)
+            + int(req.material_left_reference_image is not None)
+            + int(req.material_right_reference_image is not None)
+            + int(req.material_behavior_reference_image is not None)
+        )
+        lines.append(
+            f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "
+            f"sample photographs in the preceding fabric slots are the absolute "
+            f"authority for weave construction, pile size, irregularity, colour "
+            f"response and directional sheen. Slot {application_slot} is secondary "
+            f"context only and can never override or reinterpret those samples."
+            f"\n\nFABRIC IN-USE SCALE CHECK (slot {application_slot}): "
+            f"Slot {application_slot} shows a comparable fabric applied across "
+            f"a complete upholstered bed at normal viewing distance. Use ONLY the "
+            f"attenuation and apparent scale of fine textile detail at that distance "
+            f"— never the reference bed's "
+            f"geometry, dimensions, seams, channeling, storage mechanism, room, "
+            f"camera, colour or styling. At hero distance the fabric must read first "
+            f"as a calm, continuous, fine tactile chenille surface. Local brightness "
+            f"changes may follow surface curvature, grazing light and disturbed pile, "
+            f"but must not become broad cloudy patches, panel-scale blotches, crushed-"
+            f"velvet marbling, stains or a printed pattern. Do not turn the upholstery "
+            f"into uniform beige basketweave or plain linen. Do not copy any visual "
+            f"feature from slot {application_slot} when it conflicts with the physical "
+            f"sample slots. Slot 1 remains "
+            f"the absolute product-geometry authority."
+        )
 
     # ------------------------------------------------------------------ #
     # View-consistency instruction — when the caller wants the model to
@@ -1039,7 +1155,10 @@ def _collect_reference_images(
     Slot 1: base product (already flattened by caller)
     Slot 2: leg reference (when present)
     Slot 3: scene reference (when present; on Flash this exhausts the 3-ref cap)
-    Slot 4: swatch reference (preview models only — dropped on Flash)
+    Slot 4: swatch reference (when capacity permits)
+    Next slots: optional left- and right-oblique material references
+    Next slot: optional material fold/light-response reference
+    Next slot: optional material-in-use appearance reference
     """
     images: list[Image.Image] = [base_img]
 
@@ -1068,7 +1187,52 @@ def _collect_reference_images(
                 active_refs,
             )
 
-    # Slot 5+: user-uploaded moodboard references. Appended in order until the
+    for label, source in (
+        ("left-angle material", req.material_left_reference_image),
+        ("right-angle material", req.material_right_reference_image),
+    ):
+        if source is None:
+            continue
+        max_refs = schema.max_refs_for_model(req.model_id)
+        if len(images) < max_refs:
+            angle_img = _load_image(source)
+            if angle_img:
+                images.append(angle_img)
+        else:
+            logger.warning(
+                "%s reference dropped: model %s allows max %d refs",
+                label.capitalize(),
+                req.model_id,
+                max_refs,
+            )
+
+    if req.material_behavior_reference_image is not None:
+        max_refs = schema.max_refs_for_model(req.model_id)
+        if len(images) < max_refs:
+            behavior_img = _load_image(req.material_behavior_reference_image)
+            if behavior_img:
+                images.append(behavior_img)
+        else:
+            logger.warning(
+                "Material behavior reference dropped: model %s allows max %d refs",
+                req.model_id,
+                max_refs,
+            )
+
+    if req.material_application_reference_image is not None:
+        max_refs = schema.max_refs_for_model(req.model_id)
+        if len(images) < max_refs:
+            application_img = _load_image(req.material_application_reference_image)
+            if application_img:
+                images.append(application_img)
+        else:
+            logger.warning(
+                "Material application reference dropped: model %s allows max %d refs",
+                req.model_id,
+                max_refs,
+            )
+
+    # Remaining slots: user-uploaded moodboard references. Appended in order until the
     # model's max_refs cap is reached. Anything past the cap is dropped with a
     # warning so the call still succeeds instead of failing the whole request.
     if req.extra_reference_images:
@@ -1185,6 +1349,28 @@ def generate(req: GenerationRequest) -> GenerationResult:
         ref_images = _collect_reference_images(req, base_img)
 
     prompt_text = _build_prompt_text(req)
+    effective_system_instruction = (
+        req.system_instruction or schema.system_instruction_default
+    )
+    generation_trace = build_generation_trace(
+        req=req,
+        generation_id=generation_id,
+        prompt=prompt_text,
+        effective_system_instruction=effective_system_instruction,
+        reference_images=ref_images,
+        freeform=is_freeform,
+    )
+    reference_log = ", ".join(
+        f"{ref['slot']}:{ref['role']}={Path(ref['source']).name}"
+        for ref in generation_trace["references"]
+    )
+    logger.info(
+        "Generation setup id=%s setup=%s exact=%s refs=[%s]",
+        generation_id,
+        generation_trace["setup_fingerprint"][:12],
+        generation_trace["exact_fingerprint"][:12],
+        reference_log,
+    )
 
     # Opt-in full-prompt dump. Only the one-line summary is logged otherwise,
     # which is useless when iterating on texture/scene wording — there was no
@@ -1266,7 +1452,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
         image_config_kwargs["image_size"] = req.resolution
 
     config = gtypes.GenerateContentConfig(
-        system_instruction=req.system_instruction or schema.system_instruction_default,
+        system_instruction=effective_system_instruction,
         response_modalities=["IMAGE"],
         image_config=gtypes.ImageConfig(**image_config_kwargs),
     )
@@ -1365,6 +1551,21 @@ def generate(req: GenerationRequest) -> GenerationResult:
             err_info = _err("SAFETY_NO_IMAGE")
 
     elapsed_ms = int((time.monotonic() - _t0) * 1000)
+
+    generation_trace["status"] = status
+    generation_trace["result"] = {
+        "output_path": str(output_path) if output_path else None,
+        "actual_cost": actual_cost,
+        "estimated_cost_low": cost_est.total_low,
+        "estimated_cost_high": cost_est.total_high,
+        "elapsed_ms": elapsed_ms,
+        "attempts": attempts_made,
+        "error": last_error if status == "failed" else None,
+    }
+    # Resolve from _OUTPUTS_DIR at call time: app-v2/studio/paths.py redirects
+    # that directory during startup, and traces must follow the rendered files.
+    trace_path = write_generation_trace(generation_trace, _OUTPUTS_DIR / "traces")
+    logger.info("Generation trace saved: %s", trace_path)
 
     # Extend the chain only if we got a usable response. On failure, return the
     # caller's prior_history unchanged so the next retry doesn't pollute the

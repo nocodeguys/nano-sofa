@@ -22,12 +22,19 @@ Open [http://localhost:7861/admin](http://localhost:7861/admin) or choose
 prompt descriptions for fabrics, manages canonical texture-reference images,
 and edits or adds colours (name, HEX, covered swatches and model description).
 
-**Zapisz i przebuduj** validates the data and images, runs a Vite build in a
-staging directory, snapshots the previous version, promotes the new files and
-reloads the stable in-memory catalogue mappings used by the running backend.
-If any step fails, the previous working version is restored. The latest 10
-snapshots live under `outputs/catalog-backups/`. The admin page and API are
-restricted to localhost.
+**Zapisz katalog** validates the data and images, snapshots the previous
+version, atomically promotes the new files and reloads the stable in-memory
+catalogue mappings used by the running backend. A frontend rebuild is not
+needed because `/catalog.js` is loaded dynamically with `no-store`. If any
+step fails, the previous working version is restored. The latest 10 snapshots
+live under `outputs/catalog-backups/`.
+
+In Docker, the editable catalogue and its material references are seeded on
+first start into `outputs/catalog/` (the mounted `/app/outputs` volume). Runtime
+edits therefore survive container restarts and Watchtower image replacements.
+Source development without an explicit `OUTPUTS_DIR` continues to use the
+checked-in `app-v2/catalog.json` and `app-v2/material-references/` files. The
+admin page and API remain restricted to localhost.
 
 ## Frontend dev loop
 

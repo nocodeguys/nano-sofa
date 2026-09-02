@@ -121,6 +121,10 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     assert Path(req.swatch_reference_image).name == "boucle.png"
     assert req.use_swatch_for_fabric
     assert req.swatch_texture_only
+    assert req.material_left_reference_image is None
+    assert req.material_right_reference_image is None
+    assert req.material_behavior_reference_image is None
+    assert req.material_application_reference_image is None
     assert len(_collect_reference_images(req, Image.open(base_image))) == 3
 
     text = _build_prompt_text(req)
@@ -132,6 +136,55 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     assert "Never apply it to bedding" in text
     assert "no enlarged loops" in text
     assert "do not blend visual properties across their domains" in text
+
+
+def test_cremona_uses_the_supplied_canonical_texture_reference(
+    server, base_image
+):
+    req = _request(server, base_image, catalog=True, mat="cremona")
+
+    assert Path(req.swatch_reference_image).name == "cremona.jpg"
+    assert req.use_swatch_for_fabric
+    assert req.swatch_texture_only
+    assert req.material_behavior_reference_image is None
+    assert req.material_application_reference_image is None
+    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+
+
+def test_cremona_adds_light_response_reference_when_model_has_room(
+    server, base_image
+):
+    req = _request(
+        server, base_image, catalog=True, mat="cremona",
+        model="gemini-3.1-flash-image", res="2K",
+    )
+
+    assert Path(req.swatch_reference_image).name == "cremona.jpg"
+    assert Path(req.material_left_reference_image).name == "cremona-left.jpg"
+    assert Path(req.material_right_reference_image).name == "cremona-right.jpg"
+    assert Path(req.material_behavior_reference_image).name == "cremona-behavior.jpg"
+    assert Path(req.material_application_reference_image).name == "cremona-application.png"
+    assert len(_collect_reference_images(req, Image.open(base_image))) == 7
+    text = _build_prompt_text(req)
+    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (slots 4 and 5)" in text
+    assert "FABRIC LIGHT-RESPONSE AUTHORITY (slot 6)" in text
+    assert "MATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT" in text
+    assert "FABRIC IN-USE SCALE CHECK (slot 7)" in text
+    assert "stable three-dimensional yarn relief" in text
+    assert "do not average the two views into a smooth surface" in text
+    assert "reversible directional sheen" in text
+    assert "surface normal and light direction" in text
+    assert "not a printed colour pattern" in text
+    assert "directional grazing component" in text
+    assert "tiny self-shadows" in text
+    assert "delicate fuzzy rim" in text
+    assert "same fine physical scale" in text
+    assert "calm, continuous, fine tactile chenille surface" in text
+    assert "must not become broad cloudy patches" in text
+    assert "physical sample photographs" in text
+    assert "can never override or reinterpret those samples" in text
+    assert "never the reference bed's geometry" in text
+    assert "Slot 1 remains the absolute product-geometry authority" in text
 
 
 def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
