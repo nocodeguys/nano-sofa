@@ -18,23 +18,53 @@ once if `frontend/dist` is missing, and starts the server on port 7861
 ### Catalogue admin
 
 Open [http://localhost:7861/admin](http://localhost:7861/admin) or choose
-**Katalog** in the top menu. The panel edits the Polish labels and English
-prompt descriptions for fabrics, manages canonical texture-reference images,
-and edits or adds colours (name, HEX, covered swatches and model description).
+**Katalog** in the top menu. The panel has three tabs:
+
+- **Tkaniny** — Polish labels, English prompt descriptions and the curated
+  reference photos of each fabric (macro, left/right oblique, fold behaviour,
+  fabric-in-use). Photos are stored as JPEG ≤ 2048 px. The list of fabric
+  *types* is locked to the schema enum (`prompts/schemas/sofa.json`); adding a
+  type is a code change (enum, `catalog.json`, a `.mat-tex.<tex>` CSS preview).
+- **Kolekcje** — fabric collections (Velutto, Cremona, Barrel, Lincoln D…).
+  A collection names its fabric and lists codes with an exact HEX. Every code
+  becomes a selectable colour `<collection>-<code>` (e.g. `velutto-27`),
+  picking it sets the material, and the render is tagged with the fabric code
+  (PNG `nano_sofa_fabric_code`, trace `variant.fabric_code`). A code marked
+  `≈` (`hex_verified: false`) was seeded from its TreeTale group hex and
+  should be replaced with the value measured from the physical swatch.
+- **Kolory grupowe** — the universal TreeTale colour groups used by fabrics
+  without codes.
 
 **Zapisz katalog** validates the data and images, snapshots the previous
-version, atomically promotes the new files and reloads the stable in-memory
-catalogue mappings used by the running backend. A frontend rebuild is not
-needed because `/catalog.js` is loaded dynamically with `no-store`. If any
-step fails, the previous working version is restored. The latest 10 snapshots
-live under `outputs/catalog-backups/`.
+version (`outputs/catalog-backups/`, last 10), atomically promotes the new
+files and reloads the in-memory catalogue used by the running backend — the
+saving instance is correct immediately; `/catalog.js` is `no-store` and open
+studio tabs show a "katalog został zaktualizowany" banner. If a local step
+fails, the previous working version is restored.
 
-In Docker, the editable catalogue and its material references are seeded on
-first start into `outputs/catalog/` (the mounted `/app/outputs` volume). Runtime
-edits therefore survive container restarts and Watchtower image replacements.
-Source development without an explicit `OUTPUTS_DIR` continues to use the
-checked-in `app-v2/catalog.json` and `app-v2/material-references/` files. The
-admin page and API remain restricted to localhost.
+**Access.** With `ADMIN_TOKEN` set (every Docker deployment — put it in `.env`
+next to `docker-compose.yml`, see `.env.example`) the panel asks for that
+token once and sends it as `X-Admin-Token`. Without a token the API is
+loopback-only, which is the source-mode developer setup; a Docker container
+without `ADMIN_TOKEN` answers 403 with the instruction.
+
+**Repository push.** With `CATALOG_GIT_TOKEN` set (fine-grained GitHub PAT,
+*Contents: read/write* on the one repository in `CATALOG_GIT_REPO`), every
+save is also committed to `CATALOG_GIT_BRANCH` through the Git Data API —
+`app-v2/catalog.json` plus the whole `app-v2/material-references/` directory
+in a single commit, nothing else — so CI rebuilds the image and Watchtower
+rolls it out to every instance (≈5–10 min). The panel shows the commit and
+polls the CI state. A failed push keeps the edit locally as *pending* and can
+be retried from the panel. Without the token, Docker edits stay on that
+instance and are marked pending so an image update never overwrites them.
+
+**Runtime copy vs. image.** In Docker the catalogue lives in
+`outputs/catalog/` (the mounted volume) and is stamped with the git sha the
+image was built from (`NANO_SOFA_BUILD_SHA`, passed by CI as `GIT_SHA`).
+When a new image starts, the bundled catalogue replaces the runtime copy
+(previous copy kept in `outputs/catalog/previous/`) — unless edits are still
+pending a push. Source development without `OUTPUTS_DIR` reads and writes
+the checked-in files directly; commit them with git.
 
 ## Frontend dev loop
 

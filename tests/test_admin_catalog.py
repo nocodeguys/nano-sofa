@@ -132,9 +132,12 @@ def test_admin_save_promotes_catalog_without_frontend_build(server, tmp_path, mo
         )
         assert angle_response.status_code == 200
         assert angle_response.headers["content-type"] == "image/jpeg"
-        # No CATALOG_GIT_TOKEN in tests → the edit is recorded as local-only.
+        # No CATALOG_GIT_TOKEN in tests → nothing is pushed. In source mode
+        # (no OUTPUTS_DIR) the edit simply sits in the working tree, so it is
+        # not flagged as pending either.
         assert response.json()["git"]["enabled"] is False
-        assert response.json()["git"]["pending"]["reason"] == "not_configured"
+        assert response.json()["git"]["mode"] == "source"
+        assert response.json()["git"]["pending"] is None
         assert list(backups.glob("catalog-*.zip"))
         assert CATALOG["colors"][0]["name_pl"] == "kolor testowy"
     finally:
@@ -261,3 +264,17 @@ def test_catalog_js_carries_the_flattened_color_index(server):
     assert body.startswith("window.NS_CATALOG = ")
     assert '"color_index"' in body
     assert '"velutto-27"' in body
+
+
+
+def test_docker_mode_without_token_marks_edits_pending(server, tmp_path, monkeypatch):
+    from studio import routes_admin
+
+    monkeypatch.setattr(routes_admin, "_PERSIST_RUNTIME_CATALOG", True)
+    monkeypatch.setattr(routes_admin, "_PENDING_PUSH_PATH", tmp_path / "pending-push.json")
+    monkeypatch.setattr(routes_admin, "_LAST_PUSH_PATH", tmp_path / "last-push.json")
+    monkeypatch.delenv("CATALOG_GIT_TOKEN", raising=False)
+    git = routes_admin._push_to_repository("test", touched=["boucle"])
+    assert git["enabled"] is False and git["pushed"] is False
+    assert git["pending"]["reason"] == "not_configured"
+    assert (tmp_path / "pending-push.json").is_file()

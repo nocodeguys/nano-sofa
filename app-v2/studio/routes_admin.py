@@ -48,6 +48,7 @@ from studio.paths import (
     _LAST_PUSH_PATH,
     _MATERIAL_REFS_DIR,
     _PENDING_PUSH_PATH,
+    _PERSIST_RUNTIME_CATALOG,
     logger,
 )
 
@@ -566,6 +567,10 @@ def _push_to_repository(message: str, touched: list[str] | None = None) -> dict:
     recorded in pending-push.json (and reported) so the local edit survives
     and can be retried; a success clears it and records last-push.json."""
     cfg = load_git_config()
+    if not cfg.enabled and not _PERSIST_RUNTIME_CATALOG:
+        # Source mode: the save landed in the git working tree; the developer
+        # commits it with git. Nothing is pending and nothing can be lost.
+        return {"enabled": False, "pushed": False, "pending": None, "mode": "source"}
     if not cfg.enabled:
         # No token: edits stay local. Record that so a new image does not
         # overwrite them on the next start (see paths._seed_runtime_catalog).
@@ -615,6 +620,7 @@ def _git_state() -> dict:
     cfg = load_git_config()
     return {
         **cfg.public(),
+        "mode": "docker" if _PERSIST_RUNTIME_CATALOG else "source",
         "pending": read_json(_PENDING_PUSH_PATH),
         "last_push": read_json(_LAST_PUSH_PATH),
         "build_sha": os.environ.get("NANO_SOFA_BUILD_SHA", "") or None,

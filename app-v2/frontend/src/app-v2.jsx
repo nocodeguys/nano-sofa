@@ -15,7 +15,8 @@ import {
   TweakSlider, TweakToggle, TweakRadio,
 } from "./tweaks-panel.jsx";
 
-const { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
+const { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById,
+        SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
         LENSES, TIMES_OF_DAY, SHADOWS,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
         CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
@@ -217,6 +218,38 @@ const CATALOG_BACKDROPS = [
     note: "czysta biel studyjna, bez podtonu — pod marketplace’y, które i tak podmieniają tło" },
 ];
 
+// Colour picker rows for the Warianty / Seria grids: the universal groups
+// first, then each fabric collection under its own label. Label rows span
+// the full grid width; picking a collection colour implies its material.
+function colorGridItems() {
+  const items = COLOR_GROUPS.map(c => ({ type: "color", c }));
+  for (const col of COLLECTIONS) {
+    if (!col.codes.length) continue;
+    const matName = MATERIALS.find(m => m.id === col.material)?.name || col.material;
+    items.push({ type: "label", text: `${col.name}${matName ? " · " + matName : ""}`, key: "lbl-" + col.id });
+    for (const c of col.codes) items.push({ type: "color", c });
+  }
+  return items;
+}
+const COLOR_GRID_ITEMS = colorGridItems();
+const GRID_LABEL_STYLE = { gridColumn: "1 / -1", fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase",
+  color: "var(--ink-3)", fontFamily: "Geist Mono", marginTop: 6 };
+
+function CatalogMissing() {
+  return (
+    <div className="app-frame" style={{ display: "grid", placeItems: "center", minHeight: "100vh", padding: 24 }}>
+      <div style={{ maxWidth: 520, textAlign: "center" }}>
+        <h1 style={{ fontSize: 22, marginBottom: 8 }}>Nie udało się wczytać katalogu tkanin</h1>
+        <p style={{ color: "var(--ink-3)", fontSize: 14, lineHeight: 1.55 }}>
+          Strona nie dostała pliku <code>/catalog.js</code> z serwera. Sprawdź, czy backend działa
+          (w trybie deweloperskim uruchom najpierw <code>./app-v2/run.sh</code>), a potem odśwież stronę.
+        </p>
+        <button className="btn" type="button" onClick={() => window.location.reload()} style={{ marginTop: 12 }}>Odśwież</button>
+      </div>
+    </div>
+  );
+}
+
 function App({ t }) {
   const [apiKey, setApiKey] = useState(() => {
     try { return localStorage.getItem(API_KEY_STORAGE) || ""; } catch { return ""; }
@@ -241,6 +274,31 @@ function App({ t }) {
       .then(r => r.ok ? r.json() : null)
       .then(cfg => { if (cfg && cfg.models && cfg.models.length) setServerConfig(cfg); })
       .catch(() => {});
+  }, []);
+
+  // Which materials have curated reference photos on this instance, and the
+  // catalogue version this page was built from. Polled on focus + every
+  // minute: an admin save elsewhere sets `catalogStale`, and the banner
+  // offers a reload (no automatic reload — the form would be lost).
+  const [catalogRefs, setCatalogRefs] = useState({});
+  const [catalogStale, setCatalogStale] = useState(false);
+  const catalogVersion = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => fetch("/api/catalog-status", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || cancelled) return;
+        if (catalogVersion.current === null) { catalogVersion.current = data.version; setCatalogRefs(data.references || {}); }
+        else if (data.version !== catalogVersion.current) setCatalogStale(true);
+      })
+      .catch(() => {});
+    check();
+    const onFocus = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    const timer = setInterval(check, 60000);
+    return () => { cancelled = true; clearInterval(timer); document.removeEventListener("visibilitychange", onFocus); window.removeEventListener("focus", onFocus); };
   }, []);
 
   const [st, setSt] = useState({
@@ -395,7 +453,8 @@ function App({ t }) {
     try {
       const slim = gallery.slice(0, 60).map(g => ({
         url: g.url, generation_id: g.generation_id || null,
-        color: g.color || null, material: g.material || null,
+        color: g.color || null, color_id: g.color_id || null, fabric_code: g.fabric_code || null,
+        material: g.material || null, catalog_profile: g.catalog_profile || null,
         tag: g.tag || null, cost: g.cost ?? null, ts: g.ts || null,
       }));
       localStorage.setItem(GALLERY_STORAGE, JSON.stringify(slim));
@@ -677,7 +736,10 @@ function App({ t }) {
       } else {
         setGallery(g => [
           { url: data.image_url, generation_id: data.generation_id || null,
-            color: colorObj?.hex || "#5C7A56", material: matObj?.id || null,
+            color: st.color === "custom" ? (st.colorCustomHex || null) : (colorObj?.hex || null),
+            color_id: st.color === "custom" ? "custom" : (colorObj?.id || null),
+            fabric_code: colorObj?.fabricCode || null,
+            material: matObj?.id || null,
             catalog_profile: data.catalog_profile || null,
             tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
           ...g,
@@ -954,6 +1016,7 @@ function App({ t }) {
       appendShootConfig(fd);
       fd.append("color", color);
       fd.append("material", material || "boucle");
+      fd.append("mat", material || "boucle");
       if (source.kind === "ref" && source.ref) fd.append("source_ref", source.ref);
       else if (source.kind === "upload" && source.file) fd.append("source_image", source.file);
       const resp = await fetch("/api/regenerate-variant", { method: "POST", body: fd });
@@ -1072,6 +1135,18 @@ function App({ t }) {
   return (
     <div className="app-frame">
       <NanoTopbar active="photos" apiKey={apiKey} setApiKey={setApiKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit} />
+      {catalogStale && (
+        <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 16px",
+          background: "var(--ink)", color: "var(--paper)", fontSize: 12.5 }}>
+          <span>Katalog tkanin został zaktualizowany. Odśwież stronę, żeby zobaczyć nowe kolory i materiały.</span>
+          <button type="button" onClick={() => window.location.reload()}
+            style={{ border: "1px solid rgba(255,255,255,.5)", background: "transparent", color: "inherit", borderRadius: 999, padding: "3px 12px", fontSize: 12, cursor: "pointer" }}>
+            Odśwież
+          </button>
+          <button type="button" onClick={() => setCatalogStale(false)} title="ukryj"
+            style={{ border: 0, background: "transparent", color: "inherit", opacity: .7, cursor: "pointer", fontSize: 14 }}>×</button>
+        </div>
+      )}
       <div className="shell">
       {/* ============= LEFT — sticky stage ============= */}
       <section className="stage-pane">
@@ -1187,7 +1262,7 @@ function App({ t }) {
               const sceneId = activeImg.catalog_profile
                 ? `catalog-${activeImg.catalog_profile}`
                 : envObj?.id;
-              const slug = [colorObj?.id, matObj?.id, sceneId].filter(Boolean).join("-");
+              const slug = [activeImg.color_id || colorObj?.id, activeImg.material || matObj?.id, sceneId].filter(Boolean).join("-");
               ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
               downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
             }
@@ -1293,7 +1368,9 @@ function App({ t }) {
               <div>
                 <div style={{fontSize: 13, marginBottom: 6}}>Wybierz kolory (pierwszy = anchor, reszta dziedziczy scenę)</div>
                 <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(72px, 1fr))", gap: 8}}>
-                  {COLORS.map((c, i) => {
+                  {COLOR_GRID_ITEMS.map((item) => {
+                    if (item.type === "label") return <div key={item.key} style={GRID_LABEL_STYLE}>{item.text}</div>;
+                    const c = item.c;
                     const picked = variantColors.includes(c.id);
                     const idx = variantColors.indexOf(c.id);
                     return (
@@ -1638,10 +1715,12 @@ function App({ t }) {
 
                 {/* draft builder: colour + material + add */}
                 <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(64px, 1fr))", gap: 6, marginBottom: 8}}>
-                  {COLORS.map(c => {
+                  {COLOR_GRID_ITEMS.map(item => {
+                    if (item.type === "label") return <div key={item.key} style={GRID_LABEL_STYLE}>{item.text}</div>;
+                    const c = item.c;
                     const sel = shootPairDraft.color === c.id;
                     return (
-                      <button key={c.id} onClick={() => setShootPairDraft(d => ({ ...d, color: c.id }))} disabled={shootBusy}
+                      <button key={c.id} onClick={() => setShootPairDraft(d => ({ ...d, color: c.id, ...(c.material ? { material: c.material } : {}) }))} disabled={shootBusy}
                         title={c.name}
                         style={{position:"relative", padding: 0, border: 0, cursor:"pointer", borderRadius: 9, overflow:"hidden",
                           aspectRatio:"1/1", background: c.hex,
@@ -2122,7 +2201,7 @@ function App({ t }) {
           summary={st.color === "custom" ? ("własny" + (st.colorCustomHex ? " · " + st.colorCustomHex : " opis")) : colorObj?.name}
           help="Wybierz preset albo zdefiniuj własny kolor — opisem słownym, dokładnym HEX-em lub oboma naraz. Modele rozpoznają nazwy z naszej palety najwierniej.">
           <div className="swatches">
-            {COLORS.map(c => (
+            {COLOR_GROUPS.map(c => (
               <div key={c.id} className={"sw " + (st.color === c.id ? "sel" : "")} onClick={() => set({ color: c.id })}
                 title={c.covers ? `${c.name} — obejmuje tkaniny: ${c.covers}` : c.name}>
                 <div className="sw-fill" style={{ background: c.hex }}></div>
@@ -2136,6 +2215,30 @@ function App({ t }) {
               <div className="sw-hex">{st.colorCustomHex || "opis / HEX"}</div>
             </div>
           </div>
+          {COLLECTIONS.filter(col => col.codes.length).map(col => {
+            const colMat = MATERIALS.find(m => m.id === col.material);
+            return (
+              <div key={col.id} style={{ marginTop: 12 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{col.name}</span>
+                  {colMat && <span style={{ fontSize: 11, color: "var(--ink-3)" }}>kolekcja · {colMat.name} (wybór ustawia materiał)</span>}
+                </div>
+                <div className="swatches">
+                  {col.codes.map(c => (
+                    <div key={c.id} className={"sw " + (st.color === c.id ? "sel" : "")}
+                      onClick={() => set({ color: c.id, ...(c.material ? { mat: c.material } : {}) })}
+                      title={c.hexVerified ? c.name : `${c.name} — HEX przybliżony (z grupy TreeTale); wpisz dokładny w Katalogu`}>
+                      <div className="sw-fill" style={{ background: c.hex, position: "relative" }}>
+                        {!c.hexVerified && <span style={{ position: "absolute", top: 3, right: 5, fontSize: 10, color: "rgba(255,255,255,.9)", textShadow: "0 1px 1px rgba(0,0,0,.5)", fontFamily: "Geist Mono" }}>≈</span>}
+                      </div>
+                      <div className="sw-name">{c.name}</div>
+                      <div className="sw-hex">{c.hex}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
           {st.color === "custom" && (
             <div style={{ marginTop: 10 }}>
               <textarea className="input"
@@ -2168,15 +2271,25 @@ function App({ t }) {
         <Section num="04" title="Materiał" summary={matObj?.name + (st.matNotes ? " · z notatką" : "")}
           help="Zamknięta lista — to materiały, które model odwzorowuje wiarygodnie. Notatki o teksturze (poniżej) doprecyzowują finish.">
           <div className="mat-grid" style={{ "--mat-color": (st.color === "custom" ? "#B7A689" : (colorObj?.hex || "#B7A689")) }}>
-            {MATERIALS.map(m => (
-              <div key={m.id} className={"mat " + (st.mat === m.id ? "sel" : "")} onClick={() => set({ mat: m.id })}>
-                <div className={"mat-tex " + m.tex}></div>
-                <div className="mat-meta">
-                  <div className="mat-name">{m.name}</div>
-                  <div className="mat-prop">{m.prop} · <span className="mat-finish">{m.finish}</span></div>
+            {MATERIALS.map(m => {
+              const refs = catalogRefs[m.id] || {};
+              const refCount = ["macro", "left", "right", "behavior", "application"].filter(k => refs[k]).length;
+              return (
+                <div key={m.id} className={"mat " + (st.mat === m.id ? "sel" : "")} onClick={() => set({ mat: m.id })}
+                  title={refCount ? `${refCount} zdjęć referencyjnych w katalogu — model dostaje prawdziwą fakturę` : "Brak zdjęć referencyjnych — tylko opis tekstowy. Dodaj je w zakładce Katalog."}>
+                  <div className={"mat-tex " + m.tex} style={{ position: "relative" }}>
+                    <span style={{ position: "absolute", top: 5, right: 6, fontSize: 9, fontFamily: "Geist Mono", padding: "1px 5px", borderRadius: 999,
+                      background: refCount ? "rgba(26,27,25,.78)" : "rgba(255,255,255,.75)", color: refCount ? "#fff" : "var(--ink-3)" }}>
+                      {refCount ? `ref ×${refCount}` : "tekst"}
+                    </span>
+                  </div>
+                  <div className="mat-meta">
+                    <div className="mat-name">{m.name}</div>
+                    <div className="mat-prop">{m.prop} · <span className="mat-finish">{m.finish}</span></div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <textarea className="input" style={{ marginTop: 10 }}
             placeholder="opcjonalnie: gęste pętelki bouclé, dłuższy włos przy oparciu"
@@ -2842,6 +2955,7 @@ function StagePaneTweaks({ t, setTweak }) {
 
 function Root() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  if (CATALOG_MISSING) return <CatalogMissing />;
   return (
     <>
       <App t={t} />

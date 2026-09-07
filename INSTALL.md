@@ -139,6 +139,25 @@ If you ever want to force an update right now instead of waiting for the next
 5-minute poll, just close the launcher window and double-click it again — the
 launcher pulls the latest image before starting.
 
+## Fabric catalogue (Katalog panel)
+
+The **Katalog** tab edits fabrics, fabric collections and colours, and holds
+the reference photos the model copies texture from. In Docker it needs a
+token: create a file named `.env` next to `docker-compose.yml` with
+
+```
+ADMIN_TOKEN=any-long-secret-you-choose
+```
+
+restart the app, open **Katalog** and paste the same value when asked. The
+token stays in your browser.
+
+Edits made this way live on that computer only. To share them with every
+installation, the shop's main server additionally sets `CATALOG_GIT_TOKEN`
+(a GitHub token for the Nano Sofa repository, see `.env.example`); every save
+is then committed to the repository, a new image is built automatically and
+Watchtower delivers it to all installations within about ten minutes.
+
 ---
 
 ## Getting your Gemini API key

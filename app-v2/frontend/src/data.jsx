@@ -4,17 +4,39 @@ import React from "react";
    Data — colors, materials, sizes, cameras, legs
    ====================================================== */
 // Upholstery colours + fabric types come from catalog.json — the single
-// source of truth shared with server.py 1:1 (prompt_en / noun_en / texture_en
+// source of truth shared with the server 1:1 (prompt_en / noun_en / texture_en
 // live there too and are applied server-side). GET /catalog.js sets
-// window.NS_CATALOG and MUST be loaded before this file.
-// COLORS are the TreeTale fabric-matrix GROUPS; `covers` lists the real
-// fabric SKUs a group stands in for (shown on hover).
-const COLORS = window.NS_CATALOG.colors.map((c) => ({
+// window.NS_CATALOG and is loaded before this file. The server also ships
+// `color_index`: every selectable colour flattened — the TreeTale GROUPS from
+// `colors` plus every code of every fabric `collection` (id "<collection>-<code>",
+// exact hex, implied material). We never re-implement that flattening here.
+const RAW_CATALOG = (typeof window !== "undefined" && window.NS_CATALOG) || null;
+// True when /catalog.js failed to load (backend down while Vite dev proxies
+// it, or a broken deploy). The pages render a clear error instead of a blank
+// screen; every list below is then empty but well-formed.
+const CATALOG_MISSING = !RAW_CATALOG;
+const _cat = RAW_CATALOG || { colors: [], materials: [], collections: [], color_index: [] };
+const _index = Array.isArray(_cat.color_index) && _cat.color_index.length
+  ? _cat.color_index
+  : (_cat.colors || []).map(c => ({ ...c, collection: "", code: "", material: "", fabric_code: "", hex_verified: true }));
+
+const COLORS = _index.map((c) => ({
   id: c.id, name: c.name_pl, hex: c.hex, fabric: !!c.fabric, covers: c.covers,
+  collection: c.collection || "", code: c.code || "", material: c.material || "",
+  fabricCode: c.fabric_code || "", hexVerified: c.hex_verified !== false,
 }));
+// Universal TreeTale colour groups (no collection).
+const COLOR_GROUPS = COLORS.filter(c => !c.collection);
+// Fabric collections with their codes resolved to COLORS entries.
+const COLLECTIONS = (_cat.collections || []).map(col => ({
+  id: col.id, name: col.name_pl, material: col.material || "",
+  description: col.description_pl || "",
+  codes: COLORS.filter(c => c.collection === col.id),
+}));
+const colorById = (id) => COLORS.find(c => c.id === id) || null;
 
 // `tex` maps to a .fabric-overlay preview class in styles-v2.css.
-const MATERIALS = window.NS_CATALOG.materials.map((m) => ({
+const MATERIALS = (_cat.materials || []).map((m) => ({
   id: m.id, name: m.name_pl, prop: m.prop_pl, tex: m.tex, finish: m.finish_pl,
 }));
 
@@ -308,7 +330,8 @@ const BED_ACCENTS = [
 ];
 
 export { Ic };
-export const NS_DATA = { COLORS, MATERIALS, SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
+export const NS_DATA = { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById,
+                         SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
                          STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
                          SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
                          CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,

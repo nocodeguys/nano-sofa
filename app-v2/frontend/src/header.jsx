@@ -7,7 +7,7 @@
 */
 import React from "react";
 
-export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false }) {
+export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false, adminLabel = "tylko lokalnie" }) {
   const suffix = active === "video" ? "wideo" : active === "editorial" ? "editorial" : active === "admin" ? "katalog" : active === "experiments" ? "eksperymenty" : "studio";
   const forget = () => setApiKey?.("");
   return (
@@ -27,7 +27,7 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
 
       <div className="topbar-key">
         {hideApiKey ? (
-          <span className="admin-local-chip"><span className="dot"></span>tylko lokalnie</span>
+          <span className="admin-local-chip"><span className="dot"></span>{adminLabel}</span>
         ) : showKeyEdit ? (
           <>
             <input

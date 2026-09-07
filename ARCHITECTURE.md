@@ -43,10 +43,18 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
    `tod`, `shadow`, `env`, `model`, `aspect`, `res`, `seed`) + `base_image`.
 2. `server.py` maps Polish/UI ids → English prompt fragments
    (`_MATERIAL_PL_TO_EN`, `_MATERIAL_TEXTURE_EN`, scene/camera tables) and
-   builds a `GenerationRequest` with named reference slots: base product,
-   leg reference (from `legs/manifest.json`), scene reference, fabric swatch,
-   plus free-form extra refs (capped to the model's `max_refs`).
-3. `generator.generate()` assembles the final prompt text, flattens alpha,
+   builds a `GenerationRequest` that DECLARES every available reference:
+   base product, leg reference (from `legs/manifest.json`), scene reference,
+   the curated material views (macro, left/right, behaviour, application),
+   the exact colour (`upholstery_hex` → a flat colour-patch reference) and
+   free-form extra refs. It also tags the request with catalog ids
+   (`color_id`, `material_id`, `fabric_code`) that travel into PNG tEXt,
+   the trace and the cost DB.
+3. `generator.plan_reference_slots()` is the ONE place that applies the
+   model's `max_refs` cap and fixes the slot order; the prompt text and the
+   trace number slots from the attached list, never from the declared
+   fields, so a dropped reference can never mislabel the ones after it.
+   `generator.generate()` then assembles the prompt, flattens alpha,
    calls Gemini with exponential backoff, classifies failures, saves the
    image, logs cost to SQLite (`app/state/costs.db`).
 4. Debugging wording: `NANO_SOFA_LOG_PROMPT=1` dumps the full prompt that

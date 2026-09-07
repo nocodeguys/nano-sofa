@@ -20,8 +20,8 @@ import { NanoTopbar } from "./header.jsx";
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key"; // shared with the studio page
 const OR_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // FLUX / Seedream via OpenRouter
-const { ENVIRONMENTS, TIMES_OF_DAY, LENSES, CAMERA_HEIGHTS, COLORS, MATERIALS,
-        EDITORIAL_STYLES, PEOPLE_OPTIONS } = NS_DATA;
+const { ENVIRONMENTS, TIMES_OF_DAY, LENSES, CAMERA_HEIGHTS, COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS,
+        EDITORIAL_STYLES, PEOPLE_OPTIONS, CATALOG_MISSING } = NS_DATA;
 
 // Lifestyle + cyclorama scenes minus legacy aliases and "custom" (needs an
 // upload slot the editorial page doesn't have).
@@ -409,11 +409,25 @@ function App() {
               <button title="brak" className={color === "" ? "on" : ""}
                 style={{ background: "repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 0 0/8px 8px" }}
                 onClick={() => setColor("")} />
-              {COLORS.map(c => (
+              {COLOR_GROUPS.map(c => (
                 <button key={c.id} title={c.name} className={color === c.id ? "on" : ""}
                   style={{ background: c.hex }} onClick={() => setColor(c.id)} />
               ))}
             </div>
+            {COLLECTIONS.filter(col => col.codes.length).map(col => (
+              <div key={col.id} style={{ marginTop: 8 }}>
+                <div className="field-lbl" style={{ fontSize: 10, opacity: .8 }}>
+                  {col.name}{col.material ? ` · ${MATERIALS.find(m => m.id === col.material)?.name || col.material}` : ""}
+                </div>
+                <div className="ed-sw">
+                  {col.codes.map(c => (
+                    <button key={c.id} title={c.name + (c.hexVerified ? "" : " (HEX przybliżony)")} className={color === c.id ? "on" : ""}
+                      style={{ background: c.hex, opacity: c.hexVerified ? 1 : .8 }}
+                      onClick={() => { setColor(c.id); if (c.material) setMat(c.material); }} />
+                  ))}
+                </div>
+              </div>
+            ))}
 
             <div className="field-lbl" style={{ marginTop: 14 }}>tkanina przewodnia</div>
             <div className="seg">
