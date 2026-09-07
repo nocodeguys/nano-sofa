@@ -22,7 +22,12 @@ APP_V2 = REPO_ROOT / "app-v2"
 if str(APP_V2) not in sys.path:
     sys.path.insert(0, str(APP_V2))
 
-from app.core.generator import _build_prompt_text, _collect_reference_images  # noqa: E402
+from app.core.generator import (  # noqa: E402
+    _build_prompt_text,
+    _collect_reference_images,
+    plan_reference_slots,
+    slot_numbers,
+)
 from studio.normalize import (  # noqa: E402
     CATALOG_PROFILE,
     PROFILES,
@@ -125,10 +130,15 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     assert req.material_right_reference_image is None
     assert req.material_behavior_reference_image is None
     assert req.material_application_reference_image is None
+    # 2.5-flash caps at 3 refs: base + cyclorama + macro. The colour patch
+    # does not fit and must not be named in the prompt.
     assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    roles = [slot.role for slot in plan_reference_slots(req)]
+    assert roles == ["base_product", "scene", "material_macro"]
 
     text = _build_prompt_text(req)
     assert "MATERIAL TEXTURE AUTHORITY (slot 3)" in text
+    assert "COLOUR AUTHORITY" not in text
     assert "IGNORE the photographed colour" in text
     assert req.upholstery_color in text
     assert "Do not copy the fold" in text
@@ -146,9 +156,16 @@ def test_cremona_uses_the_supplied_canonical_texture_reference(
     assert Path(req.swatch_reference_image).name == "cremona.jpg"
     assert req.use_swatch_for_fabric
     assert req.swatch_texture_only
-    assert req.material_behavior_reference_image is None
-    assert req.material_application_reference_image is None
+    # The request DECLARES every curated view; the cap is applied once, in
+    # plan_reference_slots, and the prompt only names attached slots.
+    assert Path(req.material_behavior_reference_image).name == "cremona-behavior.jpg"
+    assert Path(req.material_application_reference_image).name == "cremona-application.png"
     assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    text = _build_prompt_text(req)
+    assert "MATERIAL TEXTURE AUTHORITY (slot 3)" in text
+    assert "MULTI-ANGLE" not in text
+    assert "LIGHT-RESPONSE" not in text
+    assert "IN-USE SCALE CHECK" not in text
 
 
 def test_cremona_adds_light_response_reference_when_model_has_room(
@@ -164,12 +181,15 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert Path(req.material_right_reference_image).name == "cremona-right.jpg"
     assert Path(req.material_behavior_reference_image).name == "cremona-behavior.jpg"
     assert Path(req.material_application_reference_image).name == "cremona-application.png"
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 7
+    # base, cyclorama, macro, colour patch, left, right, behaviour,
+    # application = 8 attached on a 14-ref model.
+    assert len(_collect_reference_images(req, Image.open(base_image))) == 8
     text = _build_prompt_text(req)
-    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (slots 4 and 5)" in text
-    assert "FABRIC LIGHT-RESPONSE AUTHORITY (slot 6)" in text
+    assert "COLOUR AUTHORITY (slot 4)" in text
+    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (slots 5 and 6)" in text
+    assert "FABRIC LIGHT-RESPONSE AUTHORITY (slot 7)" in text
     assert "MATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT" in text
-    assert "FABRIC IN-USE SCALE CHECK (slot 7)" in text
+    assert "FABRIC IN-USE SCALE CHECK (slot 8)" in text
     assert "stable three-dimensional yarn relief" in text
     assert "do not average the two views into a smooth surface" in text
     assert "reversible directional sheen" in text
@@ -179,11 +199,11 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert "tiny self-shadows" in text
     assert "delicate fuzzy rim" in text
     assert "same fine physical scale" in text
-    assert "calm, continuous, fine tactile chenille surface" in text
+    assert "calm, continuous, finely tactile surface of the specified material" in text
     assert "must not become broad cloudy patches" in text
     assert "physical sample photographs" in text
     assert "can never override or reinterpret those samples" in text
-    assert "never the reference bed's geometry" in text
+    assert "never the reference piece's geometry" in text
     assert "Slot 1 remains the absolute product-geometry authority" in text
 
 
@@ -201,12 +221,98 @@ def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
     assert "Never average, blend or reconcile slot 1's background" in text
 
 
-def test_material_without_canonical_swatch_keeps_the_old_reference_count(
+def test_material_without_canonical_swatch_gets_the_colour_patch_instead(
     server, base_image
 ):
     req = _request(server, base_image, catalog=True, mat="basketweave")
     assert req.swatch_reference_image is None
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 2
+    roles = [slot.role for slot in plan_reference_slots(req)]
+    assert roles == ["base_product", "scene", "color_patch"]
+    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    text = _build_prompt_text(req)
+    assert "COLOUR AUTHORITY (slot 3)" in text
+    assert "#C3BEB6" in text
+
+
+def test_slot_numbers_follow_attached_images_not_declared_fields(
+    server, base_image, tmp_path
+):
+    """The audit's failure case: 3-ref model, cremona, no scene, two
+    moodboards. Old code dropped the macro but still wrote 'slot 2' for it."""
+    moodboards = []
+    for name in ("mood-a.png", "mood-b.png"):
+        path = tmp_path / name
+        Image.new("RGB", (16, 16), (90, 90, 90)).save(path)
+        moodboards.append(path)
+    req = _request(
+        server, base_image, mat="cremona", extra_reference_paths=moodboards,
+    )
+    plan = plan_reference_slots(req)
+    roles = [slot.role for slot in plan]
+    assert roles == ["base_product", "material_macro", "color_patch"]
+    text = _build_prompt_text(req, slot_numbers(plan))
+    assert "MATERIAL TEXTURE AUTHORITY (slot 2)" in text
+    assert "COLOUR AUTHORITY (slot 3)" in text
+    assert "MULTI-ANGLE" not in text
+    assert "moodboard" not in text.lower() or "REFERENCE LOCK" not in text
+
+
+def test_locked_moodboard_outranks_material_views(server, base_image, tmp_path):
+    mood = tmp_path / "mood.png"
+    Image.new("RGB", (16, 16), (90, 90, 90)).save(mood)
+    req = _request(
+        server, base_image, mat="cremona", extra_reference_paths=[mood],
+        lock_to_reference=True,
+    )
+    roles = [slot.role for slot in plan_reference_slots(req)]
+    assert roles == ["base_product", "extra_reference_1", "material_macro"]
+    assert "REFERENCE LOCK" in _build_prompt_text(req)
+
+
+def test_dark_colours_get_the_deep_shade_clause_and_light_ones_do_not(
+    server, base_image
+):
+    dark = _request(server, base_image, color="velutto-27")
+    assert dark.upholstery_hex == "#122D24"
+    assert dark.color_id == "velutto-27"
+    assert dark.fabric_code == "Velutto 27"
+    assert "DEEP-SHADE EXPOSURE" in _build_prompt_text(dark)
+
+    light = _request(server, base_image, color="pearl")
+    assert "DEEP-SHADE EXPOSURE" not in _build_prompt_text(light)
+
+
+def test_custom_colour_hex_is_recovered_for_the_patch(server, base_image):
+    req = _request(
+        server, base_image, color="custom",
+        color_custom="dusty terracotta (exact upholstery colour hex #b5674d)",
+    )
+    assert req.upholstery_hex == "#B5674D"
+    assert req.color_id == "custom"
+    assert "color_patch" in [s.role for s in plan_reference_slots(req)]
+
+
+def test_white_bedding_exposure_rule_is_bed_only(server, base_image):
+    bed = _request(server, base_image, kind="bed", catalog=True)
+    sofa = _request(server, base_image, kind="sofa", size="3", catalog=True)
+    assert "WHITE-TEXTILE EXPOSURE" in _build_prompt_text(bed)
+    assert "WHITE-TEXTILE EXPOSURE" not in _build_prompt_text(sofa)
+
+
+def test_variant_scene_that_contains_the_product_is_never_called_empty(
+    server, base_image
+):
+    from dataclasses import replace
+
+    req = _request(
+        server, base_image, env="cyclorama_neutral", env_mode="",
+        scene_image_path=base_image,
+    )
+    honest = replace(req, scene_contains_product=True)
+    text = _build_prompt_text(honest)
+    assert "EMPTY studio plate" not in text
+    assert "DIFFERENT upholstery colour" in text
+    assert "EMPTY studio plate" in _build_prompt_text(req)
 
 
 def test_catalog_mode_keeps_yaw(server, base_image):

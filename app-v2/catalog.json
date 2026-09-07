@@ -9,7 +9,8 @@
     "RULE (learned twice — plecionka a794761, szenila ab1f898): the English",
     "`noun_en` outweighs `texture_en`. A bare stereotype noun ('chenille",
     "fabric') silently cancels a paragraph of texture spec. Keep the noun in",
-    "agreement with the spec."
+    "agreement with the spec.",
+    "collections[]: fabric collections (Velutto, Cremona, Barrel, Lincoln D). Each code becomes a selectable colour id '<collection>-<code>' with its own EXACT hex and implies the collection's material. hex_verified:false marks a code seeded from its TreeTale group hex — replace with the real swatch value."
   ],
   "materials": [
     {
@@ -130,6 +131,206 @@
       "noun_en": "velour fabric",
       "texture_en": "Luxurious dense pile with a very soft, smooth, uniform surface and a subtle sheen; medium weight, elegant fluid soft and slightly-heavy fall; distinctive light-catching sheen, rich colour depth, subtle highlights and shadows.",
       "avoid_en": []
+    },
+    {
+      "id": "corduroy",
+      "name_pl": "sztruks",
+      "prop_pl": "wyraźne prążki, miękki włos",
+      "finish_pl": "matowy, kierunkowy",
+      "tex": "corduroy",
+      "noun_en": "fine-wale corduroy upholstery fabric with soft cut pile ribs",
+      "note": "Added 2026-09 for the Lincoln D collection (TRE-92). No physical sample photographed yet — text-only until references are uploaded in the Katalog panel.",
+      "texture_en": "Fine-wale corduroy: parallel raised ribs (wales) of soft cut pile separated by narrow recessed channels, roughly 1.5–2 mm pitch, running in one consistent direction across each upholstered panel. The ribs are velvety and catch light along their crests, the channels stay slightly darker; the contrast between rib and channel is gentle, not graphic. At normal furniture-photography distance the surface reads as a calm, finely striped velvety textile with a soft directional sheen; the ribs follow the product's curves and change direction only at seams. Matte overall, no plastic gloss, no printed stripes.",
+      "avoid_en": [
+        "printed pin-stripes",
+        "flat painted lines",
+        "wide chunky jumbo cord ribs",
+        "ribs changing direction mid-panel",
+        "plain smooth velvet without ribs",
+        "knitted rib texture",
+        "glossy plastic sheen",
+        "regular grid or checkerboard"
+      ]
+    },
+    {
+      "id": "linen",
+      "name_pl": "len tapicerski",
+      "prop_pl": "naturalny splot, lekko nieregularny",
+      "finish_pl": "matowy",
+      "tex": "linen",
+      "noun_en": "natural upholstery linen with a visible slightly irregular plain weave",
+      "note": "Added 2026-09 (TRE-6). Text-only until a physical sample is photographed.",
+      "texture_en": "Heavy upholstery linen: a plain weave of natural flax yarns with visible, slightly irregular slubs and thickness variation along the threads, giving a gently uneven, organic surface. The weave is fine enough that at furniture distance it reads as a calm matte textile with a subtle crosshatch and occasional thicker slub lines, never as a coarse basket. Completely matte, dry-looking, with soft fold lines where the fabric is tensioned over cushions; no sheen, no pile, no loops.",
+      "avoid_en": [
+        "coarse open basketweave",
+        "perfectly uniform synthetic weave",
+        "shiny or satin surface",
+        "bouclé loops",
+        "pile or nap",
+        "printed texture",
+        "burlap or jute sacking"
+      ]
+    }
+  ],
+  "collections": [
+    {
+      "id": "velutto",
+      "name_pl": "Velutto",
+      "material": "velour",
+      "description_pl": "Welur. Kody 27 i 6 mają dokładne HEX-y z zamówienia (TRE-94); pozostałe odziedziczyły HEX grupy i czekają na weryfikację.",
+      "codes": [
+        {
+          "code": "2",
+          "hex": "#D9D4CD",
+          "name_pl": "Velutto 2",
+          "prompt_en": "light sandy beige with warm champagne undertones (hex #D9D4CD)",
+          "hex_verified": false,
+          "group": "sand"
+        },
+        {
+          "code": "6",
+          "hex": "#29231D",
+          "name_pl": "Velutto 6",
+          "prompt_en": "Velutto 6 — very deep dark brown, near-black espresso with a warm undertone; much darker than milk chocolate, only the velvet pile highlights read as brown (exact upholstery colour hex #29231D)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "15",
+          "hex": "#BCBCBC",
+          "name_pl": "Velutto 15",
+          "prompt_en": "light cool ash grey / silver (hex #BCBCBC)",
+          "hex_verified": false,
+          "group": "ash"
+        },
+        {
+          "code": "27",
+          "hex": "#122D24",
+          "name_pl": "Velutto 27",
+          "prompt_en": "Velutto 27 — very deep dark green, almost black bottle green with a cool blue-leaning undertone; only the velvet pile highlights reveal the green (exact upholstery colour hex #122D24)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "29",
+          "hex": "#938A83",
+          "name_pl": "Velutto 29",
+          "prompt_en": "medium taupe blending grey and brown (hex #938A83)",
+          "hex_verified": false,
+          "group": "taupe"
+        }
+      ]
+    },
+    {
+      "id": "cremona",
+      "name_pl": "Cremona",
+      "material": "cremona",
+      "description_pl": "Szenil Cremona. Kody odziedziczyły HEX grupy TreeTale; wpisz dokładne HEX-y z próbek.",
+      "codes": [
+        {
+          "code": "1",
+          "hex": "#E7E0D6",
+          "name_pl": "Cremona 1",
+          "prompt_en": "soft creamy off-white ivory, like natural unbleached cotton (hex #E7E0D6)",
+          "hex_verified": false,
+          "group": "cream"
+        },
+        {
+          "code": "2",
+          "hex": "#D9D4CD",
+          "name_pl": "Cremona 2",
+          "prompt_en": "light sandy beige with warm champagne undertones (hex #D9D4CD)",
+          "hex_verified": false,
+          "group": "sand"
+        },
+        {
+          "code": "4",
+          "hex": "#BCBCBC",
+          "name_pl": "Cremona 4",
+          "prompt_en": "light cool ash grey / silver (hex #BCBCBC)",
+          "hex_verified": false,
+          "group": "ash"
+        },
+        {
+          "code": "14",
+          "hex": "#C3BEB6",
+          "name_pl": "Cremona 14",
+          "prompt_en": "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
+          "hex_verified": false,
+          "group": "greige"
+        },
+        {
+          "code": "24",
+          "hex": "#938A83",
+          "name_pl": "Cremona 24",
+          "prompt_en": "medium taupe blending grey and brown (hex #938A83)",
+          "hex_verified": false,
+          "group": "taupe"
+        },
+        {
+          "code": "34",
+          "hex": "#6A7763",
+          "name_pl": "Cremona 34",
+          "prompt_en": "muted earthy olive / sage green (hex #6A7763)",
+          "hex_verified": false,
+          "group": "olive"
+        }
+      ]
+    },
+    {
+      "id": "barrel",
+      "name_pl": "Barrel",
+      "material": "basketweave",
+      "description_pl": "Plecionka Barrel. Kody odziedziczyły HEX grupy TreeTale; wpisz dokładne HEX-y z próbek.",
+      "codes": [
+        {
+          "code": "3",
+          "hex": "#C3BEB6",
+          "name_pl": "Barrel 3",
+          "prompt_en": "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
+          "hex_verified": false,
+          "group": "greige"
+        },
+        {
+          "code": "9",
+          "hex": "#938A83",
+          "name_pl": "Barrel 9",
+          "prompt_en": "medium taupe blending grey and brown (hex #938A83)",
+          "hex_verified": false,
+          "group": "taupe"
+        },
+        {
+          "code": "21",
+          "hex": "#656F70",
+          "name_pl": "Barrel 21",
+          "prompt_en": "dark moody graphite / anthracite grey (hex #656F70)",
+          "hex_verified": false,
+          "group": "graphite"
+        },
+        {
+          "code": "38",
+          "hex": "#6A7763",
+          "name_pl": "Barrel 38",
+          "prompt_en": "muted earthy olive / sage green (hex #6A7763)",
+          "hex_verified": false,
+          "group": "olive"
+        },
+        {
+          "code": "80",
+          "hex": "#BCBCBC",
+          "name_pl": "Barrel 80",
+          "prompt_en": "light cool ash grey / silver (hex #BCBCBC)",
+          "hex_verified": false,
+          "group": "ash"
+        }
+      ]
+    },
+    {
+      "id": "lincoln-d",
+      "name_pl": "Lincoln D",
+      "material": "corduroy",
+      "description_pl": "Sztruks Lincoln D. Brak kodów w matrycy TreeTale — dodaj kody i HEX-y w panelu Katalog.",
+      "codes": []
     }
   ],
   "colors": [

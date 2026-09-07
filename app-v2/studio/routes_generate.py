@@ -445,10 +445,18 @@ async def api_generate_set(
             catalog=catalog_mode,
             catalog_profile=catalog_profile,
         )
+        # The anchor render is a product photo in the PREVIOUS colour, not an
+        # empty studio plate. In catalog mode the builder already swapped it
+        # for the curated cyclorama; otherwise flag it so the prompt names it
+        # truthfully and forbids copying its upholstery colour.
         v_req = dataclass_replace(
             v_req,
             prior_history=list(anchor_history),
             turn_number=2,
+            scene_contains_product=(
+                v_req.scene_reference_image is not None
+                and Path(v_req.scene_reference_image) == Path(anchor_result.output_path)
+            ),
         )
         return generate(v_req)
 

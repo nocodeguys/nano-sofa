@@ -178,7 +178,7 @@
             "material": {
               "type": "string",
               "description": "Material id from app-v2/catalog.json (TreeTale fabric matrix) — the single source of truth; server startup validates the catalog against this enum.",
-              "enum": ["knit", "boucle", "basketweave", "chenille", "cremona", "ecoleather", "velour"]
+              "enum": ["knit", "boucle", "basketweave", "chenille", "cremona", "ecoleather", "velour", "corduroy", "linen"]
             },
             "texture_notes": {
               "type": "string",

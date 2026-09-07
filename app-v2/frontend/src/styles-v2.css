@@ -1623,3 +1623,16 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
   .mode-switch { grid-template-columns: 1fr; }
   .form-foot { grid-template-columns: 1fr; }
 }
+
+/* corduroy — Lincoln D (added 2026-09): parallel velvety ribs */
+.fabric-overlay.corduroy {
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.22) 0 2px, rgba(0,0,0,.2) 2px 3px, transparent 3px 5px),
+    linear-gradient(100deg, rgba(0,0,0,.14), rgba(255,255,255,.16) 50%, rgba(0,0,0,.12));
+}
+.mat-tex.corduroy::after {        /* corduroy — fine wales + soft pile sheen */
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.38) 0 2px, rgba(0,0,0,.3) 2px 3px, transparent 3px 5px),
+    linear-gradient(100deg, rgba(0,0,0,.2), rgba(255,255,255,.3) 50%, rgba(0,0,0,.16));
+  mix-blend-mode: soft-light;
+}

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, Response
 
 from app.core.cost_tracker import recent_generations
 from app.core.schema_loader import schema
-from studio.catalog import CATALOG, _COLOR_PL_TO_EN, _MATERIAL_PL_TO_EN
+from studio.catalog import CATALOG, _COLOR_PL_TO_EN, _MATERIAL_PL_TO_EN, catalog_for_browser
 from studio.mappings import (
     _ACCENT_TO_PROMPT,
     _BEDDING_TO_PROMPT,
@@ -55,7 +55,7 @@ def catalog_js():
     # Synchronous script-tag bridge: data.jsx builds its COLORS/MATERIALS from
     # window.NS_CATALOG, so browser and server read the same catalog.json.
     # no-store — tiny file that must never be stale after a Watchtower update.
-    body = "window.NS_CATALOG = " + json.dumps(CATALOG, ensure_ascii=False) + ";"
+    body = "window.NS_CATALOG = " + json.dumps(catalog_for_browser(), ensure_ascii=False) + ";"
     return Response(
         content=body,
         media_type="application/javascript",

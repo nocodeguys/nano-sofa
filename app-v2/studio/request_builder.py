@@ -8,12 +8,14 @@ caches keep working.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
 from app.core.generator import GenerationRequest
 from app.core.schema_loader import schema
 from studio.catalog import (
+    _COLOR_META,
     _COLOR_PL_TO_EN,
     _MATERIAL_NEGATIVES_EN,
     _MATERIAL_PL_TO_EN,
@@ -48,6 +50,16 @@ from studio.mappings import (
     _resolve_id,
 )
 from studio.paths import _MATERIAL_REFS_DIR, _SCENE_REFS_DIR, logger
+
+_HEX_IN_TEXT = re.compile(r"#([0-9A-Fa-f]{6})\b")
+
+
+def _hex_from_custom(color_custom: str) -> str:
+    """The browser folds an optional picker value into the free-text custom
+    colour as '... (exact upholstery colour hex #RRGGBB)'. Pull it back out so
+    a custom colour still gets a colour patch."""
+    match = _HEX_IN_TEXT.search(color_custom or "")
+    return f"#{match.group(1).upper()}" if match else ""
 
 
 def _scene_reference_path(env_id: str) -> Optional[Path]:
@@ -173,11 +185,25 @@ def _build_generation_request(
         env_mode = ""
         preserve_camera_from_base = False
 
-    upholstery_color = (
-        color_custom.strip()
-        if color == "custom" and color_custom.strip()
-        else _COLOR_PL_TO_EN.get(color, "neutral")
-    )
+    is_custom_color = color == "custom" and bool(color_custom.strip())
+    color_meta = _COLOR_META.get(color, {})
+    if is_custom_color:
+        upholstery_color = color_custom.strip()
+        upholstery_hex = _hex_from_custom(color_custom)
+        color_id = "custom"
+    else:
+        upholstery_color = _COLOR_PL_TO_EN.get(color, "neutral")
+        upholstery_hex = color_meta.get("hex", "")
+        color_id = color if color in _COLOR_PL_TO_EN else ""
+        if color and not color_id:
+            logger.warning(
+                "Unknown colour id %r — falling back to 'neutral'. Known ids: %d",
+                color, len(_COLOR_PL_TO_EN),
+            )
+    # A collection colour (e.g. velutto-27) implies its fabric; honour that
+    # when the caller sent no explicit material.
+    if not mat and color_meta.get("material"):
+        mat = color_meta["material"]
     upholstery_material = _MATERIAL_PL_TO_EN.get(mat, "fabric")
     material_reference_path = _material_reference_path(mat)
     if mat and mat not in _MATERIAL_PL_TO_EN:
@@ -281,32 +307,14 @@ def _build_generation_request(
     if env_mode.strip(): notes_parts.append(f"environment use: {env_mode.strip()}")
     if seed.strip():     notes_parts.append(f"seed hint: {seed.strip()}")
 
-    max_reference_count = schema.max_refs_for_model(model)
-    named_reference_count = 1 + int(scene_image_path is not None) + int(
-        material_reference_path is not None
-    )
-
+    # Every curated view that exists on disk is DECLARED here. Which of them
+    # actually get attached under the model's reference cap is decided in one
+    # place only — app.core.generator.plan_reference_slots — so the prompt's
+    # slot numbers, the trace and the API call can never disagree.
     material_left_reference_path = _material_angle_reference_path(mat, "left")
-    if material_left_reference_path and named_reference_count < max_reference_count:
-        named_reference_count += 1
-    else:
-        material_left_reference_path = None
-
     material_right_reference_path = _material_angle_reference_path(mat, "right")
-    if material_right_reference_path and named_reference_count < max_reference_count:
-        named_reference_count += 1
-    else:
-        material_right_reference_path = None
-
     material_behavior_reference_path = _material_behavior_reference_path(mat)
-    if material_behavior_reference_path and named_reference_count < max_reference_count:
-        named_reference_count += 1
-    else:
-        material_behavior_reference_path = None
-
     material_application_reference_path = _material_application_reference_path(mat)
-    if material_application_reference_path and named_reference_count >= max_reference_count:
-        material_application_reference_path = None
 
     return GenerationRequest(
         model_id=model,
@@ -342,6 +350,10 @@ def _build_generation_request(
         preserve_list=["frame_silhouette", "stitching"],
         upholstery_color=upholstery_color,
         upholstery_material=upholstery_material,
+        upholstery_hex=upholstery_hex,
+        color_id=color_id,
+        material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
+        fabric_code=color_meta.get("fabric_code", ""),
         texture_notes=texture_spec,
         leg_id=leg_id,
         camera_angle=camera_angle,

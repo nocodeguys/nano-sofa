@@ -24,9 +24,72 @@ def _read_catalog() -> dict:
 
 CATALOG = _read_catalog()
 
-# Colour id → English term the prompt uses (TreeTale fabric-matrix GROUPS;
-# each carries its representative hex so the model can anchor the exact shade).
-_COLOR_PL_TO_EN = {c["id"]: c["prompt_en"] for c in CATALOG["colors"]}
+
+def flatten_colors(catalog: dict) -> list[dict]:
+    """Every selectable colour as one flat list: the universal colour GROUPS
+    from ``colors`` plus every code of every fabric ``collection``.
+
+    A collection code becomes a colour with id ``<collection>-<code>`` (e.g.
+    ``velutto-27``), its own exact hex, the collection's material, and a
+    ``fabric_code`` label that is stamped into render metadata. This is the
+    single flattening used by the prompt tables AND by the browser (served
+    inside /catalog.js as ``color_index``), so the two never disagree.
+    """
+    flat: list[dict] = []
+    for color in catalog.get("colors", []):
+        flat.append({
+            "id": color["id"],
+            "name_pl": color["name_pl"],
+            "hex": color["hex"],
+            "prompt_en": color["prompt_en"],
+            "fabric": bool(color.get("fabric", True)),
+            "covers": color.get("covers", ""),
+            "collection": "",
+            "code": "",
+            "material": "",
+            "fabric_code": "",
+            "hex_verified": True,
+        })
+    for collection in catalog.get("collections", []):
+        cid = collection["id"]
+        cname = collection.get("name_pl") or cid
+        for entry in collection.get("codes", []):
+            code = str(entry["code"])
+            hex_value = entry["hex"]
+            name = entry.get("name_pl") or f"{cname} {code}"
+            prompt_en = entry.get("prompt_en") or (
+                f"{name} — exact upholstery colour hex {hex_value}"
+            )
+            flat.append({
+                "id": entry.get("id") or f"{cid}-{code}",
+                "name_pl": name,
+                "hex": hex_value,
+                "prompt_en": prompt_en,
+                "fabric": True,
+                "covers": "",
+                "collection": cid,
+                "code": code,
+                "material": collection.get("material", ""),
+                "fabric_code": f"{cname} {code}",
+                "hex_verified": bool(entry.get("hex_verified", True)),
+            })
+    return flat
+
+
+def catalog_for_browser(catalog: dict | None = None) -> dict:
+    """The catalog as served to the browser: raw data plus the flattened
+    ``color_index`` so data.jsx does not re-implement the flattening."""
+    source = CATALOG if catalog is None else catalog
+    return {**source, "color_index": flatten_colors(source)}
+
+
+# Colour id → English term the prompt uses (TreeTale fabric-matrix GROUPS and
+# collection codes; each carries its hex so the model can anchor the shade).
+_COLOR_PL_TO_EN = {c["id"]: c["prompt_en"] for c in flatten_colors(CATALOG)}
+
+# Colour id → structured identity (hex, collection, code, implied material,
+# fabric_code label). The prompt builder stamps these into the render.
+_COLOR_META = {c["id"]: c for c in flatten_colors(CATALOG)}
 
 # Material id → short English noun used inline as "{colour} {material}".
 _MATERIAL_PL_TO_EN = {m["id"]: m["noun_en"] for m in CATALOG["materials"]}
@@ -55,7 +118,9 @@ def reload_catalog(catalog: dict | None = None) -> dict:
     """
     fresh = catalog if catalog is not None else _read_catalog()
 
-    colors = {c["id"]: c["prompt_en"] for c in fresh["colors"]}
+    flat = flatten_colors(fresh)
+    colors = {c["id"]: c["prompt_en"] for c in flat}
+    color_meta = {c["id"]: c for c in flat}
     material_nouns = {m["id"]: m["noun_en"] for m in fresh["materials"]}
     material_textures = {m["id"]: m["texture_en"] for m in fresh["materials"]}
     material_negatives = {
@@ -66,6 +131,8 @@ def reload_catalog(catalog: dict | None = None) -> dict:
     CATALOG.update(fresh)
     _COLOR_PL_TO_EN.clear()
     _COLOR_PL_TO_EN.update(colors)
+    _COLOR_META.clear()
+    _COLOR_META.update(color_meta)
     _MATERIAL_PL_TO_EN.clear()
     _MATERIAL_PL_TO_EN.update(material_nouns)
     _MATERIAL_TEXTURE_EN.clear()

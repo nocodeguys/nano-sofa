@@ -71,14 +71,21 @@ def build_generation_trace(
     effective_system_instruction: str,
     reference_images: Iterable[Image.Image],
     freeform: bool = False,
+    reference_roles: Iterable[tuple[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the immutable input portion of a generation manifest.
 
     Only an explicit allow-list of request fields is serialized, so API keys and
-    conversation history can never leak into the trace.
+    conversation history can never leak into the trace. `reference_roles` is the
+    (role, source) list of the images that were ACTUALLY attached, in order —
+    the generator passes it so a dropped reference never shifts the labels of
+    the ones after it. When omitted, the declared request order is assumed.
     """
     images = list(reference_images)
-    roles = reference_roles(req, freeform=freeform)
+    roles = (
+        list(reference_roles) if reference_roles is not None
+        else globals()["reference_roles"](req, freeform=freeform)
+    )
     references = []
     for slot, (image, role_source) in enumerate(zip(images, roles), start=1):
         role, source = role_source
@@ -123,6 +130,10 @@ def build_generation_trace(
             "product_type": req.product_type,
             "material": req.upholstery_material,
             "color": req.upholstery_color,
+            "material_id": getattr(req, "material_id", ""),
+            "color_id": getattr(req, "color_id", ""),
+            "fabric_code": getattr(req, "fabric_code", ""),
+            "color_hex": getattr(req, "upholstery_hex", ""),
             "camera_angle": req.camera_angle,
             "shot_type": req.shot_type,
         },

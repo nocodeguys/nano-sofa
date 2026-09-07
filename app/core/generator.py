@@ -90,6 +90,18 @@ class GenerationRequest:
     texture_notes: str = ""
     base_image_has_alpha: bool = False
 
+    # Structured identity of the chosen colour/material (catalog ids). The
+    # text fields above are what the prompt says; these are what the render
+    # is tagged with (PNG tEXt, trace, cost DB) so a file can still be matched
+    # to a catalog entry after the prompt wording has been edited.
+    color_id: str = ""
+    material_id: str = ""
+    fabric_code: str = ""
+    # Exact target colour as #RRGGBB. When set, a flat colour patch is
+    # attached as its own reference slot (COLOUR AUTHORITY) and deep shades
+    # get a dedicated exposure clause — text alone drifts on dark colours.
+    upholstery_hex: str = ""
+
     # Freeform (editorial) mode: when non-empty, this text IS the whole prompt
     # — the variant prompt assembly is skipped entirely, and the base product
     # image becomes optional (pure text-to-image, plus optional moodboard refs
@@ -143,6 +155,12 @@ class GenerationRequest:
     # anchor lifestyle render and the model must preserve every room
     # detail while accepting a new product angle from the base image.
     view_consistency: bool = False
+
+    # The scene reference shows this same product in another upholstery
+    # colour (variant sets reuse the anchor render as the room reference).
+    # The prompt then names it as a room/lighting reference only and forbids
+    # copying its upholstery colour.
+    scene_contains_product: bool = False
 
     # When True, the prompt emits a "swatch reference" paragraph that tells
     # the model to copy ONLY the fabric color and texture from the swatch
@@ -427,27 +445,148 @@ def _load_image(source: Any) -> Optional[Image.Image]:
         return None
 
 
-def _count_active_refs(req: GenerationRequest) -> int:
-    count = 1  # base product is always slot 1
+@dataclass
+class ReferenceSlot:
+    """One planned reference: its prompt role, a trace-friendly source label,
+    and an optional preloaded image (synthetic references such as the colour
+    patch never exist on disk)."""
+
+    role: str
+    source: Any
+    image: Optional[Image.Image] = None
+
+
+_COLOR_PATCH_SIZE = 512
+# Relative luminance below which a shade is treated as deep/near-black and
+# gets the DEEP-SHADE EXPOSURE clause. Forest green (#2E3B2C), chocolate
+# (#4E3E2F) and black qualify; graphite (#656F70) and olive (#6A7763) do not.
+_DARK_LUMINANCE = 0.06
+
+
+def _hex_to_rgb(value: str) -> Optional[tuple[int, int, int]]:
+    text = (value or "").strip().lstrip("#")
+    if len(text) != 6:
+        return None
+    try:
+        return tuple(int(text[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+    except ValueError:
+        return None
+
+
+def relative_luminance(hex_value: str) -> Optional[float]:
+    """sRGB relative luminance (WCAG formula) of a #RRGGBB colour, 0..1."""
+    rgb = _hex_to_rgb(hex_value)
+    if rgb is None:
+        return None
+
+    def _linear(channel: int) -> float:
+        c = channel / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (_linear(c) for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def is_dark_hex(hex_value: str) -> bool:
+    lum = relative_luminance(hex_value)
+    return lum is not None and lum < _DARK_LUMINANCE
+
+
+def _color_patch_image(hex_value: str) -> Optional[Image.Image]:
+    rgb = _hex_to_rgb(hex_value)
+    if rgb is None:
+        return None
+    return Image.new("RGB", (_COLOR_PATCH_SIZE, _COLOR_PATCH_SIZE), rgb)
+
+
+def plan_reference_slots(req: GenerationRequest) -> list[ReferenceSlot]:
+    """Decide which references are attached and in what order.
+
+    This is the ONE place that enforces the model's reference cap. Priority
+    after the base product (always slot 1): leg, scene, then — when the caller
+    locked the look to a moodboard — that moodboard; the material macro; the
+    exact colour patch; the oblique / behaviour / application material views;
+    the remaining moodboards. Anything past the cap is dropped here, with a
+    warning, so the prompt and the trace only ever describe attached images.
+    """
+    max_refs = schema.max_refs_for_model(req.model_id)
+    wanted: list[ReferenceSlot] = [ReferenceSlot("base_product", req.base_product_image)]
     if req.leg_reference_image is not None:
-        count += 1
+        wanted.append(ReferenceSlot("leg", req.leg_reference_image))
     if req.scene_reference_image is not None:
-        count += 1
+        wanted.append(ReferenceSlot("scene", req.scene_reference_image))
+    extras = list(req.extra_reference_images or [])
+    next_extra_index = 1
+    if req.lock_to_reference and extras:
+        wanted.append(ReferenceSlot("extra_reference_1", extras.pop(0)))
+        next_extra_index = 2
     if req.swatch_reference_image is not None:
-        count += 1
-    if req.material_left_reference_image is not None:
-        count += 1
-    if req.material_right_reference_image is not None:
-        count += 1
-    if req.material_behavior_reference_image is not None:
-        count += 1
-    if req.material_application_reference_image is not None:
-        count += 1
-    count += len(req.extra_reference_images or [])
-    return count
+        wanted.append(ReferenceSlot("material_macro", req.swatch_reference_image))
+    patch = _color_patch_image(req.upholstery_hex) if req.upholstery_hex else None
+    if patch is not None:
+        wanted.append(
+            ReferenceSlot("color_patch", f"color-patch:{req.upholstery_hex.strip().upper()}", patch)
+        )
+    for role, source in (
+        ("material_left", req.material_left_reference_image),
+        ("material_right", req.material_right_reference_image),
+        ("material_behavior", req.material_behavior_reference_image),
+        ("material_application", req.material_application_reference_image),
+    ):
+        if source is not None:
+            wanted.append(ReferenceSlot(role, source))
+    for offset, extra in enumerate(extras):
+        wanted.append(ReferenceSlot(f"extra_reference_{next_extra_index + offset}", extra))
+
+    kept = wanted[:max_refs]
+    for dropped in wanted[max_refs:]:
+        logger.warning(
+            "Reference %s dropped: model %s allows max %d refs",
+            dropped.role, req.model_id, max_refs,
+        )
+    return kept
 
 
-def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
+def slot_numbers(plan: list[ReferenceSlot]) -> dict[str, int]:
+    """role → 1-based slot number for a planned/loaded reference list."""
+    return {slot.role: index for index, slot in enumerate(plan, start=1)}
+
+
+def _count_active_refs(req: GenerationRequest) -> int:
+    return len(plan_reference_slots(req))
+
+
+def _load_reference_plan(
+    req: GenerationRequest, base_img: Image.Image
+) -> list[tuple[ReferenceSlot, Image.Image]]:
+    """Load every planned reference. A reference that fails to load is
+    skipped and the slots after it move up — the caller must number slots
+    from the returned list, never from the request."""
+    loaded: list[tuple[ReferenceSlot, Image.Image]] = []
+    for slot in plan_reference_slots(req):
+        if slot.role == "base_product":
+            loaded.append((slot, base_img))
+            continue
+        image = slot.image if slot.image is not None else _load_image(slot.source)
+        if image is None:
+            logger.warning(
+                "Reference %s could not be loaded (%s); skipping", slot.role, slot.source
+            )
+            continue
+        loaded.append((slot, image))
+    return loaded
+
+
+def _collect_reference_images(
+    req: GenerationRequest, base_img: Image.Image
+) -> list[Image.Image]:
+    """Reference images in attached order (slot 1 = base product)."""
+    return [image for _slot, image in _load_reference_plan(req, base_img)]
+
+
+def _build_scene_block(
+    req: GenerationRequest, product_noun: str, slots: Optional[dict[str, int]] = None
+) -> str:
     """
     Build the SCENE section as a narrative paragraph.
 
@@ -466,20 +605,35 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
     against the chosen environment (the legacy line is replaced by the
     scene-reference branch only).
     """
+    if slots is None:
+        slots = slot_numbers(plan_reference_slots(req))
+    scene_slot = slots.get("scene")
+    has_scene = scene_slot is not None
     lens_clause = f" Lens: {req.lens_descriptor}." if req.lens_descriptor else ""
     shadow_clause = (
         f" {req.shadow_description[0].upper()}{req.shadow_description[1:]}."
         if req.shadow_description else ""
     )
+    # Variant sets reuse the anchor render as the room reference: it shows
+    # this same product in a different colour, and the model must be told so.
+    product_in_scene_clause = (
+        f" The scene reference (slot {scene_slot}) shows this same {product_noun} "
+        f"in a DIFFERENT upholstery colour: use it only for the room, floor, "
+        f"walls, props, camera and lighting. Its upholstery colour and material "
+        f"are wrong for this render — ignore them completely and use the "
+        f"colour specified in the UPHOLSTERY section."
+        if has_scene and req.scene_contains_product else ""
+    )
 
     # ---- Legacy / unmigrated callers --------------------------------- #
     if not req.env_mode:
-        if req.scene_reference_image is not None:
+        if has_scene:
             return (
                 f"\nSCENE: Place the {product_noun} naturally within the scene shown in the "
-                f"reference image. Match lighting direction, color temperature, and floor "
-                f"material from the scene reference. The shadow beneath the {product_noun} "
-                f"must fall in the same direction as all other shadows in the scene."
+                f"reference image (slot {scene_slot}). Match lighting direction, color "
+                f"temperature, and floor material from the scene reference. The shadow "
+                f"beneath the {product_noun} must fall in the same direction as all other "
+                f"shadows in the scene.{product_in_scene_clause}"
             )
         return (
             f"\nSCENE: Neutral studio backdrop. Clean, professional e-commerce "
@@ -490,7 +644,10 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
     if req.env_mode == "packshot":
         tod_clause = f" Lighting: {req.tod_description}." if req.tod_description else ""
         scene_desc = req.env_description or "neutral grey studio backdrop, packshot lighting"
-        exposure_clause = (
+        # The white-bedding exposure rule only makes sense for beds; on a
+        # sofa it talks about a duvet that isn't there and drags the exposure
+        # of dark upholstery towards the backdrop.
+        exposure_clause = "" if req.product_type != "bed" else (
             " WHITE-TEXTILE EXPOSURE — PASS/FAIL REQUIREMENT: expose for the "
             "white bedding, not for the backdrop, using a neutral D55 white balance. "
             "The duvet, sheets and pillows must remain visibly darker than the brightest "
@@ -520,12 +677,12 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
                 f"as smooth, defocused bokeh of the same fabric color."
                 f"{lens_clause}"
                 + (
-                    f"\n\nNOTE ON BACKDROP REFERENCE: A cyclorama reference image may "
-                    f"be attached (slot 2). At macro distance the backdrop is not in "
+                    f"\n\nNOTE ON BACKDROP REFERENCE: A cyclorama reference image is "
+                    f"attached (slot {scene_slot}). At macro distance the backdrop is not in "
                     f"the frame — disregard the backdrop reference entirely for this "
                     f"render. Use slot 1 only for the {product_noun}'s color, material, "
                     f"and detail-region geometry."
-                    if req.scene_reference_image is not None else ""
+                    if has_scene else ""
                 )
             )
         # When a scene reference image is attached for a packshot, it's the
@@ -533,7 +690,27 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
         # to copy backdrop characteristics — tone, top-light gradient, shadow
         # quality, floor blend — from the reference, NOT to place the product
         # "in" the reference scene.
-        if req.scene_reference_image is not None:
+        if has_scene and req.scene_contains_product:
+            # A rendered product photo is NOT an empty studio plate: claiming
+            # it is makes the model copy the old upholstery colour (the
+            # variant-set colour-drift bug). Describe it truthfully.
+            return (
+                f"\nSCENE (packshot): {scene_desc}."
+                f"{tod_clause}"
+                f"{lens_clause}"
+                f"{shadow_clause}"
+                f"{exposure_clause}"
+                f" No environment objects, no room context — product only on the backdrop."
+                f"\n\nBACKDROP REFERENCE (slot {scene_slot}): slot {scene_slot} is an "
+                f"earlier render of this same {product_noun} on the target backdrop, in a "
+                f"DIFFERENT upholstery colour. Match its backdrop tone, luminance field, "
+                f"white balance, floor-to-wall blend, camera and contact shadow exactly. "
+                f"Its upholstery colour and material are wrong for this render: ignore "
+                f"them completely and use only the colour specified in the UPHOLSTERY "
+                f"section. Every output pixel outside the product must match the backdrop "
+                f"of slot {scene_slot}; the product itself comes from slot 1."
+            )
+        if has_scene:
             return (
                 f"\nSCENE (packshot): {scene_desc}."
                 f"{tod_clause}"
@@ -542,7 +719,7 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
                 f"{exposure_clause}"
                 f" No environment objects, no room context — product only on the backdrop."
                 f"\n\nBACKDROP / CYCLORAMA REFERENCE: An additional reference image is "
-                f"attached (slot 2) that shows the canonical cyclorama look for this "
+                f"attached (slot {scene_slot}) that shows the canonical cyclorama look for this "
                 f"shoot. Match its backdrop tone, restrained luminance field, neutral "
                 f"white balance, and floor-to-wall seamless blend exactly. The reference "
                 f"is an EMPTY studio plate, so create only the small contact shadow "
@@ -558,9 +735,9 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
                 f"the product silhouette in slot 1 as transparent and unusable. "
                 f"Completely discard slot 1's background, floor, cast shadow, halo, "
                 f"lighting gradient, compression noise, stains and edge glow. Never "
-                f"average, blend or reconcile slot 1's background with slot 2. Every "
+                f"average, blend or reconcile slot 1's background with slot {scene_slot}. Every "
                 f"output pixel outside the product and its small new contact shadow "
-                f"must come only from the clean empty studio plate in slot 2."
+                f"must come only from the clean empty studio plate in slot {scene_slot}."
             )
         return (
             f"\nSCENE (packshot): {scene_desc}."
@@ -594,11 +771,12 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
             f"{lens_clause}"
         )
 
-    if req.scene_reference_image is not None:
+    if has_scene:
         placement = (
             f"Place the {product_noun} naturally within the scene shown in the "
-            f"reference image. Match lighting direction, color temperature, and floor "
-            f"material from the scene reference."
+            f"reference image (slot {scene_slot}). Match lighting direction, color "
+            f"temperature, and floor material from the scene reference."
+            f"{product_in_scene_clause}"
         )
     else:
         placement = (
@@ -618,9 +796,16 @@ def _build_scene_block(req: GenerationRequest, product_noun: str) -> str:
     )
 
 
-def _build_prompt_text(req: GenerationRequest) -> str:
+def _build_prompt_text(
+    req: GenerationRequest, slots: Optional[dict[str, int]] = None
+) -> str:
     """
     Assemble the full prompt text from the request fields.
+
+    `slots` maps reference roles to the 1-based slot numbers that were
+    ACTUALLY attached (see plan_reference_slots). When omitted it is derived
+    from the request, which is what tests and dry runs do; generate() always
+    passes the loaded list so the prompt never names a missing image.
     Branches on req.product_type so anatomy nouns are correct (sofa vs bed)
     and so leg-count emphasis is OMITTED entirely when leg_count is 0
     (the proximate cause of the model adding legs to platform beds).
@@ -629,6 +814,8 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     if req.freeform_prompt:
         return req.freeform_prompt
 
+    if slots is None:
+        slots = slot_numbers(plan_reference_slots(req))
     lines: list[str] = []
 
     is_bed = req.product_type == "bed"
@@ -788,10 +975,8 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # batch pass), make the role explicit so the model copies fabric appearance
     # only and not geometry.
     # ------------------------------------------------------------------ #
-    if req.use_swatch_for_fabric and req.swatch_reference_image is not None:
-        swatch_slot = 2 + int(req.leg_reference_image is not None) + int(
-            req.scene_reference_image is not None
-        )
+    if req.use_swatch_for_fabric and "material_macro" in slots:
+        swatch_slot = slots["material_macro"]
         if req.swatch_texture_only:
             lines.append(
                 f"\nMATERIAL TEXTURE AUTHORITY (slot {swatch_slot}): Slot "
@@ -836,30 +1021,53 @@ def _build_prompt_text(req: GenerationRequest) -> str:
                 f"shadow direction from slot {swatch_slot}."
             )
 
-    if (
-        req.material_left_reference_image is not None
-        or req.material_right_reference_image is not None
-    ):
-        first_angle_slot = (
-            2
-            + int(req.leg_reference_image is not None)
-            + int(req.scene_reference_image is not None)
-            + int(req.swatch_reference_image is not None)
+    # ------------------------------------------------------------------ #
+    # Colour authority — a flat patch of the exact target colour. Text
+    # alone ("deep bottle green (hex #2E3B2C)") drifts on dark shades; a
+    # pixel reference does not. Deep shades additionally get an exposure
+    # clause so the white backdrop doesn't lift them to grey.
+    # ------------------------------------------------------------------ #
+    if "color_patch" in slots:
+        patch_slot = slots["color_patch"]
+        lines.append(
+            f"\nCOLOUR AUTHORITY (slot {patch_slot}): Slot {patch_slot} is a flat, "
+            f"evenly lit patch of the exact target upholstery colour "
+            f"{req.upholstery_hex.strip().upper()}. It is the single authority for the "
+            f"hue, saturation and lightness of the upholstery. Under the scene's "
+            f"neutral key light the upholstery's mid-tones must match this patch; "
+            f"highlights may be lighter and shadows darker, but the hue and the "
+            f"overall depth of the colour must not shift. Slot {patch_slot} carries no "
+            f"texture, geometry or lighting — copy nothing else from it, and never "
+            f"apply it to the backdrop, bedding or floor."
         )
-        angle_slots = []
-        if req.material_left_reference_image is not None:
-            angle_slots.append(first_angle_slot)
-        if req.material_right_reference_image is not None:
-            angle_slots.append(
-                first_angle_slot + int(req.material_left_reference_image is not None)
-            )
+    if is_dark_hex(req.upholstery_hex):
+        lines.append(
+            f"\nDEEP-SHADE EXPOSURE — HARD REQUIREMENT: the selected upholstery "
+            f"colour is a deep, dark shade. Keep it deep: do not lift it towards "
+            f"mid-grey, do not desaturate it, and do not add a milky haze to make "
+            f"the texture visible. Fabric relief must read through subtle specular "
+            f"micro-highlights and slightly lighter raised fibres while recessed "
+            f"areas stay close to the target colour. Expose for the {product_noun}, "
+            f"not for the backdrop: a bright backdrop must never push the "
+            f"upholstery lighter than the specified colour."
+        )
+
+    angle_slots = [slots[role] for role in ("material_left", "material_right") if role in slots]
+    if angle_slots:
         slots_label = " and ".join(str(slot) for slot in angle_slots)
         noun = "Slots" if len(angle_slots) > 1 else "Slot"
+        viewpoint_clause = (
+            "show the same flat target fabric from opposing oblique viewpoints. "
+            "Compare them to infer the stable three-dimensional yarn relief "
+            "separately from angle-dependent brightness."
+            if len(angle_slots) > 1 else
+            "shows the same flat target fabric from an oblique viewpoint. Use it to "
+            "infer the stable three-dimensional yarn relief separately from "
+            "angle-dependent brightness."
+        )
         lines.append(
             f"\nFABRIC MULTI-ANGLE OPTICAL AUTHORITY ({noun.lower()} {slots_label}): "
-            f"{noun} {slots_label} show the same flat target fabric from opposing "
-            f"oblique viewpoints. Compare them to infer the stable three-dimensional "
-            f"yarn relief separately from angle-dependent brightness. Preserve the "
+            f"{noun} {slots_label} {viewpoint_clause} Preserve the "
             f"same fine nub and slub geometry in both bright and shaded orientations; "
             f"do not average the two views into a smooth surface. Reproduce the short "
             f"pile's reversible directional sheen: tiny fibres and raised yarn faces "
@@ -870,20 +1078,13 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             f"upholstery colour and slot 1 geometry authoritative."
         )
 
-    if req.material_behavior_reference_image is not None:
-        behavior_slot = (
-            2
-            + int(req.leg_reference_image is not None)
-            + int(req.scene_reference_image is not None)
-            + int(req.swatch_reference_image is not None)
-            + int(req.material_left_reference_image is not None)
-            + int(req.material_right_reference_image is not None)
-        )
+    if "material_behavior" in slots:
+        behavior_slot = slots["material_behavior"]
         lines.append(
             f"\nFABRIC LIGHT-RESPONSE AUTHORITY (slot {behavior_slot}): Slot "
             f"{behavior_slot} shows the same target fabric under grazing light "
             f"and across a curved or touched surface. Copy ONLY its optical "
-            f"behaviour: the short chenille nap changes local brightness according "
+            f"behaviour: the pile, nap or raised yarn changes local brightness according "
             f"to fibre lay, surface normal and light direction. Brushed or raised "
             f"fibres facing the light receive soft pearly highlights; fibres laid "
             f"away from it become gently darker. These irregular luminance shifts "
@@ -901,16 +1102,8 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             f"colour authoritative."
         )
 
-    if req.material_application_reference_image is not None:
-        application_slot = (
-            2
-            + int(req.leg_reference_image is not None)
-            + int(req.scene_reference_image is not None)
-            + int(req.swatch_reference_image is not None)
-            + int(req.material_left_reference_image is not None)
-            + int(req.material_right_reference_image is not None)
-            + int(req.material_behavior_reference_image is not None)
-        )
+    if "material_application" in slots:
+        application_slot = slots["material_application"]
         lines.append(
             f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "
             f"sample photographs in the preceding fabric slots are the absolute "
@@ -919,16 +1112,16 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             f"context only and can never override or reinterpret those samples."
             f"\n\nFABRIC IN-USE SCALE CHECK (slot {application_slot}): "
             f"Slot {application_slot} shows a comparable fabric applied across "
-            f"a complete upholstered bed at normal viewing distance. Use ONLY the "
+            f"a complete upholstered furniture piece at normal viewing distance. Use ONLY the "
             f"attenuation and apparent scale of fine textile detail at that distance "
-            f"— never the reference bed's "
+            f"— never the reference piece's "
             f"geometry, dimensions, seams, channeling, storage mechanism, room, "
             f"camera, colour or styling. At hero distance the fabric must read first "
-            f"as a calm, continuous, fine tactile chenille surface. Local brightness "
+            f"as a calm, continuous, finely tactile surface of the specified material. Local brightness "
             f"changes may follow surface curvature, grazing light and disturbed pile, "
             f"but must not become broad cloudy patches, panel-scale blotches, crushed-"
             f"velvet marbling, stains or a printed pattern. Do not turn the upholstery "
-            f"into uniform beige basketweave or plain linen. Do not copy any visual "
+            f"into a different generic weave or a flat featureless textile. Do not copy any visual "
             f"feature from slot {application_slot} when it conflicts with the physical "
             f"sample slots. Slot 1 remains "
             f"the absolute product-geometry authority."
@@ -940,7 +1133,7 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # while keeping every room detail (walls, floor, props, lighting)
     # identical to the scene reference. Used by the lifestyle pair pass.
     # ------------------------------------------------------------------ #
-    if req.view_consistency and req.scene_reference_image is not None:
+    if req.view_consistency and "scene" in slots:
         lines.append(
             f"\nROOM AND LIGHTING CONTINUITY: This {product_noun} is being "
             f"photographed in the EXACT same room as shown in the scene reference "
@@ -948,7 +1141,7 @@ def _build_prompt_text(req: GenerationRequest) -> str:
             f"the same windows, the same time of day, the same light source position. "
             f"Treat the scene reference as a fixed-pixel definition of the room. "
             f"The {product_noun}'s pose and camera angle come from the base image "
-            f"(slot 1); the room and lighting come from the scene reference (slot 2). "
+            f"(slot 1); the room and lighting come from the scene reference (slot {slots['scene']}). "
             f"Shadows on the {product_noun} fall in physically correct directions for "
             f"its new camera angle but originate from the same light source position "
             f"shown in the scene reference. Do not redesign the room, do not change "
@@ -965,7 +1158,7 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # whole point of this mode is "show my color in this reference's look",
     # not "ignore everything and clone the reference."
     # ------------------------------------------------------------------ #
-    reference_locked = bool(req.lock_to_reference and req.extra_reference_images)
+    reference_locked = bool(req.lock_to_reference and "extra_reference_1" in slots)
     if reference_locked:
         lines.append(
             f"\nREFERENCE LOCK — IMPORTANT: An additional moodboard reference "
@@ -1085,7 +1278,7 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     # paragraph above already tells the model to preserve slot 1's own scene, and
     # a packshot/lifestyle backdrop description here would directly fight it.
     if not reference_locked and not req.keep_source_scene:
-        lines.append(_build_scene_block(req, product_noun))
+        lines.append(_build_scene_block(req, product_noun, slots))
 
     # ------------------------------------------------------------------ #
     # Preserve list
@@ -1147,110 +1340,6 @@ def _build_prompt_text(req: GenerationRequest) -> str:
     return "\n".join(lines)
 
 
-def _collect_reference_images(
-    req: GenerationRequest, base_img: Image.Image
-) -> list[Image.Image]:
-    """
-    Return reference images in declared slot order:
-    Slot 1: base product (already flattened by caller)
-    Slot 2: leg reference (when present)
-    Slot 3: scene reference (when present; on Flash this exhausts the 3-ref cap)
-    Slot 4: swatch reference (when capacity permits)
-    Next slots: optional left- and right-oblique material references
-    Next slot: optional material fold/light-response reference
-    Next slot: optional material-in-use appearance reference
-    """
-    images: list[Image.Image] = [base_img]
-
-    if req.leg_reference_image is not None:
-        leg_img = _load_image(req.leg_reference_image)
-        if leg_img:
-            images.append(leg_img)
-
-    if req.scene_reference_image is not None:
-        scene_img = _load_image(req.scene_reference_image)
-        if scene_img:
-            images.append(scene_img)
-
-    if req.swatch_reference_image is not None:
-        max_refs = schema.max_refs_for_model(req.model_id)
-        active_refs = _count_active_refs(req)
-        if active_refs <= max_refs:
-            swatch_img = _load_image(req.swatch_reference_image)
-            if swatch_img:
-                images.append(swatch_img)
-        else:
-            logger.warning(
-                "Swatch reference dropped: model %s allows max %d refs, already at %d",
-                req.model_id,
-                max_refs,
-                active_refs,
-            )
-
-    for label, source in (
-        ("left-angle material", req.material_left_reference_image),
-        ("right-angle material", req.material_right_reference_image),
-    ):
-        if source is None:
-            continue
-        max_refs = schema.max_refs_for_model(req.model_id)
-        if len(images) < max_refs:
-            angle_img = _load_image(source)
-            if angle_img:
-                images.append(angle_img)
-        else:
-            logger.warning(
-                "%s reference dropped: model %s allows max %d refs",
-                label.capitalize(),
-                req.model_id,
-                max_refs,
-            )
-
-    if req.material_behavior_reference_image is not None:
-        max_refs = schema.max_refs_for_model(req.model_id)
-        if len(images) < max_refs:
-            behavior_img = _load_image(req.material_behavior_reference_image)
-            if behavior_img:
-                images.append(behavior_img)
-        else:
-            logger.warning(
-                "Material behavior reference dropped: model %s allows max %d refs",
-                req.model_id,
-                max_refs,
-            )
-
-    if req.material_application_reference_image is not None:
-        max_refs = schema.max_refs_for_model(req.model_id)
-        if len(images) < max_refs:
-            application_img = _load_image(req.material_application_reference_image)
-            if application_img:
-                images.append(application_img)
-        else:
-            logger.warning(
-                "Material application reference dropped: model %s allows max %d refs",
-                req.model_id,
-                max_refs,
-            )
-
-    # Remaining slots: user-uploaded moodboard references. Appended in order until the
-    # model's max_refs cap is reached. Anything past the cap is dropped with a
-    # warning so the call still succeeds instead of failing the whole request.
-    if req.extra_reference_images:
-        max_refs = schema.max_refs_for_model(req.model_id)
-        for idx, extra in enumerate(req.extra_reference_images):
-            if len(images) >= max_refs:
-                logger.warning(
-                    "Extra reference #%d dropped: model %s allows max %d refs, already at %d",
-                    idx + 1, req.model_id, max_refs, len(images),
-                )
-                continue
-            extra_img = _load_image(extra)
-            if extra_img:
-                images.append(extra_img)
-
-    return images
-
-
 def _pil_to_part(img: Image.Image, gtypes) -> Any:
     """Convert a PIL image to a google.genai.types.Part with PNG bytes."""
     buf = io.BytesIO()
@@ -1286,6 +1375,10 @@ def _png_text_metadata(req: GenerationRequest, generation_id: str, ts: int) -> d
         "nano_sofa_resolution": req.resolution or "",
         "nano_sofa_color": req.upholstery_color or "",
         "nano_sofa_material": req.upholstery_material or "",
+        "nano_sofa_color_id": req.color_id or "",
+        "nano_sofa_material_id": req.material_id or "",
+        "nano_sofa_fabric_code": req.fabric_code or "",
+        "nano_sofa_color_hex": req.upholstery_hex or "",
         "nano_sofa_leg_id": req.leg_id or "",
         "nano_sofa_camera_angle": req.camera_angle or "",
         "nano_sofa_prompt_summary": _build_prompt_summary(req),
@@ -1300,9 +1393,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
     generation_id = new_generation_id()
     _t0 = time.monotonic()
     is_freeform = bool(req.freeform_prompt) and req.base_product_image is None
-    num_refs = (len(req.extra_reference_images or []) if is_freeform
-                else _count_active_refs(req))
-    cost_est = estimate_cost(req.model_id, req.resolution, num_refs)
+    slot_roles: list[tuple[str, Any]] = []
 
     if is_freeform:
         # Editorial text-to-image: no base product slot. Optional moodboard
@@ -1319,6 +1410,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
             extra_img = _load_image(extra)
             if extra_img:
                 ref_images.append(extra_img)
+                slot_roles.append((f"extra_reference_{len(ref_images)}", extra))
     else:
         # -------------------------------------------------------------- #
         # Alpha-channel flattening
@@ -1346,9 +1438,14 @@ def generate(req: GenerationRequest) -> GenerationResult:
             base_img = _flatten_alpha(base_img)
             logger.info("Base product image flattened from alpha (alpha bleed mitigation)")
 
-        ref_images = _collect_reference_images(req, base_img)
+        loaded = _load_reference_plan(req, base_img)
+        ref_images = [image for _slot, image in loaded]
+        slot_roles = [(slot.role, slot.source) for slot, _image in loaded]
 
-    prompt_text = _build_prompt_text(req)
+    num_refs = len(ref_images)
+    cost_est = estimate_cost(req.model_id, req.resolution, num_refs)
+    slots = {role: index for index, (role, _source) in enumerate(slot_roles, start=1)}
+    prompt_text = _build_prompt_text(req, slots)
     effective_system_instruction = (
         req.system_instruction or schema.system_instruction_default
     )
@@ -1359,6 +1456,7 @@ def generate(req: GenerationRequest) -> GenerationResult:
         effective_system_instruction=effective_system_instruction,
         reference_images=ref_images,
         freeform=is_freeform,
+        reference_roles=slot_roles,
     )
     reference_log = ", ".join(
         f"{ref['slot']}:{ref['role']}={Path(ref['source']).name}"
