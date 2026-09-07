@@ -94,6 +94,13 @@ RUN mkdir -p /app/outputs \
 
 USER sofa
 
+# ── build identity ───────────────────────────────────────────────────────────
+# CI passes the git sha the image was built from. The server stamps the
+# runtime catalogue copy with it and refreshes that copy from the bundled
+# files whenever the image changes (see app-v2/studio/paths.py).
+ARG GIT_SHA=""
+ENV NANO_SOFA_BUILD_SHA=${GIT_SHA}
+
 # ── runtime env defaults ─────────────────────────────────────────────────────
 ENV PORT=7861 \
     HOST=0.0.0.0 \

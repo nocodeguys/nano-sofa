@@ -1,15 +1,23 @@
-"""Local catalogue administration with validation, build and rollback.
+"""Catalogue administration with validation, rollback and repository push.
 
-This surface is intentionally available only from a loopback browser.  A save
-is a transaction: validate the catalogue and images, build the frontend into a
-staging directory, snapshot the old files, promote the new files, then refresh
-the stable in-memory catalogue dictionaries.  A failure restores the previous
-working version.
+A save is a transaction: validate the catalogue and images, snapshot the old
+files, atomically promote the new files, refresh the stable in-memory
+catalogue dictionaries (the running instance is correct immediately), and
+then — when CATALOG_GIT_TOKEN is configured — commit catalog.json plus the
+material references to the repository so CI rebuilds the image and every
+other instance receives the same catalogue. A failed local step restores the
+previous working version; a failed push keeps the edit locally and marks it
+as waiting for a retry.
+
+Access: with ADMIN_TOKEN set (every Docker deployment), requests must carry
+it in ``X-Admin-Token`` (or ``Authorization: Bearer``). Without it the panel
+is loopback-only, which is the source-mode developer setup.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hmac
 import io
 import json
 import os
@@ -25,39 +33,90 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from studio.catalog import CATALOG, _CATALOG_PATH, reload_catalog
+from studio.catalog import CATALOG, _CATALOG_PATH, flatten_colors, reload_catalog
+from studio.catalog_git import (
+    CatalogGitError,
+    load_config as load_git_config,
+    push_catalog,
+    read_json,
+    workflow_status,
+    write_json,
+)
 from studio.paths import (
     _CATALOG_BACKUPS_DIR,
     _DIST_DIR,
+    _LAST_PUSH_PATH,
     _MATERIAL_REFS_DIR,
+    _PENDING_PUSH_PATH,
     logger,
 )
 
 router = APIRouter()
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,47}$")
+_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 _HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _REFERENCE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+# Photos are stored as JPEG at ≤ 2048 px: a 4096² PNG re-encode of a phone
+# photo is 10–40 MB and every save would add that much to the repository.
+_REFERENCE_MAX_SIDE = int(os.environ.get("CATALOG_REFERENCE_MAX_SIDE", "2048"))
+_REFERENCE_JPEG_QUALITY = 90
 _SAVE_LOCK = asyncio.Lock()
 _BUILD_STATE: dict = {"state": "idle", "message": "Gotowy", "updated_at": None}
+# CSS texture previews known to styles-v2.css (.mat-tex.<tex>). Kept here so
+# the admin can offer them without the browser hard-coding the list.
+_KNOWN_TEX = ["linen", "boucle", "weave", "chenille", "cremona", "leather", "velvet", "corduroy"]
 
 
-def _require_local(request: Request) -> None:
-    """Keep write-capable admin routes private to this computer.
+def _admin_token() -> str:
+    return os.environ.get("ADMIN_TOKEN", "").strip()
 
-    Checking Origin as well as the socket peer prevents an unrelated website
-    open in the browser from posting to localhost while permissive API CORS is
-    enabled for the development frontend.
+
+def _supplied_token(request: Request) -> str:
+    header = request.headers.get("x-admin-token", "").strip()
+    if header:
+        return header
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def _require_admin(request: Request) -> None:
+    """Gate every write-capable admin route.
+
+    Token mode (ADMIN_TOKEN set — every Docker deployment): the request must
+    carry the token. Loopback mode (no token — source-mode development): only
+    this computer may call, and the Origin header must be loopback too so an
+    unrelated website open in the browser cannot post here while permissive
+    API CORS is enabled for the Vite dev server.
     """
+    token = _admin_token()
+    if token:
+        supplied = _supplied_token(request)
+        if not supplied or not hmac.compare_digest(supplied, token):
+            raise HTTPException(
+                401,
+                "Panel Katalog wymaga tokenu administratora (ADMIN_TOKEN).",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return
     client_host = request.client.host if request.client else ""
     local_hosts = {"127.0.0.1", "::1", "localhost", "testclient"}
     if client_host not in local_hosts:
-        raise HTTPException(403, "Panel administracyjny działa tylko lokalnie.")
+        raise HTTPException(
+            403,
+            "Panel Katalog działa bez tokenu tylko lokalnie. W Dockerze ustaw ADMIN_TOKEN w .env.",
+        )
     origin = request.headers.get("origin")
     if origin:
         origin_host = (urlparse(origin).hostname or "").lower()
         if origin_host not in {"127.0.0.1", "::1", "localhost"}:
             raise HTTPException(403, "Nieprawidłowe źródło żądania administracyjnego.")
+
+
+# Back-compat alias for anything importing the old name.
+_require_local = _require_admin
 
 
 def _nonempty_string(value: object, label: str, *, max_length: int = 8000) -> str:
@@ -155,9 +214,85 @@ def validate_catalog(payload: object) -> dict:
     if "greige" not in color_ids:
         raise ValueError("Kolor bazowy „greige” nie może zostać usunięty.")
 
+    raw_collections = payload.get("collections", [])
+    if raw_collections is None:
+        raw_collections = []
+    if not isinstance(raw_collections, list) or len(raw_collections) > 50:
+        raise ValueError("Kolekcje: oczekiwana lista (maks. 50).")
+    normalized_collections: list[dict] = []
+    collection_ids: set[str] = set()
+    for index, raw in enumerate(raw_collections, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Kolekcja {index}: nieprawidłowy rekord")
+        item = dict(raw)
+        collection_id = _nonempty_string(item.get("id"), f"Kolekcja {index} / ID", max_length=48)
+        if not _ID_RE.fullmatch(collection_id):
+            raise ValueError(f"Kolekcja {index}: ID może zawierać małe litery, cyfry, _ i -")
+        if collection_id in collection_ids:
+            raise ValueError(f"Powtórzone ID kolekcji: {collection_id}")
+        collection_ids.add(collection_id)
+        item["id"] = collection_id
+        item["name_pl"] = _nonempty_string(item.get("name_pl"), f"{collection_id} / nazwa", max_length=120)
+        material_id = _nonempty_string(item.get("material"), f"{collection_id} / tkanina", max_length=48)
+        if material_id not in material_ids:
+            raise ValueError(f"{collection_id}: tkanina „{material_id}” nie istnieje w katalogu")
+        item["material"] = material_id
+        description = item.get("description_pl", "")
+        if description is not None and not isinstance(description, str):
+            raise ValueError(f"{collection_id} / opis: oczekiwany tekst")
+        item["description_pl"] = (description or "").strip()[:1000]
+        codes = item.get("codes", [])
+        if codes is None:
+            codes = []
+        if not isinstance(codes, list) or len(codes) > 200:
+            raise ValueError(f"{collection_id}: kody muszą być listą (maks. 200)")
+        normalized_codes: list[dict] = []
+        seen_codes: set[str] = set()
+        for code_index, raw_code in enumerate(codes, 1):
+            if not isinstance(raw_code, dict):
+                raise ValueError(f"{collection_id} / kod {code_index}: nieprawidłowy rekord")
+            entry = dict(raw_code)
+            code = str(entry.get("code", "")).strip()
+            if not code or not _CODE_RE.fullmatch(code):
+                raise ValueError(f"{collection_id} / kod {code_index}: nieprawidłowy kod tkaniny")
+            if code.lower() in seen_codes:
+                raise ValueError(f"{collection_id}: powtórzony kod {code}")
+            seen_codes.add(code.lower())
+            entry["code"] = code
+            code_hex = _nonempty_string(entry.get("hex"), f"{collection_id} {code} / HEX", max_length=7).upper()
+            if not _HEX_RE.fullmatch(code_hex):
+                raise ValueError(f"{collection_id} {code}: kolor musi mieć format #RRGGBB")
+            entry["hex"] = code_hex
+            name = entry.get("name_pl", "")
+            if name is not None and not isinstance(name, str):
+                raise ValueError(f"{collection_id} {code} / nazwa: oczekiwany tekst")
+            entry["name_pl"] = (name or "").strip()[:120] or f"{item['name_pl']} {code}"
+            prompt_en = entry.get("prompt_en", "")
+            if prompt_en is not None and not isinstance(prompt_en, str):
+                raise ValueError(f"{collection_id} {code} / opis dla modelu: oczekiwany tekst")
+            prompt_en = (prompt_en or "").strip()
+            if len(prompt_en) > 2000:
+                raise ValueError(f"{collection_id} {code}: opis dla modelu maks. 2000 znaków")
+            entry["prompt_en"] = prompt_en or f"{entry['name_pl']} — exact upholstery colour hex {code_hex}"
+            entry["hex_verified"] = bool(entry.get("hex_verified", True))
+            group = entry.get("group", "")
+            entry["group"] = group if isinstance(group, str) and group in color_ids else ""
+            explicit_id = entry.get("id")
+            if explicit_id is not None:
+                if not isinstance(explicit_id, str) or not _ID_RE.fullmatch(explicit_id):
+                    raise ValueError(f"{collection_id} {code}: nieprawidłowe ID koloru")
+            normalized_codes.append(entry)
+        item["codes"] = normalized_codes
+        normalized_collections.append(item)
+
     result = dict(payload)
     result["materials"] = normalized_materials
     result["colors"] = normalized_colors
+    result["collections"] = normalized_collections
+    flat_ids = [c["id"] for c in flatten_colors(result)]
+    duplicates = sorted({cid for cid in flat_ids if flat_ids.count(cid) > 1})
+    if duplicates:
+        raise ValueError("Powtórzone ID koloru po spłaszczeniu kolekcji: " + ", ".join(duplicates))
     return result
 
 
@@ -212,11 +347,14 @@ def _prepare_reference(
             image.load()
             if image.width < 128 or image.height < 128:
                 raise ValueError(f"{material_id}: referencja musi mieć co najmniej 128×128 px")
-            if image.width > 4096 or image.height > 4096:
-                image.thumbnail((4096, 4096), Image.Resampling.LANCZOS)
-            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-            destination = target_dir / f"{material_id}{filename_suffix}.png"
-            image.save(destination, format="PNG", optimize=True)
+            if image.width > _REFERENCE_MAX_SIDE or image.height > _REFERENCE_MAX_SIDE:
+                image.thumbnail((_REFERENCE_MAX_SIDE, _REFERENCE_MAX_SIDE), Image.Resampling.LANCZOS)
+            # Photographs of fabric have no alpha worth keeping; JPEG at q90
+            # is visually lossless for the model and 5–10× smaller than PNG,
+            # which matters because every save is committed to the repo.
+            image = image.convert("RGB")
+            destination = target_dir / f"{material_id}{filename_suffix}.jpg"
+            image.save(destination, format="JPEG", quality=_REFERENCE_JPEG_QUALITY, optimize=True)
             return destination
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError(f"{material_id}: plik nie jest poprawnym obrazem") from exc
@@ -342,14 +480,14 @@ def _commit_update(
             for extension in _REFERENCE_EXTENSIONS:
                 (_MATERIAL_REFS_DIR / f"{material_id}{extension}").unlink(missing_ok=True)
         for material_id in replacements:
-            os.replace(staged_refs / f"{material_id}.png", _MATERIAL_REFS_DIR / f"{material_id}.png")
+            os.replace(staged_refs / f"{material_id}.jpg", _MATERIAL_REFS_DIR / f"{material_id}.jpg")
         for material_id in touched_application_ids:
             for extension in _REFERENCE_EXTENSIONS:
                 (_MATERIAL_REFS_DIR / f"{material_id}-application{extension}").unlink(missing_ok=True)
         for material_id in application_replacements:
             os.replace(
-                staged_refs / f"{material_id}-application.png",
-                _MATERIAL_REFS_DIR / f"{material_id}-application.png",
+                staged_refs / f"{material_id}-application.jpg",
+                _MATERIAL_REFS_DIR / f"{material_id}-application.jpg",
             )
         for material_id, role in touched_view_keys:
             suffix = _VIEW_REFERENCE_SUFFIXES[role]
@@ -360,17 +498,31 @@ def _commit_update(
         for material_id, role in view_replacements:
             suffix = _VIEW_REFERENCE_SUFFIXES[role]
             os.replace(
-                staged_refs / f"{material_id}{suffix}.png",
-                _MATERIAL_REFS_DIR / f"{material_id}{suffix}.png",
+                staged_refs / f"{material_id}{suffix}.jpg",
+                _MATERIAL_REFS_DIR / f"{material_id}{suffix}.jpg",
             )
 
         reload_catalog(catalog)
-        _set_build_state("ready", "Zapisano i przeładowano katalog — bez przebudowy aplikacji.")
+        _set_build_state("pushing", "Zapisano lokalnie. Wysyłam do repozytorium…")
+        git = _push_to_repository(
+            "Katalog: zapis z panelu Katalog",
+            touched=sorted(touched_ids | touched_application_ids)
+            + [f"{m}:{r}" for m, r in sorted(touched_view_keys)],
+        )
+        if git.get("pushed"):
+            _set_build_state("ready", "Zapisano i wysłano do repozytorium. Obraz buduje się w CI.")
+            message = "Katalog działa już w nowej wersji i jest w repozytorium."
+        elif git.get("enabled"):
+            _set_build_state("ready", "Zapisano lokalnie; wysyłka do repozytorium czeka na ponowienie.")
+            message = "Katalog działa lokalnie, ale zapis do repozytorium się nie udał — ponów z panelu."
+        else:
+            _set_build_state("ready", "Zapisano i przeładowano katalog (bez wysyłki do repozytorium).")
+            message = "Katalog działa już w nowej wersji na tej instancji."
         return {
             "ok": True,
-            "message": "Katalog działa już w nowej wersji.",
+            "message": message,
             "backup": backup_path.name if backup_path else None,
-            "build_log": "Pominięto: katalog jest ładowany dynamicznie.",
+            "git": git,
         }
     except Exception:
         logger.exception("admin catalog transaction failed; restoring previous version")
@@ -407,6 +559,66 @@ def _commit_update(
         raise
     finally:
         shutil.rmtree(staging_parent, ignore_errors=True)
+
+
+def _push_to_repository(message: str, touched: list[str] | None = None) -> dict:
+    """Commit the runtime catalogue to GitHub. Never raises: a failure is
+    recorded in pending-push.json (and reported) so the local edit survives
+    and can be retried; a success clears it and records last-push.json."""
+    cfg = load_git_config()
+    if not cfg.enabled:
+        # No token: edits stay local. Record that so a new image does not
+        # overwrite them on the next start (see paths._seed_runtime_catalog).
+        write_json(_PENDING_PUSH_PATH, {
+            "since": int(time.time()),
+            "reason": "not_configured",
+            "message": "Brak CATALOG_GIT_TOKEN — edycje są tylko na tej instancji.",
+            "touched": touched or [],
+        })
+        return {"enabled": False, "pushed": False, "pending": read_json(_PENDING_PUSH_PATH)}
+    pending_before = read_json(_PENDING_PUSH_PATH)
+    try:
+        result = push_catalog(
+            catalog_bytes=_CATALOG_PATH.read_bytes(),
+            references_dir=_MATERIAL_REFS_DIR,
+            message=message,
+            cfg=cfg,
+        )
+    except CatalogGitError as exc:
+        logger.warning("catalog git push failed: %s (%s)", exc.message, exc.detail)
+        write_json(_PENDING_PUSH_PATH, {
+            "since": (pending_before or {}).get("since") or int(time.time()),
+            "last_attempt": int(time.time()),
+            "reason": "push_failed",
+            "retryable": exc.retryable,
+            "message": exc.message,
+            "detail": exc.detail,
+            "touched": sorted(set((pending_before or {}).get("touched", []) + (touched or []))),
+        })
+        return {"enabled": True, "pushed": False, "error": exc.message, "retryable": exc.retryable,
+                "pending": read_json(_PENDING_PUSH_PATH)}
+    _PENDING_PUSH_PATH.unlink(missing_ok=True)
+    record = {
+        "sha": result["sha"],
+        "url": result["url"],
+        "at": int(time.time()),
+        "files_changed": result["files_changed"],
+        "noop": result.get("noop", False),
+        "branch": cfg.branch,
+        "repo": cfg.repo,
+    }
+    write_json(_LAST_PUSH_PATH, record)
+    return {"enabled": True, "pushed": True, **record, "pending": None}
+
+
+def _git_state() -> dict:
+    cfg = load_git_config()
+    return {
+        **cfg.public(),
+        "pending": read_json(_PENDING_PUSH_PATH),
+        "last_push": read_json(_LAST_PUSH_PATH),
+        "build_sha": os.environ.get("NANO_SOFA_BUILD_SHA", "") or None,
+    }
 
 
 def _admin_payload() -> dict:
@@ -448,35 +660,67 @@ def _admin_payload() -> dict:
             }
     return {
         "catalog": CATALOG,
+        "color_index": flatten_colors(CATALOG),
         "references": references,
         "application_references": application_references,
         "view_references": view_references,
         "build": dict(_BUILD_STATE),
+        "git": _git_state(),
+        "known_tex": _KNOWN_TEX,
         "catalog_updated_at": int(_CATALOG_PATH.stat().st_mtime),
     }
 
 
 @router.get("/admin")
-def admin_page(request: Request):
-    _require_local(request)
+def admin_page():
+    # The page itself is static; every API call behind it is gated.
     return FileResponse(_DIST_DIR / "admin.html")
 
 
 @router.get("/api/admin/catalog")
 def get_admin_catalog(request: Request):
-    _require_local(request)
+    _require_admin(request)
     return _admin_payload()
 
 
 @router.get("/api/admin/status")
 def admin_status(request: Request):
-    _require_local(request)
-    return dict(_BUILD_STATE)
+    _require_admin(request)
+    return {**_BUILD_STATE, "git": _git_state()}
+
+
+@router.get("/api/admin/build-status")
+def admin_build_status(request: Request, sha: str = ""):
+    """CI state for a commit made by the panel (defaults to the last push)."""
+    _require_admin(request)
+    target = sha.strip() or ((read_json(_LAST_PUSH_PATH) or {}).get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{7,40}", target or ""):
+        raise HTTPException(404, "Brak commita do sprawdzenia.")
+    return {"sha": target, **workflow_status(target)}
+
+
+@router.post("/api/admin/retry-push")
+async def admin_retry_push(request: Request):
+    """Re-send the runtime catalogue to the repository (after a failed push
+    or after CATALOG_GIT_TOKEN was configured later)."""
+    _require_admin(request)
+    if _SAVE_LOCK.locked():
+        raise HTTPException(409, "Inny zapis katalogu jest już w toku.")
+    async with _SAVE_LOCK:
+        _set_build_state("pushing", "Wysyłam katalog do repozytorium…")
+        git = await asyncio.to_thread(_push_to_repository, "Katalog: ponowna wysyłka z panelu Katalog")
+        if git.get("pushed"):
+            _set_build_state("ready", "Wysłano do repozytorium. Obraz buduje się w CI.")
+        elif git.get("enabled"):
+            _set_build_state("error", git.get("error") or "Wysyłka nie powiodła się.")
+        else:
+            _set_build_state("ready", "Brak CATALOG_GIT_TOKEN — nic nie wysłano.")
+        return {"git": git, "build": dict(_BUILD_STATE)}
 
 
 @router.get("/api/admin/material-reference/{material_id}")
 def material_reference(material_id: str, request: Request):
-    _require_local(request)
+    _require_admin(request)
     if not _ID_RE.fullmatch(material_id):
         raise HTTPException(404, "Nie znaleziono referencji.")
     path = _reference_path(material_id)
@@ -488,7 +732,7 @@ def material_reference(material_id: str, request: Request):
 
 @router.get("/api/admin/material-application-reference/{material_id}")
 def material_application_reference(material_id: str, request: Request):
-    _require_local(request)
+    _require_admin(request)
     if not _ID_RE.fullmatch(material_id):
         raise HTTPException(404, "Nie znaleziono referencji na meblu.")
     path = _application_reference_path(material_id)
@@ -500,7 +744,7 @@ def material_application_reference(material_id: str, request: Request):
 
 @router.get("/api/admin/material-view-reference/{role}/{material_id}")
 def material_view_reference(role: str, material_id: str, request: Request):
-    _require_local(request)
+    _require_admin(request)
     if not _ID_RE.fullmatch(material_id) or role not in _VIEW_REFERENCE_SUFFIXES:
         raise HTTPException(404, "Nie znaleziono dodatkowej referencji materiału.")
     path = _view_reference_path(material_id, role)
@@ -512,7 +756,7 @@ def material_view_reference(role: str, material_id: str, request: Request):
 
 @router.post("/api/admin/catalog")
 async def save_admin_catalog(request: Request):
-    _require_local(request)
+    _require_admin(request)
     if _SAVE_LOCK.locked():
         raise HTTPException(409, "Inny zapis katalogu jest już w toku.")
     async with _SAVE_LOCK:

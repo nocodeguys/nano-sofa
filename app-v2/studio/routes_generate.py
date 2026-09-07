@@ -683,7 +683,10 @@ async def api_regenerate_variant(
     api_key: str = Form(""),
     kind: str = Form("sofa"),
     color: str = Form(""),
-    material: str = Form("boucle"),
+    # Every other endpoint calls the material field `mat`; this one grew up
+    # with `material`. Accept both — `mat` wins when both are present.
+    material: str = Form(""),
+    mat: str = Form(""),
     color_custom: str = Form(""),
     mat_notes: str = Form(""),
     size: str = Form("3"),
@@ -717,6 +720,7 @@ async def api_regenerate_variant(
     """Re-render ONE (source × colour+material) tile in the same keep-scene recolor
     mode. Backs the per-tile 'regeneruj' button so a single bad render can be fixed
     without re-running the whole grid."""
+    material = (mat or material or "boucle").strip()
     if not api_key.strip():
         return _validation_error("Brak klucza API.", "MISSING_API_KEY")
     if not color.strip():
@@ -825,7 +829,16 @@ async def api_generate_free(
                 generate_openrouter,
                 api_key=openrouter_key.strip(), model=model,
                 prompt=req.freeform_prompt, aspect=aspect,
-                ref_paths=extra_ref_paths,
+                ref_paths=[Path(r) for r in req.extra_reference_images],
+                png_meta={
+                    "nano_sofa_color": req.upholstery_color or "",
+                    "nano_sofa_material": req.upholstery_material or "",
+                    "nano_sofa_color_id": req.color_id or "",
+                    "nano_sofa_material_id": req.material_id or "",
+                    "nano_sofa_fabric_code": req.fabric_code or "",
+                    "nano_sofa_color_hex": req.upholstery_hex or "",
+                },
+                prompt_summary=prompt.strip()[:300],
             )
         except OpenRouterError as exc:
             return JSONResponse(

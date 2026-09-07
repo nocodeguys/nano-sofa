@@ -24,6 +24,18 @@ services:
       OUTPUTS_DIR: "/app/outputs"
       # GEMINI_API_KEY is intentionally absent — each user supplies their own
       # key through the browser UI. It is never stored in the container.
+      #
+      # Katalog panel. Values come from a .env file next to this compose file
+      # (see .env.example); nothing here is baked into the image.
+      #   ADMIN_TOKEN        required to open /admin in Docker (any long secret)
+      #   CATALOG_GIT_TOKEN  fine-grained GitHub PAT (Contents: write, one repo);
+      #                      when set, every catalogue save is committed to the
+      #                      repo and CI rebuilds the image for all instances
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      CATALOG_GIT_TOKEN: "${CATALOG_GIT_TOKEN:-}"
+      CATALOG_GIT_REPO: "${CATALOG_GIT_REPO:-nocodeguys/nano-sofa}"
+      CATALOG_GIT_BRANCH: "${CATALOG_GIT_BRANCH:-main}"
+      CATALOG_GIT_AUTHOR: "${CATALOG_GIT_AUTHOR:-}"
 
     # Opt this container in to Watchtower auto-updates (see service below).
     # Watchtower will only update containers carrying this label, so it never

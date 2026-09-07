@@ -56,25 +56,85 @@ _SCENE_REFS_DIR = _THIS / "scene-references"
 _BUNDLED_CATALOG_PATH = _THIS / "catalog.json"
 _BUNDLED_MATERIAL_REFS_DIR = _THIS / "material-references"
 _PERSIST_RUNTIME_CATALOG = bool(os.environ.get("OUTPUTS_DIR"))
+# Git sha of the source the image was built from (Dockerfile ARG → ENV). Used
+# as the seed stamp: when the image changes, the bundled catalogue is the
+# newer truth and replaces the runtime copy — unless that copy holds edits
+# that never reached the repository (pending-push.json), which must survive.
+_BUILD_SHA = os.environ.get("NANO_SOFA_BUILD_SHA", "").strip()
+# Runtime catalogue state (pending push, last push, seed stamp) lives here in
+# every mode; it is under outputs/ so it is never committed.
+_CATALOG_STATE_DIR = _OUTPUT_DIR / "catalog"
+_PENDING_PUSH_PATH = _CATALOG_STATE_DIR / "pending-push.json"
+_LAST_PUSH_PATH = _CATALOG_STATE_DIR / "last-push.json"
+_SEED_STAMP_PATH = _CATALOG_STATE_DIR / ".seed-sha"
 
 
 def _seed_runtime_catalog(
     output_dir: Path,
     bundled_catalog: Path,
     bundled_references: Path,
+    build_sha: str = "",
 ) -> tuple[Path, Path]:
-    """Create the persistent catalogue once, preserving all later edits."""
+    """Create or refresh the persistent runtime catalogue.
+
+    * First start: copy the bundled files into ``<outputs>/catalog``.
+    * Later starts with the SAME image (or no build sha): leave the runtime
+      copy alone — it may hold admin edits.
+    * A NEW image (build sha differs from the stamp) and no edits waiting to
+      be pushed: the bundled catalogue is newer, so it replaces the runtime
+      copy. The replaced files are kept next to it in ``previous/`` for a
+      manual recovery.
+    * A new image while ``pending-push.json`` exists: keep the runtime copy;
+      the admin panel shows the edits as not yet in the repository.
+    """
     runtime_dir = output_dir / "catalog"
     catalog_path = runtime_dir / "catalog.json"
     references_dir = runtime_dir / "material-references"
-    if not catalog_path.is_file():
+    stamp_path = runtime_dir / ".seed-sha"
+    pending_path = runtime_dir / "pending-push.json"
+
+    def _copy_bundled() -> None:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(bundled_catalog, catalog_path)
+        if references_dir.is_dir():
+            shutil.rmtree(references_dir)
+        if bundled_references.is_dir():
+            shutil.copytree(bundled_references, references_dir)
+        else:
+            references_dir.mkdir(parents=True, exist_ok=True)
+        if build_sha:
+            stamp_path.write_text(build_sha + "\n", encoding="utf-8")
+
+    if not catalog_path.is_file():
+        _copy_bundled()
+        return catalog_path, references_dir
     if not references_dir.is_dir():
         if bundled_references.is_dir():
             shutil.copytree(bundled_references, references_dir)
         else:
             references_dir.mkdir(parents=True, exist_ok=True)
+
+    stamped = stamp_path.read_text(encoding="utf-8").strip() if stamp_path.is_file() else ""
+    if build_sha and stamped != build_sha:
+        if pending_path.is_file():
+            logger.warning(
+                "catalog seed: new image %s but runtime edits are still waiting "
+                "to be pushed to the repository — keeping the runtime catalogue",
+                build_sha[:10],
+            )
+            return catalog_path, references_dir
+        previous_dir = runtime_dir / "previous"
+        if previous_dir.is_dir():
+            shutil.rmtree(previous_dir)
+        previous_dir.mkdir(parents=True)
+        shutil.copy2(catalog_path, previous_dir / "catalog.json")
+        shutil.copytree(references_dir, previous_dir / "material-references")
+        logger.info(
+            "catalog seed: image changed (%s → %s); refreshing runtime catalogue "
+            "from the bundled files (previous copy kept in %s)",
+            stamped[:10] or "unstamped", build_sha[:10], previous_dir,
+        )
+        _copy_bundled()
     return catalog_path, references_dir
 
 
@@ -83,10 +143,12 @@ if _PERSIST_RUNTIME_CATALOG:
         _OUTPUT_DIR,
         _BUNDLED_CATALOG_PATH,
         _BUNDLED_MATERIAL_REFS_DIR,
+        _BUILD_SHA,
     )
 else:
     _CATALOG_PATH = _BUNDLED_CATALOG_PATH
     _MATERIAL_REFS_DIR = _BUNDLED_MATERIAL_REFS_DIR
+_CATALOG_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Recoverable snapshots made by the local catalogue admin before every save.
 # They contain the previous catalog.json and only the reference files touched

@@ -63,6 +63,35 @@ def catalog_js():
     )
 
 
+@router.get("/api/catalog-status")
+def catalog_status():
+    """Cheap, public: lets an open studio tab notice that the catalogue changed
+    (poll on focus, reload when `version` differs) and shows which materials
+    have curated reference photos on this instance."""
+    from studio.paths import _CATALOG_PATH, _MATERIAL_REFS_DIR
+
+    references: dict[str, dict[str, bool]] = {}
+    for material in CATALOG.get("materials", []):
+        mid = material["id"]
+        names = {p.stem for p in _MATERIAL_REFS_DIR.glob(f"{mid}*") if p.is_file()} if _MATERIAL_REFS_DIR.is_dir() else set()
+        references[mid] = {
+            "macro": mid in names,
+            "left": f"{mid}-left" in names,
+            "right": f"{mid}-right" in names,
+            "behavior": f"{mid}-behavior" in names,
+            "application": f"{mid}-application" in names,
+        }
+    try:
+        version = str(_CATALOG_PATH.stat().st_mtime_ns)
+    except OSError:
+        version = "0"
+    return Response(
+        content=json.dumps({"version": version, "references": references}),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/help")
 def help_page():
     # /docs is taken by FastAPI's Swagger UI, so the user guide lives at /help.
@@ -249,6 +278,10 @@ def api_history(limit: int = 60):
             "image_url": f"/api/outputs/{p.name}",
             "color": meta.get("nano_sofa_color") or rec.get("upholstery_color"),
             "material": meta.get("nano_sofa_material") or rec.get("upholstery_material"),
+            "color_id": meta.get("nano_sofa_color_id") or None,
+            "material_id": meta.get("nano_sofa_material_id") or None,
+            "fabric_code": meta.get("nano_sofa_fabric_code") or None,
+            "color_hex": meta.get("nano_sofa_color_hex") or None,
             "model": meta.get("nano_sofa_model") or rec.get("model_id"),
             "resolution": meta.get("nano_sofa_resolution") or rec.get("resolution"),
             "camera_angle": meta.get("nano_sofa_camera_angle") or rec.get("camera_angle"),
@@ -328,6 +361,10 @@ def api_experiments(limit: int = 120):
             "attempts": result.get("attempts"),
             "material": variant.get("material") or rec.get("upholstery_material"),
             "color": variant.get("color") or rec.get("upholstery_color"),
+            "material_id": variant.get("material_id") or None,
+            "color_id": variant.get("color_id") or None,
+            "fabric_code": variant.get("fabric_code") or None,
+            "color_hex": variant.get("color_hex") or None,
             "prompt_summary": rec.get("prompt_summary"),
             "image_url": (
                 f"/api/outputs/{output_name}"

@@ -432,7 +432,17 @@ def _build_freeform_request(
     Picker ids reuse the same tables as the wizard (env / tod / lens / height
     / colour / material) but every one of them is optional.
     """
-    refs = [str(p) for p in (extra_reference_paths or [])]
+    # The chosen fabric's canonical macro rides along as the FIRST reference
+    # so editorial shots get the same texture authority as product renders;
+    # the moodboards follow. The freeform prompt names it by position.
+    swatch_path = _material_reference_path(mat) if mat else None
+    refs: list[str] = []
+    swatch_position = 0
+    if swatch_path is not None:
+        refs.append(str(swatch_path))
+        swatch_position = 1
+    refs.extend(str(p) for p in (extra_reference_paths or []))
+    color_meta = _COLOR_META.get(color, {})
     prompt = _build_freeform_prompt(
         text=text,
         style=style,
@@ -443,15 +453,23 @@ def _build_freeform_request(
         color_en=_COLOR_PL_TO_EN.get(color, ""),
         mat_noun_en=_MATERIAL_PL_TO_EN.get(mat, ""),
         mat_texture_en=_MATERIAL_TEXTURE_EN.get(mat, ""),
+        mat_avoid_en=list(_MATERIAL_NEGATIVES_EN.get(mat, [])),
         people=people,
         seed=seed,
         n_refs=len(refs),
+        swatch_position=swatch_position,
     )
     return GenerationRequest(
         model_id=model,
         base_product_image=None,
         freeform_prompt=prompt,
         extra_reference_images=refs,
+        upholstery_color=_COLOR_PL_TO_EN.get(color, "") or "",
+        upholstery_material=_MATERIAL_PL_TO_EN.get(mat, "") or "",
+        upholstery_hex=color_meta.get("hex", ""),
+        color_id=color if color in _COLOR_PL_TO_EN else "",
+        material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
+        fabric_code=color_meta.get("fabric_code", ""),
         aspect_ratio=aspect,
         resolution=res,
         api_key=api_key,

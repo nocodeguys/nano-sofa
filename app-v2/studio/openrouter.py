@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
-from app.core.cost_tracker import new_generation_id
+from app.core.cost_tracker import GenerationRecord, new_generation_id, record_generation
 from studio.paths import _OUTPUT_DIR, logger
 
 # Editorial-only alternative models. Quirks (verified live against
@@ -126,6 +126,8 @@ def generate_openrouter(
     prompt: str,
     aspect: str,
     ref_paths: Optional[list[Path]] = None,
+    png_meta: Optional[dict[str, str]] = None,
+    prompt_summary: str = "",
 ) -> dict:
     """Blocking call (run via asyncio.to_thread). Returns
     {generation_id, output_path, cost, elapsed_ms, model_id} or raises
@@ -168,10 +170,45 @@ def generate_openrouter(
     ts = int(time.time())
     safe_model = model.replace("/", "-").replace(".", "-")
     output_path = _OUTPUT_DIR / f"{ts}_{safe_model}_{generation_id[:8]}.png"
-    image.save(output_path, format="PNG", optimize=True)
+    # Same self-identifying tEXt chunks as the Gemini path, so history,
+    # experiments and anchor lookup treat both engines alike.
+    pnginfo = PngImagePlugin.PngInfo()
+    meta = {
+        "nano_sofa_schema": "1",
+        "nano_sofa_generation_id": generation_id,
+        "nano_sofa_ts": str(ts),
+        "nano_sofa_model": model,
+        "nano_sofa_resolution": "auto",
+        "nano_sofa_prompt_summary": prompt_summary[:500],
+        **(png_meta or {}),
+    }
+    for key, value in meta.items():
+        pnginfo.add_text(key, str(value))
+    image.save(output_path, format="PNG", optimize=True, pnginfo=pnginfo)
 
     cost = float((data.get("usage") or {}).get("cost") or 0.0)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
+    try:
+        record_generation(GenerationRecord(
+            generation_id=generation_id,
+            timestamp=time.time(),
+            model_id=model,
+            resolution="auto",
+            num_ref_images=len(refs),
+            actual_cost=cost,
+            status="success",
+            output_path=str(output_path),
+            error_message=None,
+            prompt_summary=prompt_summary[:500],
+            leg_id=None,
+            upholstery_color=(png_meta or {}).get("nano_sofa_color", ""),
+            upholstery_material=(png_meta or {}).get("nano_sofa_material", ""),
+            camera_angle="",
+            turn_number=1,
+            elapsed_ms=elapsed_ms,
+        ))
+    except Exception:  # cost DB must never break a successful render
+        logger.exception("OpenRouter: cost record failed")
     logger.info("OpenRouter render OK: %s %.1fs $%.4f", model, elapsed_ms / 1000, cost)
     return {
         "generation_id": generation_id,

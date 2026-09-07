@@ -737,9 +737,11 @@ def _build_freeform_prompt(
     color_en: str = "",
     mat_noun_en: str = "",
     mat_texture_en: str = "",
+    mat_avoid_en: list[str] | None = None,
     people: str = "",
     seed: str = "",
     n_refs: int = 0,
+    swatch_position: int = 0,
 ) -> str:
     """
     Compose the full editorial prompt: the user's brief leads, picker
@@ -752,9 +754,22 @@ def _build_freeform_prompt(
         "the brief below. There is no base product to preserve — full "
         "creative freedom within the art direction."
     ]
-    if n_refs:
+    moodboard_count = n_refs - (1 if swatch_position else 0)
+    if swatch_position:
         lines.append(
-            f"Use the {n_refs} attached image(s) as loose mood and styling "
+            f"Attached image {swatch_position} is a close-up photograph of the real "
+            "target upholstery fabric. Copy ONLY its yarn construction, texture "
+            "scale and surface relief onto every upholstered piece; ignore its "
+            "photographed colour, crop, fold and lighting."
+        )
+    if moodboard_count > 0:
+        first = swatch_position + 1
+        label = (
+            f"image {first}" if moodboard_count == 1
+            else f"images {first}–{first + moodboard_count - 1}"
+        )
+        lines.append(
+            f"Use attached {label} as loose mood and styling "
             "inspiration only — do not copy them literally."
         )
     lines.append("")
@@ -789,6 +804,10 @@ def _build_freeform_prompt(
             f"furniture piece in the frame is upholstered in {mat_noun_en}. "
             f"Fabric spec: {mat_texture_en}"
         )
+        if mat_avoid_en:
+            lines.append(
+                "TEXTILE — must not appear: " + "; ".join(mat_avoid_en) + "."
+            )
     if people in _PEOPLE_TO_PROMPT:
         lines.append(f"PEOPLE: {_PEOPLE_TO_PROMPT[people]}")
     if seed.strip():
