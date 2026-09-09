@@ -159,6 +159,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key";
+const OPENAI_KEY_STORAGE = "nano-sofa-v2-openai-key"; // Lab tab (GPT Image 2.5 direct), shared with /editorial
+// lab.html mounts this same bundle with <body data-mode="lab">.
+const PAGE_MODE = (typeof document !== "undefined" && document.body && document.body.dataset && document.body.dataset.mode) || "photos";
 const PRESETS_STORAGE = "nano-sofa-v2-presets";
 // Cross-tab render gallery (server urls + generation ids), persisted so prior
 // renders survive a reload and stay pickable as Fotosesja anchors.
@@ -250,7 +253,18 @@ function CatalogMissing() {
   );
 }
 
-function App({ t }) {
+function App({ t, mode = "photos" }) {
+  // Lab mode (/lab, <body data-mode="lab">): the very same wizard, but the
+  // engine is the OpenAI Images API (GPT Image 2.5) with the user's OpenAI
+  // key instead of Gemini. Beds are the default subject there.
+  const isLab = mode === "lab";
+  const [oaKey, setOaKey] = useState(() => {
+    try { return localStorage.getItem(OPENAI_KEY_STORAGE) || ""; } catch { return ""; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(OPENAI_KEY_STORAGE, oaKey); } catch {}
+  }, [oaKey]);
+  const [quality, setQuality] = useState("");   // Images API quality tier (Lab models)
   const [apiKey, setApiKey] = useState(() => {
     try { return localStorage.getItem(API_KEY_STORAGE) || ""; } catch { return ""; }
   });
@@ -259,12 +273,22 @@ function App({ t }) {
   }, [apiKey]);
   // Open the key field automatically on first load when no key is set.
   const [showKeyEdit, setShowKeyEdit] = useState(() => {
-    try { return !(localStorage.getItem(API_KEY_STORAGE) || ""); } catch { return true; }
+    try { return !(localStorage.getItem(isLab ? OPENAI_KEY_STORAGE : API_KEY_STORAGE) || ""); } catch { return true; }
   });
+  // The key the active engine needs — Gemini in the studio, OpenAI in the Lab.
+  const activeKey = isLab ? oaKey : apiKey;
+  const setActiveKey = isLab ? setOaKey : setApiKey;
+  const keyHint = isLab ? "Wklej klucz OpenAI u góry sceny." : "Wklej klucz Gemini API u góry sceny.";
+  const keyCode = isLab ? "MISSING_OPENAI_KEY" : "MISSING_API_KEY";
 
   // Server-driven config: models + per-model constraints (max_refs, resolutions).
   // Falls back to a single Flash entry if the request fails so the UI still loads.
-  const [serverConfig, setServerConfig] = useState({
+  const [serverConfig, setServerConfig] = useState(isLab ? {
+    models: [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · OpenAI", provider: "openai",
+               max_refs: 16, max_resolution: "2K", resolutions: ["1K", "2K"],
+               qualities: ["low", "medium", "high", "xhigh", "max"], default_quality: "high" }],
+    default_model: "gpt-image-2.5-flare",
+  } : {
     models: [{ id: "gemini-3.1-flash-image", label: "Nano Banana 2", tier: "flash",
                max_refs: 14, max_resolution: "4K", resolutions: ["1K", "2K", "4K"] }],
     default_model: "gemini-3.1-flash-image",
@@ -272,7 +296,14 @@ function App({ t }) {
   useEffect(() => {
     fetch("/api/config")
       .then(r => r.ok ? r.json() : null)
-      .then(cfg => { if (cfg && cfg.models && cfg.models.length) setServerConfig(cfg); })
+      .then(cfg => {
+        if (!cfg) return;
+        if (isLab) {
+          if (cfg.lab_models && cfg.lab_models.length) {
+            setServerConfig({ ...cfg, models: cfg.lab_models, default_model: cfg.lab_default_model || cfg.lab_models[0].id });
+          }
+        } else if (cfg.models && cfg.models.length) setServerConfig(cfg);
+      })
       .catch(() => {});
   }, []);
 
@@ -336,7 +367,7 @@ function App({ t }) {
     density: "balanced",
     accents: [],            // array of BED_ACCENTS ids
     bedNote: "",            // optional free-text styling note
-    model: "gemini-3.1-flash-image", aspect: "4:3", res: "1K", seed: "",
+    model: isLab ? "gpt-image-2.5-flare" : "gemini-3.1-flash-image", aspect: "4:3", res: "1K", seed: "",
     outputFormat: "jpg", outputQuality: 82,
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
@@ -593,6 +624,8 @@ function App({ t }) {
     if (!allowedRes.includes(currentRes)) {
       set({ res: allowedRes[0] });
     }
+    const qualities = modelObj?.qualities || [];
+    setQuality(q => qualities.includes(q) ? q : (modelObj?.default_quality || ""));
   }, [serverConfig, st.model]);
 
   const cost = useMemo(() => {
@@ -641,11 +674,12 @@ function App({ t }) {
 
   const handleGenerate = async () => {
     setGenError("");
-    if (!apiKey.trim()) { setGenError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!activeKey.trim()) { setGenError(mkErr(keyHint, keyCode)); setShowKeyEdit(true); return; }
     if (!st.baseFile) { setGenError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
+    if (isLab) { fd.append("openai_key", oaKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
     fd.append("color", st.color);
     fd.append("color_custom", customColorText());
@@ -870,6 +904,7 @@ function App({ t }) {
   // Note: no `mat`/colour here — those come from the pairs (grid) or the tile (regen).
   const appendShootConfig = (fd) => {
     fd.append("api_key", apiKey.trim());
+    if (isLab) { fd.append("openai_key", oaKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
     fd.append("color_custom", customColorText());
     fd.append("mat_notes", st.matNotes || "");
@@ -904,7 +939,7 @@ function App({ t }) {
   const handleGenerateGrid = async () => {
     setShootError("");
     setShootGrid(null);
-    if (!apiKey.trim()) { setShootError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!activeKey.trim()) { setShootError(mkErr(keyHint, keyCode)); setShowKeyEdit(true); return; }
     if (!shootSources.length) { setShootError(mkErr("Dodaj co najmniej 1 zdjęcie bazowe (wgraj lub wybierz z sesji/historii).", "MISSING_SOURCES")); return; }
     if (!shootPairs.length) { setShootError(mkErr("Dodaj co najmniej 1 parę kolor + materiał.", "TOO_FEW_PAIRS")); return; }
     if (shootSources.length * shootPairs.length > 48) { setShootError(mkErr("Za dużo renderów (limit 48). Zmniejsz liczbę zdjęć lub par.", "TOO_MANY_RENDERS")); return; }
@@ -1008,7 +1043,7 @@ function App({ t }) {
 
   // Re-render ONE tile (source × colour+material) — fixes a single bad render.
   const regenerateTile = async (source, color, material) => {
-    if (!apiKey.trim()) { setShootError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!activeKey.trim()) { setShootError(mkErr(keyHint, keyCode)); setShowKeyEdit(true); return; }
     const key = source.sid + "|" + color + "|" + (material || "");
     setShootRegen(prev => ({ ...prev, [key]: true }));
     try {
@@ -1050,12 +1085,13 @@ function App({ t }) {
   const handleGenerateSet = async () => {
     setVariantError("");
     setVariantSet(null);
-    if (!apiKey.trim()) { setVariantError(mkErr("Wklej klucz Gemini API u góry sceny.", "MISSING_API_KEY")); setShowKeyEdit(true); return; }
+    if (!activeKey.trim()) { setVariantError(mkErr(keyHint, keyCode)); setShowKeyEdit(true); return; }
     if (!st.baseFile)   { setVariantError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
     if (variantColors.length < 2) { setVariantError(mkErr("Wybierz co najmniej 2 kolory.", "TOO_FEW_COLORS")); return; }
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
+    if (isLab) { fd.append("openai_key", oaKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
     fd.append("colors_csv", variantColors.join(","));
     // Empty materials_csv → server reuses single `mat` for every variant.
@@ -1134,7 +1170,16 @@ function App({ t }) {
 
   return (
     <div className="app-frame">
-      <NanoTopbar active="photos" apiKey={apiKey} setApiKey={setApiKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit} />
+      <NanoTopbar active={isLab ? "lab" : "photos"} apiKey={activeKey} setApiKey={setActiveKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit}
+        keyName={isLab ? "OpenAI" : "Gemini"} keyPlaceholder={isLab ? "sk-… wklej klucz OpenAI" : "AIza… wklej klucz Gemini"} />
+      {isLab && (
+        <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "7px 16px",
+          background: "var(--ink)", color: "var(--paper)", fontSize: 12.5 }}>
+          <span><strong>Lab · eksperyment.</strong> Ten sam kreator co w Zdjęciach, ale renderuje GPT Image 2.5 (OpenAI Images API):
+            zdjęcie bazowe + komplet referencji tkaniny + plamka koloru idą jako obrazy edycji z input_fidelity: high.
+            Warianty i fotosesja też przechodzą przez OpenAI. Wyniki lądują w Eksperymentach obok Gemini.</span>
+        </div>
+      )}
       {catalogStale && (
         <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 16px",
           background: "var(--ink)", color: "var(--paper)", fontSize: 12.5 }}>
@@ -1939,15 +1984,21 @@ function App({ t }) {
         </nav>
 
         {/* API key banner — sticks until a key is entered. Inline so it can't be missed. */}
-        {!apiKey && (
+        {!activeKey && (
           <div className="api-banner">
             <div className="api-banner-head">
               <div className="api-banner-eyebrow">krok zerowy</div>
-              <div className="api-banner-title serif">Wklej swój klucz Gemini API, żeby zacząć</div>
+              <div className="api-banner-title serif">{isLab ? "Wklej swój klucz OpenAI API, żeby zacząć" : "Wklej swój klucz Gemini API, żeby zacząć"}</div>
               <div className="api-banner-help">
-                Klucz przechowujemy tylko w Twojej przeglądarce (localStorage). Nie wysyłamy go nigdzie poza
-                wywołaniem do Google przy każdym renderze. Pobierz klucz z {" "}
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">aistudio.google.com/app/apikey</a>.
+                {isLab ? (
+                  <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
+                  api.openai.com przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>.</>
+                ) : (
+                  <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage). Nie wysyłamy go nigdzie poza
+                  wywołaniem do Google przy każdym renderze. Pobierz klucz z {" "}
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">aistudio.google.com/app/apikey</a>.</>
+                )}
               </div>
             </div>
             <div className="api-banner-form">
@@ -1955,8 +2006,8 @@ function App({ t }) {
                 autoFocus
                 type="password"
                 className="input"
-                placeholder="AIza..."
-                onChange={e => setApiKey(e.target.value)}
+                placeholder={isLab ? "sk-..." : "AIza..."}
+                onChange={e => setActiveKey(e.target.value)}
                 style={{flex:1, fontFamily:"Geist Mono", fontSize: 13}}
               />
             </div>
@@ -1964,19 +2015,30 @@ function App({ t }) {
         )}
 
         {/* Technical output settings stay available, but no longer lead the workflow. */}
-        <AdvancedSection title="Ustawienia techniczne" summary={`${st.model.includes("pro") ? "pro" : "flash"} · ${st.aspect} · ${st.res.split(" ")[0]}`}
-          help="Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki.">
+        <AdvancedSection title="Ustawienia techniczne"
+          summary={`${isLab ? (st.model.includes("sunburst") ? "sunburst" : "flare") + (quality ? " · " + quality : "") : (st.model.includes("pro") ? "pro" : "flash")} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          help={isLab
+            ? "Model OpenAI, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
+            : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki."}>
           <div className="out-grid">
             <div>
               <div className="field-lbl">model</div>
               <select className="select" value={st.model} onChange={e => set({ model: e.target.value })}>
                 {serverConfig.models.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.label} {m.tier === "pro" ? "· pro" : "· flash"} · do {m.max_resolution || "1K"}
+                    {m.label}{m.tier ? (m.tier === "pro" ? " · pro" : " · flash") : ""} · do {m.max_resolution || "1K"}
                   </option>
                 ))}
               </select>
             </div>
+            {(modelObj?.qualities || []).length > 0 && (
+              <div>
+                <div className="field-lbl">jakość</div>
+                <select className="select" value={quality} onChange={e => setQuality(e.target.value)}>
+                  {modelObj.qualities.map(q => <option key={q} value={q}>{q}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <div className="field-lbl">proporcje</div>
               <select className="select" value={st.aspect} onChange={e => set({ aspect: e.target.value })}>
@@ -2958,7 +3020,7 @@ function Root() {
   if (CATALOG_MISSING) return <CatalogMissing />;
   return (
     <>
-      <App t={t} />
+      <App t={t} mode={PAGE_MODE} />
       <StagePaneTweaks t={t} setTweak={setTweak} />
     </>
   );

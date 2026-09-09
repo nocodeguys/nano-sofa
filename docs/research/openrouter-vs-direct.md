@@ -144,3 +144,24 @@ major updates (script is idempotent: `--retry <run-dir>` fills gaps only).
 Veo-on-OpenRouter billing (zeros in endpoints API), Krea pricing, exact
 current Google tier rate limits (dashboard-only), head-to-head error-rate
 data OpenRouter-vs-direct, "50%-off" reseller sites (avoid — ToS/provenance).
+
+## Addendum 2026-09-08 — GPT Image via OpenRouter, GPT Image 2.5 direct
+
+Verified live against `/api/v1/images/models` (50 image models): OpenRouter
+lists `openai/gpt-image-2`, `openai/gpt-image-1`, `openai/gpt-image-1-mini`
+(plus the chat-style `openai/gpt-5.4-image-2`), each with 0–16
+`input_references`, a `quality` enum (low/medium/high) and per-token billing
+(gpt-image-2: in 8 $/M image, 5 $/M text, out 30 $/M). `gpt-image-1.5` is not
+on the Images API. gpt-image-2 accepts every aspect we offer; gpt-image-1 /
+-1-mini only 1:1, 2:3, 3:2. All three are now in the editorial picker.
+
+OpenAI's own Images API released `gpt-image-2.5-flare` and
+`gpt-image-2.5-sunburst` the same day (GPT Image 2 token rates, new `xhigh`
+/ `max` quality tiers, `/v1/images/edits` with up to 16 input images and
+`input_fidelity`, arbitrary WIDTHxHEIGHT sizes in multiples of 16). They are
+not on OpenRouter yet, so they run direct from the experimental Lab tab
+(`/lab`, `studio/openai_images.py`) with the user's OpenAI key. Both routes
+now receive the full freeform reference plan (fabric macro, exact colour
+patch, oblique / behaviour / application views, moodboards) — the bake-off
+question for these models is whether that plan buys fabric fidelity; results
+land in Experiments with a trace like every Gemini run.

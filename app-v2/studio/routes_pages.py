@@ -29,6 +29,7 @@ from studio.mappings import (
 )
 from studio.media import _MEDIA_TYPES, _read_png_meta
 from studio.normalize import is_raw_copy as _is_raw
+from studio.openai_images import OPENAI_MODELS
 from studio.openrouter import OPENROUTER_MODELS
 from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger
 
@@ -43,6 +44,14 @@ def index():
 @router.get("/editorial")
 def editorial_page():
     return FileResponse(_DIST_DIR / "editorial.html")
+
+
+@router.get("/lab")
+def lab_page():
+    """Experimental tab: the product wizard (same bundle as the studio page,
+    `data-mode="lab"`) driven by the OpenAI Images API — GPT Image 2.5 Flare /
+    Sunburst with the user's own OpenAI key."""
+    return FileResponse(_DIST_DIR / "lab.html")
 
 
 @router.get("/experiments")
@@ -146,28 +155,48 @@ def api_config():
         else (models[0]["id"] if models else None)
     )
     # Editorial tab: the Gemini models above plus the OpenRouter alternatives
-    # (FLUX / Seedream) — text-to-image only, never offered in the variant
-    # pipeline (the bake-off showed they don't preserve product geometry).
-    editorial_models = [
-        {**m, "provider": "google"} for m in models
-    ] + [
-        {
+    # (FLUX / Seedream / GPT Image) — text-to-image only, never offered in
+    # the variant pipeline (the bake-off showed they don't preserve product
+    # geometry). The Lab tab lists the OpenAI-direct models. Every entry
+    # carries what the composer needs to adapt: the reference cap, how many
+    # moodboards the page should accept (Gemini keeps its three; external
+    # engines take up to six of their cap), the quality tiers (forwarded as
+    # the Images API `quality` field) and the aspect vocabulary.
+    def _external_model(slug: str, cfg: dict, provider: str) -> dict:
+        resolutions = list(cfg.get("resolutions") or ["auto"])
+        return {
             "id": slug,
             "label": cfg["label"],
-            "provider": "openrouter",
+            "provider": provider,
             "max_refs": cfg["max_refs"],
-            "max_resolution": "auto",
-            "supports_resolution_param": False,
-            "resolutions": ["auto"],
+            "moodboard_max": max(1, min(6, cfg["max_refs"])),
+            "max_resolution": resolutions[-1],
+            "supports_resolution_param": resolutions != ["auto"],
+            "resolutions": resolutions,
             "price_hint": cfg.get("price_hint", ""),
+            "note": cfg.get("note_pl", ""),
             "aspects": cfg.get("aspects"),
+            "qualities": list(cfg.get("qualities") or []),
+            "default_quality": cfg.get("default_quality", ""),
         }
-        for slug, cfg in OPENROUTER_MODELS.items()
+
+    editorial_models = [
+        {**m, "provider": "google", "moodboard_max": 3, "qualities": [], "default_quality": ""}
+        for m in models
+    ] + [
+        _external_model(slug, cfg, "openrouter") for slug, cfg in OPENROUTER_MODELS.items()
+    ] + [
+        _external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()
     ]
+    # Lab tab: the product wizard (index page in data-mode="lab") on the
+    # OpenAI Images API — GPT Image 2.5 with the full reference plan.
+    lab_models = [_external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()]
     return {
         "models": models,
         "default_model": default_id,
         "editorial_models": editorial_models,
+        "lab_models": lab_models,
+        "lab_default_model": lab_models[0]["id"] if lab_models else None,
     }
 
 

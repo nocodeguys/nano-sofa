@@ -40,10 +40,28 @@ def _image_sha256(image: Image.Image) -> str:
 def reference_roles(req: Any, *, freeform: bool = False) -> list[tuple[str, Any]]:
     """Return the declared reference order without exposing request secrets."""
     if freeform:
-        return [
+        # Mirrors generator.plan_freeform_reference_slots: material authority
+        # first, then the exact colour patch, then the moodboards.
+        active: list[tuple[str, Any]] = []
+        if getattr(req, "swatch_reference_image", None) is not None:
+            active.append(("material_macro", req.swatch_reference_image))
+        color_hex = (getattr(req, "upholstery_hex", "") or "").strip()
+        if color_hex:
+            active.append(("color_patch", f"color-patch:{color_hex.upper()}"))
+        for role, attr in (
+            ("material_left", "material_left_reference_image"),
+            ("material_right", "material_right_reference_image"),
+            ("material_behavior", "material_behavior_reference_image"),
+            ("material_application", "material_application_reference_image"),
+        ):
+            source = getattr(req, attr, None)
+            if source is not None:
+                active.append((role, source))
+        active.extend(
             (f"extra_reference_{idx}", source)
             for idx, source in enumerate(req.extra_reference_images or [], start=1)
-        ]
+        )
+        return active
 
     declared = [
         ("base_product", req.base_product_image),

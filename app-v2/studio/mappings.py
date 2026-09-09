@@ -740,33 +740,81 @@ def _build_freeform_prompt(
     mat_avoid_en: list[str] | None = None,
     people: str = "",
     seed: str = "",
-    n_refs: int = 0,
-    swatch_position: int = 0,
+    slots: dict[str, int] | None = None,
+    color_hex: str = "",
 ) -> str:
     """
     Compose the full editorial prompt: the user's brief leads, picker
     fragments follow as art-direction constraints. Every picker is optional —
     empty ids are simply skipped, so the minimal prompt is TASK + BRIEF +
     OUTPUT STYLE.
+
+    `slots` maps reference roles to the 1-based positions that are ACTUALLY
+    attached (generator.plan_freeform_reference_slots after the engine's
+    cap), so the prompt never describes an image the model did not receive.
     """
     lines: list[str] = [
         "TASK: Create a brand-new editorial photograph from scratch based on "
         "the brief below. There is no base product to preserve — full "
         "creative freedom within the art direction."
     ]
-    moodboard_count = n_refs - (1 if swatch_position else 0)
-    if swatch_position:
+    slots = dict(slots or {})
+    macro_slot = slots.get("material_macro")
+    if macro_slot:
         lines.append(
-            f"Attached image {swatch_position} is a close-up photograph of the real "
+            f"Attached image {macro_slot} is a close-up photograph of the real "
             "target upholstery fabric. Copy ONLY its yarn construction, texture "
             "scale and surface relief onto every upholstered piece; ignore its "
             "photographed colour, crop, fold and lighting."
         )
-    if moodboard_count > 0:
-        first = swatch_position + 1
+    patch_slot = slots.get("color_patch")
+    if patch_slot:
+        hex_label = (color_hex or "").strip().upper()
+        lines.append(
+            f"Attached image {patch_slot} is a flat, evenly lit patch of the exact "
+            f"target upholstery colour{(' ' + hex_label) if hex_label else ''}. It is "
+            "the single authority for the hue, saturation and lightness of the hero "
+            "upholstery: under the scene's key light its mid-tones must match this "
+            "patch. It carries no texture, geometry or lighting — copy nothing else "
+            "from it. The fabric photographs show a different colour and contribute "
+            "texture only."
+        )
+    angle_slots = [slots[role] for role in ("material_left", "material_right") if role in slots]
+    if angle_slots:
+        plural = len(angle_slots) > 1
+        label = " and ".join(str(slot) for slot in angle_slots)
+        viewpoint = "opposing oblique viewpoints" if plural else "an oblique viewpoint"
+        lines.append(
+            f"Attached image{'s' if plural else ''} {label} show{'' if plural else 's'} "
+            f"the same fabric from {viewpoint}: use "
+            f"{'them' if plural else 'it'} only for how its pile, nubs and sheen "
+            "respond to light from the side; ignore "
+            f"{'their' if plural else 'its'} colour, crop and background."
+        )
+    behavior_slot = slots.get("material_behavior")
+    if behavior_slot:
+        lines.append(
+            f"Attached image {behavior_slot} shows the same fabric under grazing light "
+            "across a curved, touched surface: copy only that optical behaviour — "
+            "raised fibres facing the light brighten, fibres laid away darken, and "
+            "these shifts follow real curves and folds, never a printed pattern."
+        )
+    application_slot = slots.get("material_application")
+    if application_slot:
+        lines.append(
+            f"Attached image {application_slot} shows a comparable fabric on a whole "
+            "furniture piece at normal viewing distance: use it only to judge how "
+            "fine the texture reads from the camera — never its geometry, room, "
+            "colour or styling, and never let it override the physical sample "
+            "photographs."
+        )
+    mood_slots = sorted(
+        number for role, number in slots.items() if role.startswith("extra_reference_")
+    )
+    if mood_slots:
         label = (
-            f"image {first}" if moodboard_count == 1
-            else f"images {first}–{first + moodboard_count - 1}"
+            f"image {mood_slots[0]}" if len(mood_slots) == 1
+            else f"images {mood_slots[0]}–{mood_slots[-1]}"
         )
         lines.append(
             f"Use attached {label} as loose mood and styling "

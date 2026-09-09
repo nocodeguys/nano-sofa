@@ -12,7 +12,11 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from app.core.generator import GenerationRequest
+from app.core.generator import (
+    GenerationRequest,
+    plan_freeform_reference_slots,
+    slot_numbers,
+)
 from app.core.schema_loader import schema
 from studio.catalog import (
     _COLOR_META,
@@ -426,24 +430,48 @@ def _build_freeform_request(
     res: str = "1K",
     seed: str = "",
     extra_reference_paths: Optional[list[Path]] = None,
+    max_refs: Optional[int] = None,
 ) -> GenerationRequest:
     """
     Editorial mode: no base product, the composed text IS the prompt.
     Picker ids reuse the same tables as the wizard (env / tod / lens / height
     / colour / material) but every one of them is optional.
+
+    A picked fabric declares its whole curated reference set (macro swatch,
+    oblique views, light-response and in-use photographs) and a picked colour
+    its exact colour patch — the same authorities the product pipeline
+    attaches; the moodboards follow. `max_refs` is the cap of an engine the
+    schema does not know (OpenRouter / OpenAI models); the prompt names only
+    the images that survive it (generator.plan_freeform_reference_slots).
     """
-    # The chosen fabric's canonical macro rides along as the FIRST reference
-    # so editorial shots get the same texture authority as product renders;
-    # the moodboards follow. The freeform prompt names it by position.
-    swatch_path = _material_reference_path(mat) if mat else None
-    refs: list[str] = []
-    swatch_position = 0
-    if swatch_path is not None:
-        refs.append(str(swatch_path))
-        swatch_position = 1
-    refs.extend(str(p) for p in (extra_reference_paths or []))
     color_meta = _COLOR_META.get(color, {})
-    prompt = _build_freeform_prompt(
+    upholstery_hex = color_meta.get("hex", "")
+    macro = _material_reference_path(mat) if mat else None
+    left = _material_angle_reference_path(mat, "left") if mat else None
+    right = _material_angle_reference_path(mat, "right") if mat else None
+    behavior = _material_behavior_reference_path(mat) if mat else None
+    application = _material_application_reference_path(mat) if mat else None
+    req = GenerationRequest(
+        model_id=model,
+        base_product_image=None,
+        swatch_reference_image=str(macro) if macro else None,
+        material_left_reference_image=str(left) if left else None,
+        material_right_reference_image=str(right) if right else None,
+        material_behavior_reference_image=str(behavior) if behavior else None,
+        material_application_reference_image=str(application) if application else None,
+        extra_reference_images=[str(p) for p in (extra_reference_paths or [])],
+        upholstery_color=_COLOR_PL_TO_EN.get(color, "") or "",
+        upholstery_material=_MATERIAL_PL_TO_EN.get(mat, "") or "",
+        upholstery_hex=upholstery_hex,
+        color_id=color if color in _COLOR_PL_TO_EN else "",
+        material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
+        fabric_code=color_meta.get("fabric_code", ""),
+        aspect_ratio=aspect,
+        resolution=res,
+        api_key=api_key,
+    )
+    slots = slot_numbers(plan_freeform_reference_slots(req, max_refs))
+    req.freeform_prompt = _build_freeform_prompt(
         text=text,
         style=style,
         env=env,
@@ -456,21 +484,7 @@ def _build_freeform_request(
         mat_avoid_en=list(_MATERIAL_NEGATIVES_EN.get(mat, [])),
         people=people,
         seed=seed,
-        n_refs=len(refs),
-        swatch_position=swatch_position,
+        slots=slots,
+        color_hex=upholstery_hex,
     )
-    return GenerationRequest(
-        model_id=model,
-        base_product_image=None,
-        freeform_prompt=prompt,
-        extra_reference_images=refs,
-        upholstery_color=_COLOR_PL_TO_EN.get(color, "") or "",
-        upholstery_material=_MATERIAL_PL_TO_EN.get(mat, "") or "",
-        upholstery_hex=color_meta.get("hex", ""),
-        color_id=color if color in _COLOR_PL_TO_EN else "",
-        material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
-        fabric_code=color_meta.get("fabric_code", ""),
-        aspect_ratio=aspect,
-        resolution=res,
-        api_key=api_key,
-    )
+    return req

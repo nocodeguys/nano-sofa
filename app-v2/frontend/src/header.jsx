@@ -7,8 +7,9 @@
 */
 import React from "react";
 
-export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false, adminLabel = "tylko lokalnie" }) {
-  const suffix = active === "video" ? "wideo" : active === "editorial" ? "editorial" : active === "admin" ? "katalog" : active === "experiments" ? "eksperymenty" : "studio";
+export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false, adminLabel = "tylko lokalnie",
+                            keyName = "Gemini", keyPlaceholder = "AIza… wklej klucz Gemini" }) {
+  const suffix = active === "video" ? "wideo" : active === "editorial" ? "editorial" : active === "lab" ? "lab · OpenAI" : active === "admin" ? "katalog" : active === "experiments" ? "eksperymenty" : "studio";
   const forget = () => setApiKey?.("");
   return (
     <header className="topbar">
@@ -21,6 +22,7 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
         <a href="/" className={active === "photos" ? "on" : ""}>Zdjęcia</a>
         <a href="/video" className={active === "video" ? "on" : ""}>Wideo</a>
         <a href="/editorial" className={active === "editorial" ? "on" : ""}>Editorial</a>
+        <a href="/lab" className={active === "lab" ? "on" : ""} title="eksperyment: kreator produktowy na GPT Image 2.5 (OpenAI Images API)">Lab</a>
         <a href="/experiments" className={active === "experiments" ? "on" : ""}>Eksperymenty</a>
         <a href="/admin" className={active === "admin" ? "on" : ""}>Katalog</a>
       </nav>
@@ -34,7 +36,7 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
               autoFocus
               type="password"
               className="keyfield"
-              placeholder="AIza… wklej klucz Gemini"
+              placeholder={keyPlaceholder}
               value={apiKey}
               onChange={e => setApiKey?.(e.target.value)}
               onBlur={() => setShowKeyEdit?.(false)}
@@ -51,9 +53,9 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
           <>
             <div className={"keychip" + (apiKey ? "" : " empty")}
               onClick={() => setShowKeyEdit?.(true)}
-              title="kliknij aby wkleić / zmienić klucz Gemini">
+              title={`kliknij aby wkleić / zmienić klucz ${keyName}`}>
               <span className="dot"></span>
-              <span>{apiKey ? `klucz ••${apiKey.slice(-4)}` : "wklej klucz Gemini"}</span>
+              <span>{apiKey ? `klucz ••${apiKey.slice(-4)}` : `wklej klucz ${keyName}`}</span>
             </div>
             {apiKey && (
               <button type="button" className="btn-mini" title="usuń zapisany klucz z tej przeglądarki"

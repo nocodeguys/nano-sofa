@@ -68,11 +68,37 @@ art direction (fabric + palette are hard constraints, people-in-frame picker
 defaults to an explicit no-people negative), plus up to 3 moodboard refs.
 `GenerationRequest.freeform_prompt` carries the composed text verbatim — the
 variant prompt assembly, preserve list, and base-image validation are all
-skipped. Editorial is also the only place the OpenRouter engine exists
-(`studio/openrouter.py`: FLUX.2 pro, Seedream 4.5 — strong at composing from
-scratch, banned from the variant pipeline per the bake-off): same composed
-prompt, user's own OpenRouter key (browser-stored, like the Gemini key),
-same outputs naming and delivery pipeline.
+skipped. A picked fabric declares its whole curated reference set (macro,
+left/right, behaviour, application) and a picked colour its exact colour
+patch — `generator.plan_freeform_reference_slots` applies the engine's cap
+and `mappings._build_freeform_prompt` describes only the attached slots.
+
+Editorial is also where the two non-Gemini engines live, both fed the very
+same composed prompt and reference plan and both ending in the shared
+persist / cost-row / trace tail (`studio/external_engine.py`), so History
+and Experiments treat every engine alike:
+
+- `studio/openrouter.py` — OpenRouter Images API with the user's own
+  OpenRouter key (browser-stored, like the Gemini key): FLUX.2 pro,
+  Seedream, Krea and, since 2026-09, OpenAI GPT Image 2 / 1 / 1-mini
+  (16 `input_references`, `quality` tier). Banned from the variant pipeline
+  per the bake-off.
+- `studio/openai_images.py` — GPT Image 2.5 Flare / Sunburst called directly
+  at api.openai.com with the user's OpenAI key. Two entry points share the
+  HTTP call (`generate_openai`): the editorial dropdown (freeform prompt +
+  freeform plan) and `generate_product_openai`, which runs the **product
+  pipeline** — base photo, leg / scene / fabric set / colour patch /
+  moodboards, the full variant prompt numbered from the attached images —
+  and returns a Gemini-shaped `GenerationResult`. The experimental **Lab**
+  tab (`/lab`) is the studio wizard bundle in `data-mode="lab"`: same
+  sections, OpenAI key in the topbar, beds by default, and every product
+  route (`/api/generate`, `-set`, `-variants`, `regenerate-variant`)
+  dispatches through `routes_generate._render_product` to that engine when
+  the model is an OpenAI one. With references the call is
+  `/v1/images/edits` (`image[]` × ≤16, `input_fidelity: high`), otherwise
+  `/v1/images/generations`; sizes are explicit WIDTHxHEIGHT multiples of 16
+  per aspect (`size_for_aspect`), `quality` up to `xhigh` / `max`, cost
+  computed from the returned token usage at the published rates.
 
 ## Sources of truth
 

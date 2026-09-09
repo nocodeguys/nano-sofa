@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.core.generator import generate
+from app.core.generator import generate, load_freeform_reference_plan
 from studio.errors import _item_error, _result_error, _validation_error
 from studio.mappings import _compose_bedding_description
 from studio.media import (
@@ -25,7 +25,9 @@ from studio.media import (
     _save_upload,
 )
 from studio.normalize import normalize_packshot, resolve_profile
-from studio.openrouter import OPENROUTER_MODELS, OpenRouterError, generate_openrouter
+from studio.external_engine import ExternalEngineError
+from studio.openai_images import OPENAI_MODELS, generate_openai, generate_product_openai
+from studio.openrouter import OPENROUTER_MODELS, generate_openrouter
 from studio.paths import logger
 from studio.request_builder import (
     _build_freeform_request,
@@ -41,6 +43,31 @@ router = APIRouter()
 # gate. Created lazily so it binds to the running event loop; per-process.
 _BATCH_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "3"))
 _gen_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _missing_key_error(model: str, api_key: str, openai_key: str):
+    """The product routes need the Gemini key — or, for a Lab (OpenAI) model,
+    the OpenAI key. Returns the validation response or None."""
+    if model in OPENAI_MODELS:
+        if openai_key.strip():
+            return None
+        return _validation_error(
+            "Ten model działa bezpośrednio przez OpenAI — wklej klucz OpenAI (sk-…).",
+            "MISSING_OPENAI_KEY",
+        )
+    if api_key.strip():
+        return None
+    return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+
+
+def _render_product(req, openai_key: str = "", quality: str = ""):
+    """Engine dispatch for the product pipeline: Lab (OpenAI) models go to the
+    Images API with the same request, everything else to generator.generate()."""
+    if req.model_id in OPENAI_MODELS:
+        return generate_product_openai(
+            dataclass_replace(req, engine_quality=quality), openai_key.strip()
+        )
+    return generate(req)
 
 
 def _truthy(raw: str) -> bool:
@@ -64,6 +91,8 @@ async def _capped(fn, *args):
 @router.post("/api/generate")
 async def api_generate(
     api_key: str = Form(""),
+    openai_key: str = Form(""),
+    quality: str = Form(""),
     kind: str = Form("sofa"),
     color: str = Form("greige"),
     color_custom: str = Form(""),
@@ -111,8 +140,9 @@ async def api_generate(
     accents: str = Form(""),
     bed_note: str = Form(""),
 ):
-    if not api_key.strip():
-        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    key_error = _missing_key_error(model, api_key, openai_key)
+    if key_error is not None:
+        return key_error
     if base_image is None:
         return _validation_error("Brak zdjęcia bazowego.", "MISSING_BASE_IMAGE")
 
@@ -202,7 +232,7 @@ async def api_generate(
     # backoff) to a thread so the event loop stays responsive — /healthz, the
     # static assets, and other users' renders no longer freeze behind this one.
     # Matches what /api/generate-set and /api/generate-photoshoot already do.
-    result = await asyncio.to_thread(generate, req)
+    result = await asyncio.to_thread(_render_product, req, openai_key, quality)
 
     if not result.success or result.output_path is None:
         return _result_error(result)
@@ -245,6 +275,8 @@ async def api_generate(
 @router.post("/api/generate-set")
 async def api_generate_set(
     api_key: str = Form(""),
+    openai_key: str = Form(""),
+    quality: str = Form(""),
     kind: str = Form("sofa"),
     colors_csv: str = Form(""),     # comma-separated English color ids (anchor first)
     # Optional materials, paired positionally with colors_csv. Empty → fall
@@ -307,8 +339,9 @@ async def api_generate_set(
       variants: [{ color, image_url, cost, ... } | { color, error }, ...]
     }
     """
-    if not api_key.strip():
-        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    key_error = _missing_key_error(model, api_key, openai_key)
+    if key_error is not None:
+        return key_error
     if base_image is None:
         return _validation_error("Brak zdjęcia bazowego.", "MISSING_BASE_IMAGE")
 
@@ -390,7 +423,7 @@ async def api_generate_set(
         catalog_profile=catalog_profile,
     )
 
-    anchor_result = await asyncio.to_thread(generate, anchor_req)
+    anchor_result = await asyncio.to_thread(_render_product, anchor_req, openai_key, quality)
 
     if not anchor_result.success or anchor_result.output_path is None:
         return _result_error(anchor_result)
@@ -458,7 +491,7 @@ async def api_generate_set(
                 and Path(v_req.scene_reference_image) == Path(anchor_result.output_path)
             ),
         )
-        return generate(v_req)
+        return _render_product(v_req, openai_key, quality)
 
     variant_pairs = list(zip(color_ids[1:], material_ids[1:]))
     variant_results = await asyncio.gather(
@@ -510,6 +543,8 @@ _MAX_GRID_RENDERS = 48
 @router.post("/api/generate-variants")
 async def api_generate_variants(
     api_key: str = Form(""),
+    openai_key: str = Form(""),
+    quality: str = Form(""),
     kind: str = Form("sofa"),
     # Shared colour+material PAIRS applied to EVERY source.
     # JSON: [{"color": "<chip id>", "material": "<chip id>"}, ...]
@@ -562,8 +597,9 @@ async def api_generate_variants(
       {"type":"done","total_cost":..}
     Pre-flight validation errors are returned as a normal JSON 4xx BEFORE the stream starts.
     """
-    if not api_key.strip():
-        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    key_error = _missing_key_error(model, api_key, openai_key)
+    if key_error is not None:
+        return key_error
 
     # ---- parse the shared colour+material pairs ------------------------- #
     try:
@@ -634,7 +670,7 @@ async def api_generate_variants(
     # The client fills the grid live and drives a real X/N progress bar so the
     # user sees first results immediately instead of waiting for the whole batch.
     def _render(src_path, pair):
-        return generate(_recolor_request(
+        return _render_product(_recolor_request(
             api_key=api_key, kind=kind,
             color=pair["color"], color_custom=color_custom,
             mat=pair["material"], mat_notes=mat_notes,
@@ -642,7 +678,7 @@ async def api_generate_variants(
             shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
             model=model, aspect=aspect, res=res, seed=seed,
             bedding_desc=bedding_desc, source_path=src_path,
-        ))
+        ), openai_key, quality)
 
     async def _job(s, pair):
         # Never raises — failures become an error tile so the stream stays intact.
@@ -681,6 +717,8 @@ async def api_generate_variants(
 @router.post("/api/regenerate-variant")
 async def api_regenerate_variant(
     api_key: str = Form(""),
+    openai_key: str = Form(""),
+    quality: str = Form(""),
     kind: str = Form("sofa"),
     color: str = Form(""),
     # Every other endpoint calls the material field `mat`; this one grew up
@@ -721,8 +759,9 @@ async def api_regenerate_variant(
     mode. Backs the per-tile 'regeneruj' button so a single bad render can be fixed
     without re-running the whole grid."""
     material = (mat or material or "boucle").strip()
-    if not api_key.strip():
-        return _validation_error("Brak klucza API.", "MISSING_API_KEY")
+    key_error = _missing_key_error(model, api_key, openai_key)
+    if key_error is not None:
+        return key_error
     if not color.strip():
         return _validation_error("Brak koloru wariantu.", "TOO_FEW_PAIRS")
 
@@ -752,7 +791,7 @@ async def api_regenerate_variant(
         dof=dof, detail_region=detail_region, model=model, aspect=aspect, res=res,
         seed=seed, bedding_desc=bedding_desc, source_path=src_path,
     )
-    result = await asyncio.to_thread(generate, req)
+    result = await asyncio.to_thread(_render_product, req, openai_key, quality)
     if not result.success or result.output_path is None:
         return _result_error(result)
     qual = _parse_quality(output_quality)
@@ -766,6 +805,7 @@ async def api_regenerate_variant(
 async def api_generate_free(
     api_key: str = Form(""),
     openrouter_key: str = Form(""),
+    openai_key: str = Form(""),
     prompt: str = Form(""),
     style: str = Form(""),
     env: str = Form(""),
@@ -779,23 +819,36 @@ async def api_generate_free(
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
+    quality: str = Form(""),
     output_format: str = Form("jpg"),
     output_quality: str = Form("82"),
     references: list[UploadFile] = File(default_factory=list),
 ):
-    """Editorial mode: text-to-image, no base product photo. The brief plus
-    optional picker fragments become the whole prompt (see
-    _build_freeform_request); optional moodboard refs ride along. Gemini
-    models run through the normal generate() pipeline; FLUX / Seedream run
-    through the OpenRouter Images API with the user's OpenRouter key."""
-    is_openrouter = model in OPENROUTER_MODELS
-    if is_openrouter:
-        if not openrouter_key.strip():
-            return _validation_error(
-                "Ten model działa przez OpenRouter — wklej klucz OpenRouter (sk-or-…).",
-                "MISSING_OPENROUTER_KEY",
-            )
-    elif not api_key.strip():
+    """Editorial / Lab mode: text-to-image, no base product photo. The brief
+    plus optional picker fragments become the whole prompt (see
+    _build_freeform_request); a picked fabric brings its curated reference
+    set and the exact colour patch, moodboards ride along. Three engines
+    share that one prompt and reference plan: Gemini models run through the
+    normal generate() pipeline, FLUX / Seedream / GPT Image run through the
+    OpenRouter Images API with the user's OpenRouter key, and GPT Image 2.5
+    (the Lab tab) runs directly against the OpenAI Images API with the
+    user's OpenAI key."""
+    engine = (
+        "openrouter" if model in OPENROUTER_MODELS
+        else "openai" if model in OPENAI_MODELS
+        else "google"
+    )
+    if engine == "openrouter" and not openrouter_key.strip():
+        return _validation_error(
+            "Ten model działa przez OpenRouter — wklej klucz OpenRouter (sk-or-…).",
+            "MISSING_OPENROUTER_KEY",
+        )
+    if engine == "openai" and not openai_key.strip():
+        return _validation_error(
+            "Ten model działa bezpośrednio przez OpenAI — wklej klucz OpenAI (sk-…).",
+            "MISSING_OPENAI_KEY",
+        )
+    if engine == "google" and not api_key.strip():
         return _validation_error("Brak klucza API.", "MISSING_API_KEY")
     if len(prompt.strip()) < 3:
         return _validation_error("Opisz, co ma być na zdjęciu.", "MISSING_PROMPT")
@@ -809,46 +862,65 @@ async def api_generate_free(
         except Exception as exc:
             logger.warning("Editorial reference #%d unreadable, ignoring: %s", idx, exc)
 
-    # The prompt text is composed identically for both engines — one wording,
-    # two backends, comparable results.
+    # The prompt text and the reference plan are composed identically for
+    # every engine — one wording, three backends, comparable results. The
+    # external engines are unknown to the schema, so their reference cap is
+    # passed in explicitly.
+    engine_cfg = OPENROUTER_MODELS.get(model) or OPENAI_MODELS.get(model)
     req = _build_freeform_request(
         api_key=api_key, text=prompt,
         style=style, env=env, tod=tod, lens=lens, height=height,
         color=color, mat=mat, people=people,
-        model=model if not is_openrouter else "gemini-2.5-flash-image",
-        aspect=aspect, res=res, seed=seed,
+        model=model, aspect=aspect, res=res, seed=seed,
         extra_reference_paths=extra_ref_paths,
+        max_refs=engine_cfg["max_refs"] if engine_cfg else None,
     )
 
     logger.info("Editorial generate: style=%s env=%s model=%s engine=%s",
-                style or "-", env or "-", model, "openrouter" if is_openrouter else "google")
+                style or "-", env or "-", model, engine)
 
-    if is_openrouter:
+    quality_used = ""
+    if engine != "google":
+        loaded = await asyncio.to_thread(load_freeform_reference_plan, req, engine_cfg["max_refs"])
+        plan = [(slot.role, slot.source, image) for slot, image in loaded]
+        png_meta = {
+            "nano_sofa_color": req.upholstery_color or "",
+            "nano_sofa_material": req.upholstery_material or "",
+            "nano_sofa_color_id": req.color_id or "",
+            "nano_sofa_material_id": req.material_id or "",
+            "nano_sofa_fabric_code": req.fabric_code or "",
+            "nano_sofa_color_hex": req.upholstery_hex or "",
+        }
         try:
-            out = await asyncio.to_thread(
-                generate_openrouter,
-                api_key=openrouter_key.strip(), model=model,
-                prompt=req.freeform_prompt, aspect=aspect,
-                ref_paths=[Path(r) for r in req.extra_reference_images],
-                png_meta={
-                    "nano_sofa_color": req.upholstery_color or "",
-                    "nano_sofa_material": req.upholstery_material or "",
-                    "nano_sofa_color_id": req.color_id or "",
-                    "nano_sofa_material_id": req.material_id or "",
-                    "nano_sofa_fabric_code": req.fabric_code or "",
-                    "nano_sofa_color_hex": req.upholstery_hex or "",
-                },
-                prompt_summary=prompt.strip()[:300],
-            )
-        except OpenRouterError as exc:
+            if engine == "openrouter":
+                out = await asyncio.to_thread(
+                    generate_openrouter,
+                    api_key=openrouter_key.strip(), model=model,
+                    prompt=req.freeform_prompt, aspect=aspect,
+                    references=plan, quality=quality,
+                    png_meta=png_meta, prompt_summary=prompt.strip()[:300],
+                    trace_request=req,
+                )
+            else:
+                out = await asyncio.to_thread(
+                    generate_openai,
+                    api_key=openai_key.strip(), model=model,
+                    prompt=req.freeform_prompt, aspect=aspect, resolution=res,
+                    references=plan, quality=quality,
+                    png_meta=png_meta, prompt_summary=prompt.strip()[:300],
+                    trace_request=req,
+                )
+        except ExternalEngineError as exc:
             return JSONResponse(
                 {"error": exc.message_pl, "error_code": exc.code,
-                 "detail_en": exc.detail, "retryable": exc.retryable},
+                 "detail_en": exc.detail, "error_detail": exc.detail,
+                 "retryable": exc.retryable},
                 status_code=exc.http_status,
             )
         output_path, generation_id = out["output_path"], out["generation_id"]
         cost, model_used, elapsed_ms = out["cost"], out["model_id"], out["elapsed_ms"]
-        resolution_used = "auto"
+        resolution_used = out.get("resolution") or "auto"
+        quality_used = out.get("quality") or ""
     else:
         result = await asyncio.to_thread(generate, req)
         if not result.success or result.output_path is None:
@@ -871,6 +943,8 @@ async def api_generate_free(
         "format_downgraded": downgraded,
         "cost": cost,
         "model": model_used,
+        "engine": engine,
         "resolution": resolution_used,
+        "quality": quality_used,
         "elapsed_ms": elapsed_ms,
     }

@@ -6,6 +6,10 @@ scratch, exactly where they are strong. This module is that second engine:
 same prompt text as the Gemini path, called through OpenRouter with the
 user's own OpenRouter key (browser-stored, per request — mirroring the Gemini
 key model; the server never persists it).
+
+Since 2026-09 the same route also carries OpenAI's GPT Image models, which
+accept up to 16 input references — the whole fabric reference set plus the
+colour patch and the moodboards ride along as `input_references`.
 """
 
 from __future__ import annotations
@@ -14,16 +18,27 @@ import base64
 import io
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
-from PIL import Image, PngImagePlugin
+from PIL import Image
 
-from app.core.cost_tracker import GenerationRecord, new_generation_id, record_generation
-from studio.paths import _OUTPUT_DIR, logger
+from app.core.cost_tracker import new_generation_id
+from studio.external_engine import (
+    ALL_ASPECTS,
+    ExternalEngineError,
+    ReferenceItem,
+    persist_external_render,
+    reference_data_url,
+)
+from studio.paths import logger
 
 # Editorial-only alternative models. Quirks (verified live against
-# /api/v1/images/models/{slug}/endpoints, 2026-08):
+# /api/v1/images/models/{slug}/endpoints, 2026-08 and 2026-09-08):
+#  - openai/gpt-image-2 takes every aspect we offer, 0–16 input references
+#    and a `quality` enum (low / medium / high); billed per token
+#    (in 8 $/M image, 5 $/M text, out 30 $/M) so the hint is an estimate.
+#  - openai/gpt-image-1 and -1-mini accept only 1:1 / 2:3 / 3:2.
 #  - seedream-4.5 rejects resolution "1K" (enforces a ~3.7MP output minimum) —
 #    we omit the resolution field everywhere and let provider defaults decide.
 #  - flux.2-pro has no resolution parameter at all.
@@ -31,8 +46,34 @@ from studio.paths import _OUTPUT_DIR, logger
 #    ONE input reference; its pricing is not published in the endpoints API.
 # `aspects` lists what the provider accepts from the page's vocabulary; the
 # frontend disables the rest and _clamp_aspect is the server-side backstop.
-_ALL_ASPECTS = ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"]
+# `qualities` (when present) is forwarded as the Images API `quality` field.
+_ALL_ASPECTS = list(ALL_ASPECTS)
+_GPT_IMAGE_QUALITIES = ["low", "medium", "high"]
 OPENROUTER_MODELS = {
+    "openai/gpt-image-2": {
+        "label": "GPT Image 2 · OpenRouter",
+        "max_refs": 16,
+        "price_hint": "≈$0.01–0.13/obraz wg jakości",
+        "aspects": _ALL_ASPECTS,
+        "qualities": _GPT_IMAGE_QUALITIES,
+        "default_quality": "high",
+    },
+    "openai/gpt-image-1": {
+        "label": "GPT Image 1 · OpenRouter",
+        "max_refs": 16,
+        "price_hint": "≈$0.01–0.17/obraz wg jakości",
+        "aspects": ["1:1", "2:3", "3:2"],
+        "qualities": _GPT_IMAGE_QUALITIES,
+        "default_quality": "medium",
+    },
+    "openai/gpt-image-1-mini": {
+        "label": "GPT Image 1 mini · OpenRouter",
+        "max_refs": 16,
+        "price_hint": "≈$0.002–0.04/obraz wg jakości",
+        "aspects": ["1:1", "2:3", "3:2"],
+        "qualities": _GPT_IMAGE_QUALITIES,
+        "default_quality": "medium",
+    },
     "black-forest-labs/flux.2-pro": {
         "label": "FLUX.2 pro · OpenRouter",
         "max_refs": 8,
@@ -72,37 +113,42 @@ OPENROUTER_MODELS = {
 }
 
 # Nearest supported stand-ins for aspects a model lacks (same orientation).
-_ASPECT_FALLBACK = {"3:4": "2:3", "21:9": "16:9", "4:5": "3:4", "9:21": "9:16"}
+# Followed as a chain until an allowed aspect is reached (21:9 → 16:9 → 3:2
+# on the GPT Image 1 vocabulary).
+_ASPECT_FALLBACK = {
+    "3:4": "2:3", "4:3": "3:2", "21:9": "16:9", "16:9": "3:2", "9:16": "2:3",
+    "4:5": "3:4", "9:21": "9:16",
+}
 
 
 def _clamp_aspect(model: str, aspect: str) -> str:
     allowed = OPENROUTER_MODELS.get(model, {}).get("aspects") or _ALL_ASPECTS
     if aspect in allowed:
         return aspect
-    fallback = _ASPECT_FALLBACK.get(aspect, allowed[0])
-    fallback = fallback if fallback in allowed else allowed[0]
+    candidate, seen = aspect, set()
+    while candidate not in allowed and candidate in _ASPECT_FALLBACK and candidate not in seen:
+        seen.add(candidate)
+        candidate = _ASPECT_FALLBACK[candidate]
+    fallback = candidate if candidate in allowed else allowed[0]
     logger.warning("Aspect %s unsupported by %s — clamped to %s", aspect, model, fallback)
     return fallback
+
+
+def _resolve_quality(model: str, quality: str) -> str:
+    """The `quality` value to send, or "" for models without the parameter."""
+    cfg = OPENROUTER_MODELS.get(model, {})
+    qualities = cfg.get("qualities") or []
+    if not qualities:
+        return ""
+    return quality if quality in qualities else cfg.get("default_quality", qualities[-1])
+
 
 _API_URL = "https://openrouter.ai/api/v1/images"
 _TIMEOUT_S = 300
 
 
-class OpenRouterError(Exception):
-    def __init__(self, message_pl: str, code: str, detail: str = "", retryable: bool = False,
-                 http_status: int = 502):
-        super().__init__(message_pl)
-        self.message_pl = message_pl
-        self.code = code
-        self.detail = detail
-        self.retryable = retryable
-        self.http_status = http_status
-
-
-def _data_url(path: Path) -> str:
-    suffix = path.suffix.lower().lstrip(".") or "png"
-    mime = "image/jpeg" if suffix in ("jpg", "jpeg") else f"image/{suffix}"
-    return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode()
+class OpenRouterError(ExternalEngineError):
+    pass
 
 
 def _classify(status: int, body: str) -> OpenRouterError:
@@ -119,29 +165,55 @@ def _classify(status: int, body: str) -> OpenRouterError:
                            "OPENROUTER_ERROR", body, status >= 500, 502)
 
 
+def _legacy_references(ref_paths: list[Path]) -> list[ReferenceItem]:
+    items: list[ReferenceItem] = []
+    for index, path in enumerate(ref_paths, start=1):
+        try:
+            image = Image.open(str(path))
+            image.load()
+        except Exception as exc:
+            logger.warning("OpenRouter reference %s unreadable, skipping: %s", path, exc)
+            continue
+        items.append((f"extra_reference_{index}", path, image))
+    return items
+
+
 def generate_openrouter(
     *,
     api_key: str,
     model: str,
     prompt: str,
     aspect: str,
+    references: Optional[list[ReferenceItem]] = None,
     ref_paths: Optional[list[Path]] = None,
+    quality: str = "",
     png_meta: Optional[dict[str, str]] = None,
     prompt_summary: str = "",
+    trace_request: Any = None,
 ) -> dict:
     """Blocking call (run via asyncio.to_thread). Returns
-    {generation_id, output_path, cost, elapsed_ms, model_id} or raises
-    OpenRouterError with a classified, user-facing message."""
+    {generation_id, output_path, cost, elapsed_ms, model_id, resolution,
+    quality} or raises OpenRouterError with a classified, user-facing
+    message. `references` is the loaded freeform plan (role, source, image);
+    `ref_paths` is the pre-plan calling convention kept for scripts."""
     t0 = time.monotonic()
     generation_id = new_generation_id()
     cfg = OPENROUTER_MODELS.get(model, {"max_refs": 4})
 
+    refs = list(references or [])
+    if not refs and ref_paths:
+        refs = _legacy_references(list(ref_paths))
+    refs = refs[: cfg["max_refs"]]
+
     payload: dict = {"model": model, "prompt": prompt,
                      "aspect_ratio": _clamp_aspect(model, aspect)}
-    refs = list(ref_paths or [])[: cfg["max_refs"]]
+    quality_used = _resolve_quality(model, quality)
+    if quality_used:
+        payload["quality"] = quality_used
     if refs:
         payload["input_references"] = [
-            {"type": "image_url", "image_url": {"url": _data_url(p)}} for p in refs
+            {"type": "image_url", "image_url": {"url": reference_data_url(source, image)}}
+            for _role, source, image in refs
         ]
 
     try:
@@ -165,55 +237,31 @@ def generate_openrouter(
         raise OpenRouterError("OpenRouter zwrócił nieczytelną odpowiedź.",
                               "OPENROUTER_ERROR", str(exc)[:300], True) from exc
 
-    # Persist the lossless PNG master using the same naming scheme as the
-    # Gemini path, so /api/outputs, gallery and retention treat both alike.
-    ts = int(time.time())
-    safe_model = model.replace("/", "-").replace(".", "-")
-    output_path = _OUTPUT_DIR / f"{ts}_{safe_model}_{generation_id[:8]}.png"
-    # Same self-identifying tEXt chunks as the Gemini path, so history,
-    # experiments and anchor lookup treat both engines alike.
-    pnginfo = PngImagePlugin.PngInfo()
-    meta = {
-        "nano_sofa_schema": "1",
-        "nano_sofa_generation_id": generation_id,
-        "nano_sofa_ts": str(ts),
-        "nano_sofa_model": model,
-        "nano_sofa_resolution": "auto",
-        "nano_sofa_prompt_summary": prompt_summary[:500],
-        **(png_meta or {}),
-    }
-    for key, value in meta.items():
-        pnginfo.add_text(key, str(value))
-    image.save(output_path, format="PNG", optimize=True, pnginfo=pnginfo)
-
     cost = float((data.get("usage") or {}).get("cost") or 0.0)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
-    try:
-        record_generation(GenerationRecord(
-            generation_id=generation_id,
-            timestamp=time.time(),
-            model_id=model,
-            resolution="auto",
-            num_ref_images=len(refs),
-            actual_cost=cost,
-            status="success",
-            output_path=str(output_path),
-            error_message=None,
-            prompt_summary=prompt_summary[:500],
-            leg_id=None,
-            upholstery_color=(png_meta or {}).get("nano_sofa_color", ""),
-            upholstery_material=(png_meta or {}).get("nano_sofa_material", ""),
-            camera_angle="",
-            turn_number=1,
-            elapsed_ms=elapsed_ms,
-        ))
-    except Exception:  # cost DB must never break a successful render
-        logger.exception("OpenRouter: cost record failed")
-    logger.info("OpenRouter render OK: %s %.1fs $%.4f", model, elapsed_ms / 1000, cost)
+    output_path = persist_external_render(
+        image=image,
+        engine="openrouter",
+        model=model,
+        generation_id=generation_id,
+        references=refs,
+        cost=cost,
+        elapsed_ms=elapsed_ms,
+        resolution="auto",
+        prompt=prompt,
+        prompt_summary=prompt_summary,
+        png_meta={**(png_meta or {}), **({"nano_sofa_quality": quality_used} if quality_used else {})},
+        trace_request=trace_request,
+        extra_trace={"quality": quality_used} if quality_used else None,
+    )
+    logger.info("OpenRouter render OK: %s %.1fs $%.4f refs=%d quality=%s",
+                model, elapsed_ms / 1000, cost, len(refs), quality_used or "-")
     return {
         "generation_id": generation_id,
         "output_path": output_path,
         "cost": cost,
         "elapsed_ms": elapsed_ms,
         "model_id": model,
+        "resolution": "auto",
+        "quality": quality_used,
     }

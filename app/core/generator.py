@@ -101,6 +101,9 @@ class GenerationRequest:
     # attached as its own reference slot (COLOUR AUTHORITY) and deep shades
     # get a dedicated exposure clause — text alone drifts on dark colours.
     upholstery_hex: str = ""
+    # Engine-specific quality tier (OpenAI Images API `quality`: low … max).
+    # Ignored by the Gemini path.
+    engine_quality: str = ""
 
     # Freeform (editorial) mode: when non-empty, this text IS the whole prompt
     # — the variant prompt assembly is skipped entirely, and the base product
@@ -499,7 +502,9 @@ def _color_patch_image(hex_value: str) -> Optional[Image.Image]:
     return Image.new("RGB", (_COLOR_PATCH_SIZE, _COLOR_PATCH_SIZE), rgb)
 
 
-def plan_reference_slots(req: GenerationRequest) -> list[ReferenceSlot]:
+def plan_reference_slots(
+    req: GenerationRequest, max_refs: Optional[int] = None
+) -> list[ReferenceSlot]:
     """Decide which references are attached and in what order.
 
     This is the ONE place that enforces the model's reference cap. Priority
@@ -508,8 +513,11 @@ def plan_reference_slots(req: GenerationRequest) -> list[ReferenceSlot]:
     exact colour patch; the oblique / behaviour / application material views;
     the remaining moodboards. Anything past the cap is dropped here, with a
     warning, so the prompt and the trace only ever describe attached images.
+    `max_refs` overrides the schema cap for engines the schema does not know
+    (the OpenAI Images API in the Lab tab).
     """
-    max_refs = schema.max_refs_for_model(req.model_id)
+    if max_refs is None:
+        max_refs = schema.max_refs_for_model(req.model_id)
     wanted: list[ReferenceSlot] = [ReferenceSlot("base_product", req.base_product_image)]
     if req.leg_reference_image is not None:
         wanted.append(ReferenceSlot("leg", req.leg_reference_image))
@@ -547,23 +555,85 @@ def plan_reference_slots(req: GenerationRequest) -> list[ReferenceSlot]:
     return kept
 
 
+def plan_freeform_reference_slots(
+    req: GenerationRequest, max_refs: Optional[int] = None
+) -> list[ReferenceSlot]:
+    """Reference plan for editorial / text-to-image requests (no base product).
+
+    Material authority first — the macro swatch, the exact colour patch, the
+    oblique views, the light-response and in-use photographs — then the
+    moodboards. `max_refs` overrides the schema cap for engines the schema
+    does not know (OpenRouter / OpenAI models). The cap is applied here and
+    nowhere else, so a prompt composed from this plan only ever names images
+    that are actually attached.
+    """
+    cap = max_refs if max_refs is not None else schema.max_refs_for_model(req.model_id)
+    wanted: list[ReferenceSlot] = []
+    if req.swatch_reference_image is not None:
+        wanted.append(ReferenceSlot("material_macro", req.swatch_reference_image))
+    patch = _color_patch_image(req.upholstery_hex) if req.upholstery_hex else None
+    if patch is not None:
+        wanted.append(
+            ReferenceSlot("color_patch", f"color-patch:{req.upholstery_hex.strip().upper()}", patch)
+        )
+    for role, source in (
+        ("material_left", req.material_left_reference_image),
+        ("material_right", req.material_right_reference_image),
+        ("material_behavior", req.material_behavior_reference_image),
+        ("material_application", req.material_application_reference_image),
+    ):
+        if source is not None:
+            wanted.append(ReferenceSlot(role, source))
+    for index, extra in enumerate(req.extra_reference_images or [], start=1):
+        wanted.append(ReferenceSlot(f"extra_reference_{index}", extra))
+
+    kept = wanted[: max(0, cap)]
+    for dropped in wanted[len(kept):]:
+        logger.warning(
+            "Freeform reference %s dropped: model %s allows max %d refs",
+            dropped.role, req.model_id, cap,
+        )
+    return kept
+
+
+def load_freeform_reference_plan(
+    req: GenerationRequest, max_refs: Optional[int] = None
+) -> list[tuple[ReferenceSlot, Image.Image]]:
+    """Load the freeform plan. An unreadable reference is skipped (with a
+    warning) and the slots after it move up — callers number slots from the
+    returned list."""
+    loaded: list[tuple[ReferenceSlot, Image.Image]] = []
+    for slot in plan_freeform_reference_slots(req, max_refs):
+        image = slot.image if slot.image is not None else _load_image(slot.source)
+        if image is None:
+            logger.warning(
+                "Freeform reference %s could not be loaded (%s); skipping",
+                slot.role, slot.source,
+            )
+            continue
+        loaded.append((slot, image))
+    return loaded
+
+
 def slot_numbers(plan: list[ReferenceSlot]) -> dict[str, int]:
     """role → 1-based slot number for a planned/loaded reference list."""
     return {slot.role: index for index, slot in enumerate(plan, start=1)}
 
 
 def _count_active_refs(req: GenerationRequest) -> int:
+    if req.freeform_prompt and req.base_product_image is None:
+        return len(plan_freeform_reference_slots(req))
     return len(plan_reference_slots(req))
 
 
 def _load_reference_plan(
-    req: GenerationRequest, base_img: Image.Image
+    req: GenerationRequest, base_img: Image.Image, max_refs: Optional[int] = None
 ) -> list[tuple[ReferenceSlot, Image.Image]]:
     """Load every planned reference. A reference that fails to load is
     skipped and the slots after it move up — the caller must number slots
     from the returned list, never from the request."""
     loaded: list[tuple[ReferenceSlot, Image.Image]] = []
-    for slot in plan_reference_slots(req):
+    for slot in plan_reference_slots(req, max_refs):
         if slot.role == "base_product":
             loaded.append((slot, base_img))
             continue
@@ -1396,21 +1466,12 @@ def generate(req: GenerationRequest) -> GenerationResult:
     slot_roles: list[tuple[str, Any]] = []
 
     if is_freeform:
-        # Editorial text-to-image: no base product slot. Optional moodboard
-        # refs still ride along, capped to the model's limit.
-        ref_images = []
-        max_refs = schema.max_refs_for_model(req.model_id)
-        for idx, extra in enumerate(req.extra_reference_images or []):
-            if len(ref_images) >= max_refs:
-                logger.warning(
-                    "Freeform reference #%d dropped: model %s allows max %d refs",
-                    idx + 1, req.model_id, max_refs,
-                )
-                continue
-            extra_img = _load_image(extra)
-            if extra_img:
-                ref_images.append(extra_img)
-                slot_roles.append((f"extra_reference_{len(ref_images)}", extra))
+        # Editorial text-to-image: no base product slot. The fabric's
+        # reference set, the colour patch and the moodboards ride along,
+        # capped to the model's limit by plan_freeform_reference_slots.
+        loaded_freeform = load_freeform_reference_plan(req)
+        ref_images = [image for _slot, image in loaded_freeform]
+        slot_roles = [(slot.role, slot.source) for slot, _image in loaded_freeform]
     else:
         # -------------------------------------------------------------- #
         # Alpha-channel flattening

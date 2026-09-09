@@ -81,6 +81,7 @@ server (it serves `frontend/dist`).
 - `/` → `frontend/index.html` — main configurator (`src/app-v2.jsx`)
 - `/video` → `frontend/video.html` — video studio (`src/video.jsx`)
 - `/editorial` → `frontend/editorial.html` — freeform editorial shots, no base photo (`src/editorial.jsx`)
+- `/lab` → `frontend/lab.html` — experimental: the studio wizard (`src/app-v2.jsx` in `data-mode="lab"`) rendering with GPT Image 2.5 Flare / Sunburst on the OpenAI Images API, user's own OpenAI key; beds by default (engine `studio/openai_images.py`)
 - `/admin` → `frontend/admin.html` — local catalogue administration (`src/admin.jsx`)
 - `/help` → `frontend/help.html` — user guide (`src/help.js`)
 - `/docs` → FastAPI Swagger UI

@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 //   /video  → video.html   (video studio)
 //   /help   → help.html    (parameter docs)
 //   /admin  → admin.html   (local catalogue administration)
+//   /lab    → lab.html     (editorial composer on the OpenAI Images API)
 // In dev, API + /catalog.js are proxied to the FastAPI server — start it
 // first (./app-v2/run.sh), then `npm run dev` here.
 export default defineConfig({
@@ -19,6 +20,7 @@ export default defineConfig({
         video: resolve(import.meta.dirname, "video.html"),
         help: resolve(import.meta.dirname, "help.html"),
         editorial: resolve(import.meta.dirname, "editorial.html"),
+        lab: resolve(import.meta.dirname, "lab.html"),
         experiments: resolve(import.meta.dirname, "experiments.html"),
         admin: resolve(import.meta.dirname, "admin.html"),
       },

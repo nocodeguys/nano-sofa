@@ -4,6 +4,10 @@
   photo — you describe the shot (magazine cover, web hero, campaign…), pick a
   model and optional art-direction pickers (scene / light / lens / palette /
   fabric cue), and the model composes from scratch. Optional moodboard refs.
+  A picked fabric also sends its curated reference set + the exact colour
+  patch (server-side, see request_builder._build_freeform_request). Three
+  engines share the dropdown: Gemini, OpenRouter (FLUX / Seedream / GPT
+  Image) and OpenAI direct (GPT Image 2.5), each with its own key.
 */
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
@@ -15,11 +19,13 @@ import "@fontsource/geist-sans/700.css";
 import "@fontsource/geist-mono/400.css";
 import "@fontsource/geist-mono/500.css";
 import "./styles-v2.css";
+import "./editorial.css";
 import { NS_DATA } from "./data.jsx";
 import { NanoTopbar } from "./header.jsx";
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key"; // shared with the studio page
-const OR_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // FLUX / Seedream via OpenRouter
+const OR_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // FLUX / Seedream / GPT Image via OpenRouter
+const OPENAI_KEY_STORAGE = "nano-sofa-v2-openai-key"; // GPT Image 2.5 direct (shared with /lab)
 const { ENVIRONMENTS, TIMES_OF_DAY, LENSES, CAMERA_HEIGHTS, COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS,
         EDITORIAL_STYLES, PEOPLE_OPTIONS, CATALOG_MISSING } = NS_DATA;
 
@@ -27,7 +33,7 @@ const { ENVIRONMENTS, TIMES_OF_DAY, LENSES, CAMERA_HEIGHTS, COLORS, COLOR_GROUPS
 // upload slot the editorial page doesn't have).
 const SCENES = ENVIRONMENTS.filter(e => !e.id.startsWith("studio_") && e.id !== "custom");
 const ASPECTS = ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"];
-const MAX_REFS = 3;
+const MAX_REFS = 3; // moodboard fallback when the model entry carries no moodboard_max
 
 const Ic = {
   sparkle: <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="currentColor"/></svg>,
@@ -64,6 +70,14 @@ function App() {
     try { localStorage.setItem(OR_KEY_STORAGE, orKey); } catch {}
   }, [orKey]);
 
+  // ---- OpenAI key (GPT Image 2.5 direct) -----------------------------------
+  const [oaKey, setOaKey] = useState(() => {
+    try { return localStorage.getItem(OPENAI_KEY_STORAGE) || ""; } catch { return ""; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(OPENAI_KEY_STORAGE, oaKey); } catch {}
+  }, [oaKey]);
+
   // ---- model catalog from /api/config ------------------------------------
   const [models, setModels] = useState([]);
   const [modelId, setModelId] = useState("gemini-3.1-flash-image");
@@ -77,7 +91,12 @@ function App() {
     }).catch(() => {});
   }, []);
   const model = models.find(m => m.id === modelId) || null;
-  const isOpenRouter = !!(model && model.provider === "openrouter");
+  const provider = (model && model.provider) || "google";
+  const isOpenRouter = provider === "openrouter";
+  const isOpenAI = provider === "openai";
+  const isExternal = isOpenRouter || isOpenAI;
+  const providerName = isOpenAI ? "OpenAI" : isOpenRouter ? "OpenRouter" : "Google";
+  const maxRefs = (model && model.moodboard_max) || MAX_REFS;
 
   // ---- form state ---------------------------------------------------------
   const [prompt, setPrompt] = useState("");
@@ -92,6 +111,7 @@ function App() {
   const [mat, setMat] = useState("");
   const [people, setPeople] = useState("");
   const [seed, setSeed] = useState("");
+  const [quality, setQuality] = useState("");    // Images API quality tier (GPT Image models)
   const [refs, setRefs] = useState([]);          // [{file, url}]
   const refInputRef = useRef(null);
 
@@ -105,13 +125,21 @@ function App() {
     if (!modelAspects.includes(aspect)) {
       setAspect(modelAspects.includes("3:4") ? "3:4" : modelAspects[0]);
     }
+    const qualities = model.qualities || [];
+    setQuality(qualities.includes(quality) ? quality : (model.default_quality || ""));
+    const cap = model.moodboard_max || MAX_REFS;
+    setRefs(prev => {
+      if (prev.length <= cap) return prev;
+      prev.slice(cap).forEach(r => { try { URL.revokeObjectURL(r.url); } catch {} });
+      return prev.slice(0, cap);
+    });
     // eslint-disable-next-line
   }, [modelId]);
 
   const addRefs = (files) => {
     const next = [...refs];
     for (const f of files || []) {
-      if (next.length >= MAX_REFS) break;
+      if (next.length >= maxRefs) break;
       next.push({ file: f, url: URL.createObjectURL(f) });
     }
     setRefs(next);
@@ -132,6 +160,8 @@ function App() {
     setError(null);
     if (isOpenRouter) {
       if (!orKey.trim()) { setError({ message: "Ten model działa przez OpenRouter — wklej klucz sk-or-… w sekcji Model.", code: "MISSING_OPENROUTER_KEY" }); return; }
+    } else if (isOpenAI) {
+      if (!oaKey.trim()) { setError({ message: "Ten model działa bezpośrednio przez OpenAI — wklej klucz sk-… w sekcji Model.", code: "MISSING_OPENAI_KEY" }); return; }
     } else if (!apiKey.trim()) { setError({ message: "Wklej klucz Gemini API u góry.", code: "MISSING_API_KEY" }); setShowKeyEdit(true); return; }
     if (prompt.trim().length < 3) { setError({ message: "Opisz, co ma być na zdjęciu.", code: "MISSING_PROMPT" }); return; }
     if (busy) return;
@@ -143,6 +173,7 @@ function App() {
       const fd = new FormData();
       fd.append("api_key", apiKey.trim());
       if (isOpenRouter) fd.append("openrouter_key", orKey.trim());
+      if (isOpenAI) fd.append("openai_key", oaKey.trim());
       fd.append("prompt", prompt.trim());
       fd.append("style", style);
       fd.append("env", env);
@@ -155,6 +186,7 @@ function App() {
       fd.append("model", modelId);
       fd.append("aspect", aspect);
       fd.append("res", res);
+      if (quality) fd.append("quality", quality);
       if (seed.trim()) fd.append("seed", seed.trim());
       for (const r of refs) fd.append("references", r.file);
 
@@ -212,7 +244,7 @@ function App() {
               <div className="ed-meta">
                 <a className="ed-dl" href={shown.image_url} download>⭳ Pobierz {String(shown.format || "jpg").toUpperCase()}</a>
                 <span>{shown.model}</span><span>·</span>
-                <span>{shown.resolution} · {shown.aspect}</span><span>·</span>
+                <span>{shown.resolution}{shown.quality ? ` · ${shown.quality}` : ""} · {shown.aspect}</span><span>·</span>
                 <span>≈ ${Number(shown.cost || 0).toFixed(3)}</span><span>·</span>
                 <span>{Math.round((shown.elapsed_ms || 0) / 100) / 10}s</span>
               </div>
@@ -265,7 +297,7 @@ function App() {
             <strong>{error.code || "Błąd"}</strong> — {error.message}
             {error.detail && (
               <div style={{ marginTop: 6, fontFamily: "'Geist Mono', monospace", fontSize: 11, opacity: .8, wordBreak: "break-word" }}>
-                Szczegóły od Google: {error.detail}
+                Szczegóły od {providerName}: {error.detail}
               </div>
             )}
           </div>
@@ -294,7 +326,7 @@ function App() {
               ))}
             </div>
 
-            <div className="field-lbl" style={{ marginTop: 16 }}>moodboard (opcjonalnie, do {MAX_REFS})</div>
+            <div className="field-lbl" style={{ marginTop: 16 }}>moodboard (opcjonalnie, do {maxRefs})</div>
             <div className="ed-refs">
               {refs.map((r, i) => (
                 <div key={r.url} className="slot" onClick={e => e.stopPropagation()}>
@@ -302,13 +334,19 @@ function App() {
                   <button type="button" className="x" onClick={() => removeRef(i)}>×</button>
                 </div>
               ))}
-              {refs.length < MAX_REFS && (
+              {refs.length < maxRefs && (
                 <div className="slot" onClick={() => refInputRef.current && refInputRef.current.click()}>＋</div>
               )}
             </div>
             <input ref={refInputRef} type="file" accept="image/*" multiple style={{ display: "none" }}
               onChange={e => { addRefs(e.target.files); e.target.value = ""; }} />
             <div className="hint">luźna inspiracja stylu / nastroju — model ich nie kopiuje</div>
+            {mat && model && (
+              <div className="hint">
+                wybrana tkanina dokłada komplet referencji materiału (makro, ujęcia boczne, zachowanie, aplikacja — ile jest w Katalogu)
+                {color ? " i plamkę dokładnego koloru" : ""}; {model.label.split(" · ")[0]} zmieści łącznie {model.max_refs} obraz(ów)
+              </div>
+            )}
           </div>
         </div>
 
@@ -324,7 +362,7 @@ function App() {
             <select className="select" value={modelId} onChange={e => setModelId(e.target.value)}>
               {models.map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.label}{m.provider === "openrouter"
+                  {m.label}{(m.provider === "openrouter" || m.provider === "openai")
                     ? (m.price_hint ? ` · ${m.price_hint}` : "")
                     : ` · do ${m.max_resolution}`}
                 </option>
@@ -346,6 +384,23 @@ function App() {
                 </div>
               </>
             )}
+            {isOpenAI && (
+              <>
+                <div className="hint" style={{ marginTop: 8 }}>
+                  Eksperyment — bezpośrednie OpenAI Images API{model && model.note ? ` · ${model.note}` : ""}.
+                  Referencje tkaniny i plamka koloru wchodzą jako obrazy edycji z <span className="mono">input_fidelity: high</span>;
+                  jakości xhigh / max są wyraźnie droższe, koszt liczony z tokenów po wygenerowaniu.
+                </div>
+                <div className="field-lbl" style={{ marginTop: 10 }}>klucz OpenAI</div>
+                <input type="password" className="input" placeholder="sk-…"
+                  value={oaKey} onChange={e => setOaKey(e.target.value)}
+                  style={{ fontFamily: "Geist Mono", fontSize: 13 }} />
+                <div className="hint">
+                  trzymany tylko w tej przeglądarce · pobierz z{" "}
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>
+                </div>
+              </>
+            )}
 
             <div className="field-lbl" style={{ marginTop: 16 }}>proporcje</div>
             <div className="seg">
@@ -356,8 +411,20 @@ function App() {
                   onClick={() => setAspect(a)}>{a}</button>
               ))}
             </div>
-            {isOpenRouter && model && model.max_refs < MAX_REFS && (
-              <div className="hint">ten model przyjmuje max {model.max_refs} obraz(y) moodboardu</div>
+            {isExternal && model && (
+              <div className="hint">referencje: do {maxRefs} moodboardów{mat ? " + komplet tkaniny i plamka koloru" : ""} · limit modelu {model.max_refs}</div>
+            )}
+
+            {model && (model.qualities || []).length > 0 && (
+              <>
+                <div className="field-lbl" style={{ marginTop: 16 }}>jakość</div>
+                <div className="seg">
+                  {model.qualities.map(q => (
+                    <button key={q} className={quality === q ? "on" : ""} onClick={() => setQuality(q)}>{q}</button>
+                  ))}
+                </div>
+                <div className="hint">koszt rośnie z jakością — {isOpenAI ? "liczony z tokenów po wygenerowaniu" : "wg cennika OpenRouter"}</div>
+              </>
             )}
 
             <div className="field-lbl" style={{ marginTop: 16 }}>rozdzielczość</div>
@@ -456,7 +523,7 @@ function App() {
             <div className="foot-lead">{busy ? `Komponuję… ${mm}:${ss}` : "Gotowe do generowania"}</div>
             <div className="foot-meta">
               <span className="mono">{modelId}</span><span className="dot">·</span>
-              <span className="mono">{aspect} · {res}</span>
+              <span className="mono">{aspect} · {res}{quality ? ` · ${quality}` : ""}</span>
               {style && <><span className="dot">·</span><span className="mono">{(EDITORIAL_STYLES.find(s => s.id === style) || {}).name}</span></>}
             </div>
           </div>
