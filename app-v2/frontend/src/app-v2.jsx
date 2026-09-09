@@ -9,7 +9,7 @@ import "@fontsource/geist-mono/400.css";
 import "@fontsource/geist-mono/500.css";
 import "./styles-v2.css";
 import { NS_DATA, Ic } from "./data.jsx";
-import { NanoTopbar } from "./header.jsx";
+import { NanoTopbar, PageIntro } from "./header.jsx";
 import {
   useTweaks, TweaksPanel, TweakSection,
   TweakSlider, TweakToggle, TweakRadio,
@@ -1172,14 +1172,7 @@ function App({ t, mode = "photos" }) {
     <div className="app-frame">
       <NanoTopbar active={isLab ? "lab" : "photos"} apiKey={activeKey} setApiKey={setActiveKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit}
         keyName={isLab ? "OpenAI" : "Gemini"} keyPlaceholder={isLab ? "sk-… wklej klucz OpenAI" : "AIza… wklej klucz Gemini"} />
-      {isLab && (
-        <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "7px 16px",
-          background: "var(--ink)", color: "var(--paper)", fontSize: 12.5 }}>
-          <span><strong>Lab · eksperyment.</strong> Ten sam kreator co w Zdjęciach, ale renderuje GPT Image 2.5 (OpenAI Images API):
-            zdjęcie bazowe + komplet referencji tkaniny + plamka koloru idą jako obrazy edycji z input_fidelity: high.
-            Warianty i fotosesja też przechodzą przez OpenAI. Wyniki lądują w Eksperymentach obok Gemini.</span>
-        </div>
-      )}
+
       {catalogStale && (
         <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 16px",
           background: "var(--ink)", color: "var(--paper)", fontSize: 12.5 }}>
@@ -1963,11 +1956,18 @@ function App({ t, mode = "photos" }) {
 
       {/* ============= RIGHT — scrolling form ============= */}
       <section className="form-pane">
-        <div className="form-intro">
-          <div className="eyebrow">Nano Sofa · Brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></div>
-          <h1>Jedno studio.<br/><em>Każdy produkt w tym samym świecie.</em></h1>
-          <p>Najpierw definiujesz sesję, potem produkt i wykończenie. Pokazujemy tylko ustawienia aktywnego trybu, dzięki czemu nic nie konkuruje z wybranym profilem.</p>
-        </div>
+        {isLab ? (
+          <PageIntro eyebrow={<>Lab · generator OpenAI · eksperyment · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
+            Ten sam przebieg co w Zdjęciach: sesja, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API,
+            a zdjęcie bazowe, komplet referencji tkaniny i plamka koloru idą jako obrazy edycji. Warianty i fotosesja
+            też przechodzą przez OpenAI; wyniki lądują w Porównywarce obok Gemini.
+          </PageIntro>
+        ) : (
+          <PageIntro eyebrow={<>Zdjęcia · brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
+            Najpierw definiujesz sesję, potem produkt i wykończenie. Pokazujemy tylko ustawienia aktywnego trybu,
+            dzięki czemu nic nie konkuruje z wybranym profilem.
+          </PageIntro>
+        )}
 
         <nav className="workflow-strip" aria-label="Etapy konfiguracji">
           {[

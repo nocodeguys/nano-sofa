@@ -20,6 +20,20 @@ const LAB_PAGES = [
 const LAB_IDS = new Set(LAB_PAGES.map(p => p.id));
 const SUFFIX = { video: "wideo", editorial: "lab · editorial", lab: "lab · OpenAI", experiments: "lab · porównywarka", admin: "katalog" };
 
+// Page intro shared by every tab: a small mono eyebrow and one short,
+// friendly paragraph — no display headings, one typographic voice.
+export function PageIntro({ eyebrow, children, aside = null }) {
+  return (
+    <div className="page-intro">
+      <div>
+        {eyebrow && <div className="page-intro-eyebrow">{eyebrow}</div>}
+        <p>{children}</p>
+      </div>
+      {aside}
+    </div>
+  );
+}
+
 export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false, adminLabel = "tylko lokalnie",
                             keyName = "Gemini", keyPlaceholder = "AIza… wklej klucz Gemini" }) {
   const suffix = SUFFIX[active] || "studio";

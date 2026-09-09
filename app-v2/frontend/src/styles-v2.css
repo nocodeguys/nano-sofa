@@ -76,7 +76,7 @@ button { font-family: inherit; }
 }
 .topbar-brand .logo { height: 17px; width: auto; display: block; }
 .topbar-brand .wm { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; color: var(--ink); }
-.topbar-brand .wm.light, .topbar-brand .wm .light { color: var(--ink-4); font-weight: 500; font-size: 13px; letter-spacing: -0.01em; padding-top: 2px; }
+.topbar-brand .wm.light, .topbar-brand .wm .light { color: var(--ink-4); font-weight: 500; font-size: 13px; letter-spacing: -0.01em; padding-top: 2px; white-space: nowrap; }
 .topbar-tabs {
   justify-self: center;
   display: flex; gap: 2px;
@@ -92,6 +92,19 @@ button { font-family: inherit; }
 .topbar-tabs a:hover { color: var(--ink); }
 .topbar-tabs a.on { background: var(--ink); color: var(--paper); }
 .topbar-key { justify-self: end; display: flex; align-items: center; gap: 8px; }
+/* Shared page intro (header.jsx PageIntro): eyebrow + one short paragraph. */
+.page-intro {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 28px;
+  padding: 6px 0 22px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.page-intro-eyebrow {
+  font-family: 'Geist Mono', monospace; font-size: 10.5px; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 8px;
+}
+.page-intro-eyebrow a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.page-intro p { margin: 0; max-width: 64ch; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+@media (max-width: 760px) { .page-intro { flex-direction: column; } }
 /* Lab sub-menu — second row under the bar, only on the Lab group pages. */
 .topbar-sub {
   display: flex; align-items: center; justify-content: center; gap: 4px;
@@ -1379,7 +1392,8 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
   --accent: #485544;
   --accent-ink: #344031;
   --accent-soft: #E1E5DC;
-  --display: "Iowan Old Style", "Baskerville", "Times New Roman", serif;
+  /* One typographic voice: the display slots use the same sans as body copy. */
+  --display: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
 }
 
 .shell {
@@ -1415,8 +1429,9 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
 }
 .stage-summary-top .v {
   font-family: var(--display);
-  font-weight: 500;
-  font-size: 17px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -.01em;
 }
 
 .form-pane {
@@ -1545,9 +1560,9 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
 }
 .sec-head .title {
   font-family: var(--display);
-  font-weight: 400;
-  font-size: 25px;
-  letter-spacing: -.025em;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -.02em;
 }
 .sec-help { margin-left: 44px; max-width: 58ch; }
 .sec-body { margin-left: 44px; }
@@ -1623,7 +1638,7 @@ textarea.input { min-height: 70px; resize: vertical; line-height: 1.5; }
   border-radius: 18px;
   background: var(--paper);
 }
-.foot-lead { font-family: var(--display); font-weight: 400; font-size: 23px; }
+.foot-lead { font-family: var(--display); font-weight: 600; font-size: 16px; letter-spacing: -.015em; }
 
 @media (max-width: 1250px) {
   .shell { grid-template-columns: minmax(420px, .9fr) minmax(520px, 1.1fr); }

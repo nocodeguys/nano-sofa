@@ -21,7 +21,7 @@ import "@fontsource/geist-mono/500.css";
 import "./styles-v2.css";
 import "./editorial.css";
 import { NS_DATA } from "./data.jsx";
-import { NanoTopbar } from "./header.jsx";
+import { NanoTopbar, PageIntro } from "./header.jsx";
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key"; // shared with the studio page
 const OR_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // FLUX / Seedream / GPT Image via OpenRouter
@@ -265,13 +265,10 @@ function App() {
 
       {/* ================= RIGHT — form ================= */}
       <section className="form-pane">
-        <div className="form-intro">
-          <div className="eyebrow">Editorial · <a href="/" style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: "2px" }}>← wróć do zdjęć</a></div>
-          <div className="intro-body">
-            <h1>Kadr od zera, <em>bez zdjęcia bazowego.</em></h1>
-            <p>Okładka, hero na stronę, kampania. Opisujesz — model komponuje. Pickery sceny, światła i palety trzymają spójność z marką.</p>
-          </div>
-        </div>
+        <PageIntro eyebrow={<>Lab · editorial · <a href="/">← wróć do zdjęć</a></>}>
+          Kadr od zera, bez zdjęcia bazowego: okładka, hero na stronę, kampania. Opisujesz, model komponuje;
+          pickery sceny, światła i palety trzymają spójność z marką, a wybrana tkanina dokłada swoje referencje.
+        </PageIntro>
 
         {!apiKey && (
           <div className="api-banner">

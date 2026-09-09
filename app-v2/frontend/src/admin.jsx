@@ -6,7 +6,7 @@ import "@fontsource/geist-sans/600.css";
 import "@fontsource/geist-mono/400.css";
 import "./styles-v2.css";
 import "./admin.css";
-import { NanoTopbar } from "./header.jsx";
+import { NanoTopbar, PageIntro } from "./header.jsx";
 
 const TOKEN_STORAGE = "nano-sofa-admin-token";
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -335,7 +335,7 @@ function TokenGate({ status, onSubmit }) {
     <div className="app-frame admin-frame">
       <NanoTopbar active="admin" hideApiKey adminLabel="wymaga tokenu" />
       <main className="admin-gate">
-        <h1>Panel Katalog</h1>
+        <PageIntro eyebrow="Katalog · dostęp">Panel Katalog wymaga tokenu administratora.</PageIntro>
         {isDocker ? (
           <p>{status.detail} Dodaj <code>ADMIN_TOKEN=…</code> do pliku <code>.env</code> obok <code>docker-compose.yml</code>, uruchom ponownie kontener i wpisz ten sam token poniżej.</p>
         ) : (
@@ -618,17 +618,16 @@ function AdminApp() {
     <div className="app-frame admin-frame">
       <NanoTopbar active="admin" hideApiKey adminLabel={readToken() ? "token administratora" : "tylko lokalnie"} />
       <main className="admin-shell">
-        <header className="admin-hero">
-          <div>
-            <span className="admin-eyebrow">ŹRÓDŁO PRAWDY · CATALOG.JSON</span>
-            <h1>Materiały, kolekcje i kolory</h1>
-            <p>Zmieniasz dane, które widzi konfigurator i model. Zapis sprawdza dane, przeładowuje katalog na tej instancji{gitInfo?.enabled ? " i wysyła commit do repozytorium, z którego CI buduje nowy obraz dla wszystkich" : ""}.</p>
-          </div>
-          <div className="admin-health">
-            <span className={"health-dot " + (buildState?.state || "idle")}></span>
-            <div><strong>{buildState?.message || "Gotowy"}</strong><small>{catalog.materials.length} tkanin · {collections.length} kolekcji · {catalog.colors.length} kolorów</small></div>
-          </div>
-        </header>
+        <PageIntro eyebrow="Katalog · źródło prawdy · catalog.json"
+          aside={
+            <div className="admin-health">
+              <span className={"health-dot " + (buildState?.state || "idle")}></span>
+              <div><strong>{buildState?.message || "Gotowy"}</strong><small>{catalog.materials.length} tkanin · {collections.length} kolekcji · {catalog.colors.length} kolorów</small></div>
+            </div>
+          }>
+          Materiały, kolekcje i kolory, które widzi konfigurator i model. Zapis sprawdza dane, przeładowuje katalog
+          na tej instancji{gitInfo?.enabled ? " i wysyła commit do repozytorium, z którego CI buduje nowy obraz dla wszystkich" : ""}.
+        </PageIntro>
 
         <RepoPanel git={gitInfo} buildStatus={buildStatus} busy={busy} onRetry={retryPush} />
 

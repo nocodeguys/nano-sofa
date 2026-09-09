@@ -6,7 +6,7 @@ import "@fontsource/geist-sans/600.css";
 import "@fontsource/geist-mono/400.css";
 import "./styles-v2.css";
 import "./experiments.css";
-import { NanoTopbar } from "./header.jsx";
+import { NanoTopbar, PageIntro } from "./header.jsx";
 
 const short = value => value ? value.slice(0, 10) : "—";
 const modelName = value => value?.includes("3-pro") ? "Pro" : value?.includes("3.1-flash") ? "Flash" : value || "—";
@@ -89,10 +89,11 @@ function ExperimentsApp() {
     <div className="experiments-app">
       <NanoTopbar active="experiments" hideApiKey />
       <main className="experiments-main">
-        <section className="experiments-intro">
-          <div><span className="eyebrow">laboratorium generacji</span><h1>Eksperymenty A/B</h1><p>Wybierz dwa wyniki. Sprawdzimy, co naprawdę zmieniło się pomiędzy generacjami — zamiast zgadywać na podstawie samego obrazu.</p></div>
-          <div className="experiment-rule"><b>Najlepszy test</b><span>jedna zmienna naraz</span><span>minimum 3 powtórzenia</span><span>ten sam produkt i referencje</span></div>
-        </section>
+        <PageIntro eyebrow="Lab · porównywarka A/B"
+          aside={<div className="experiment-rule"><b>Najlepszy test</b><span>jedna zmienna naraz</span><span>minimum 3 powtórzenia</span><span>ten sam produkt i referencje</span></div>}>
+          Wybierz dwa wyniki, a pokażemy, co naprawdę zmieniło się między generacjami: prompt, referencje, model
+          i koszt, zamiast zgadywania na podstawie samego obrazu.
+        </PageIntro>
 
         {chosen.length === 2 ? (
           <section className="comparison-panel">

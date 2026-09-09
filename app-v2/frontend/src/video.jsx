@@ -15,7 +15,7 @@ import "@fontsource/geist-sans/700.css";
 import "@fontsource/geist-mono/400.css";
 import "@fontsource/geist-mono/500.css";
 import "./styles-v2.css";
-import { NanoTopbar } from "./header.jsx";
+import { NanoTopbar, PageIntro } from "./header.jsx";
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key"; // shared with the studio page
 
@@ -244,13 +244,10 @@ function App() {
 
       {/* ================= RIGHT — form ================= */}
       <section className="form-pane">
-        <div className="form-intro">
-          <div className="eyebrow">Wideo · Veo · <a href="/" style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: "2px" }}>← wróć do zdjęć</a></div>
-          <div className="intro-body">
-            <h1>Generuj wideo z <em>opisu tekstowego.</em></h1>
-            <p>Dowolny prompt — bez potrzeby odnoszenia się do sofy czy łóżka. Modele Google Veo, natywny dźwięk, do 4K.</p>
-          </div>
-        </div>
+        <PageIntro eyebrow={<>Wideo · Veo · <a href="/">← wróć do zdjęć</a></>}>
+          Wideo z opisu tekstowego: dowolny prompt, bez odnoszenia się do sofy czy łóżka.
+          Modele Google Veo, natywny dźwięk, do 4K.
+        </PageIntro>
 
         {!apiKey && (
           <div className="api-banner">
