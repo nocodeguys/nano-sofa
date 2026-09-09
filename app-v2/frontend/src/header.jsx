@@ -6,6 +6,7 @@
 
 */
 import React from "react";
+import logoUrl from "./logo.svg"; // "nano sofa" wordmark, 895×130, black on transparent
 
 // Primary tabs. "Lab" groups the experimental / analytical pages under one
 // entry with its own sub-menu (rendered below the bar) so the top row stays
@@ -27,10 +28,10 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
   return (
     <>
     <header className="topbar">
-      <div className="topbar-brand">
-        <span className="glyph">ns</span>
-        <span className="wm">Nano Sofa <span className="light">{suffix}</span></span>
-      </div>
+      <a className="topbar-brand" href="/" title="Nano Sofa — studio">
+        <img className="logo" src={logoUrl} alt="nano sofa" />
+        <span className="wm light">{suffix}</span>
+      </a>
 
       <nav className="topbar-tabs">
         <a href="/" className={active === "photos" ? "on" : ""}>Zdjęcia</a>
