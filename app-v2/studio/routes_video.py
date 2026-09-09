@@ -16,14 +16,14 @@ from app.core.video_generator import (
 )
 from studio.errors import _validation_error
 from studio.media import _prune_storage
-from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger
+from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger, page_response
 
 router = APIRouter()
 
 
 @router.get("/video")
 def video_page():
-    return FileResponse(_DIST_DIR / "video.html")
+    return page_response("video.html")
 
 
 @router.get("/api/video-models")

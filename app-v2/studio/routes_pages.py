@@ -31,19 +31,19 @@ from studio.media import _MEDIA_TYPES, _read_png_meta
 from studio.normalize import is_raw_copy as _is_raw
 from studio.openai_images import OPENAI_MODELS
 from studio.openrouter import OPENROUTER_MODELS
-from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger
+from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger, page_response
 
 router = APIRouter()
 
 
 @router.get("/")
 def index():
-    return FileResponse(_DIST_DIR / "index.html")
+    return page_response("index.html")
 
 
 @router.get("/editorial")
 def editorial_page():
-    return FileResponse(_DIST_DIR / "editorial.html")
+    return page_response("editorial.html")
 
 
 @router.get("/lab")
@@ -51,12 +51,12 @@ def lab_page():
     """Experimental tab: the product wizard (same bundle as the studio page,
     `data-mode="lab"`) driven by the OpenAI Images API — GPT Image 2.5 Flare /
     Sunburst with the user's own OpenAI key."""
-    return FileResponse(_DIST_DIR / "lab.html")
+    return page_response("lab.html")
 
 
 @router.get("/experiments")
 def experiments_page():
-    return FileResponse(_DIST_DIR / "experiments.html")
+    return page_response("experiments.html")
 
 
 @router.get("/catalog.js")
@@ -104,7 +104,7 @@ def catalog_status():
 @router.get("/help")
 def help_page():
     # /docs is taken by FastAPI's Swagger UI, so the user guide lives at /help.
-    return FileResponse(_DIST_DIR / "help.html")
+    return page_response("help.html")
 
 
 @router.get("/healthz")

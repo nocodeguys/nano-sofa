@@ -164,3 +164,12 @@ try:
     _gen_mod._OUTPUTS_DIR = _OUTPUT_DIR
 except Exception:
     pass
+
+
+def page_response(name: str):
+    """One of the built HTML entry pages. `no-cache` (not no-store) makes the
+    browser revalidate the HTML on every visit — it still gets a cheap 304
+    while nothing changed, but after a deploy it picks up the new hashed
+    asset names immediately instead of showing a stale page per route."""
+    from fastapi.responses import FileResponse
+    return FileResponse(_DIST_DIR / name, headers={"Cache-Control": "no-cache"})

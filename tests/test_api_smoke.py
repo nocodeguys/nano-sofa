@@ -81,3 +81,12 @@ def test_experiments_api_exposes_comparison_history(client):
         assert "generation_id" in item
         assert "tracked" in item
         assert "image_url" in item
+
+
+def test_html_pages_revalidate_after_deploy(client):
+    """Each entry page must carry no-cache so a fresh image is picked up on
+    the next visit (a stale cached HTML kept pointing at old assets)."""
+    for path in ("/", "/video", "/editorial", "/lab", "/experiments", "/admin", "/help"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert r.headers.get("cache-control") == "no-cache", path

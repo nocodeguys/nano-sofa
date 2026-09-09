@@ -50,6 +50,7 @@ from studio.paths import (
     _PENDING_PUSH_PATH,
     _PERSIST_RUNTIME_CATALOG,
     logger,
+    page_response,
 )
 
 router = APIRouter()
@@ -680,7 +681,7 @@ def _admin_payload() -> dict:
 @router.get("/admin")
 def admin_page():
     # The page itself is static; every API call behind it is gated.
-    return FileResponse(_DIST_DIR / "admin.html")
+    return page_response("admin.html")
 
 
 @router.get("/api/admin/catalog")
