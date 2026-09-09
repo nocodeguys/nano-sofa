@@ -1,5 +1,5 @@
 /*
-  Shared top menu bar for both pages (studio /  + video /video). Presentational:
+  Shared top menu bar for every page (studio, video, lab pages, admin). Presentational:
   it receives the API-key state and the active tab from whichever app renders it,
   so the key entered on one page (localStorage "nano-sofa-v2-api-key") is the same
   everywhere. Styling lives in styles-v2.css under .topbar*.
@@ -7,11 +7,25 @@
 */
 import React from "react";
 
+// Primary tabs. "Lab" groups the experimental / analytical pages under one
+// entry with its own sub-menu (rendered below the bar) so the top row stays
+// short: the OpenAI generator (/lab), the comparator (/experiments) and the
+// editorial composer (/editorial).
+const LAB_PAGES = [
+  { id: "lab", href: "/lab", label: "Generator OpenAI", hint: "kreator produktowy na GPT Image 2.5" },
+  { id: "experiments", href: "/experiments", label: "Porównywarka", hint: "porównanie generacji A/B, trace, koszty" },
+  { id: "editorial", href: "/editorial", label: "Editorial", hint: "kadr od zera, Gemini / OpenRouter / OpenAI" },
+];
+const LAB_IDS = new Set(LAB_PAGES.map(p => p.id));
+const SUFFIX = { video: "wideo", editorial: "lab · editorial", lab: "lab · OpenAI", experiments: "lab · porównywarka", admin: "katalog" };
+
 export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setShowKeyEdit, hideApiKey = false, adminLabel = "tylko lokalnie",
                             keyName = "Gemini", keyPlaceholder = "AIza… wklej klucz Gemini" }) {
-  const suffix = active === "video" ? "wideo" : active === "editorial" ? "editorial" : active === "lab" ? "lab · OpenAI" : active === "admin" ? "katalog" : active === "experiments" ? "eksperymenty" : "studio";
+  const suffix = SUFFIX[active] || "studio";
+  const inLab = LAB_IDS.has(active);
   const forget = () => setApiKey?.("");
   return (
+    <>
     <header className="topbar">
       <div className="topbar-brand">
         <span className="glyph">ns</span>
@@ -21,9 +35,7 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
       <nav className="topbar-tabs">
         <a href="/" className={active === "photos" ? "on" : ""}>Zdjęcia</a>
         <a href="/video" className={active === "video" ? "on" : ""}>Wideo</a>
-        <a href="/editorial" className={active === "editorial" ? "on" : ""}>Editorial</a>
-        <a href="/lab" className={active === "lab" ? "on" : ""} title="eksperyment: kreator produktowy na GPT Image 2.5 (OpenAI Images API)">Lab</a>
-        <a href="/experiments" className={active === "experiments" ? "on" : ""}>Eksperymenty</a>
+        <a href="/lab" className={inLab ? "on" : ""} title="eksperymenty: generator OpenAI, porównywarka, editorial">Lab</a>
         <a href="/admin" className={active === "admin" ? "on" : ""}>Katalog</a>
       </nav>
 
@@ -67,5 +79,14 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
         )}
       </div>
     </header>
+    {inLab && (
+      <nav className="topbar-sub" aria-label="Lab">
+        <span className="topbar-sub-lbl">Lab</span>
+        {LAB_PAGES.map(p => (
+          <a key={p.id} href={p.href} className={active === p.id ? "on" : ""} title={p.hint}>{p.label}</a>
+        ))}
+      </nav>
+    )}
+    </>
   );
 }
