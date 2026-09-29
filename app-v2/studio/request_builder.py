@@ -24,6 +24,7 @@ from studio.catalog import (
     _MATERIAL_NEGATIVES_EN,
     _MATERIAL_PL_TO_EN,
     _MATERIAL_TEXTURE_EN,
+    material_structure,
 )
 from studio.mappings import (
     _BED_CONFIG,
@@ -357,6 +358,7 @@ def _build_generation_request(
         upholstery_hex=upholstery_hex,
         color_id=color_id,
         material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
+        material_structure=material_structure(mat),
         fabric_code=color_meta.get("fabric_code", ""),
         texture_notes=texture_spec,
         leg_id=leg_id,

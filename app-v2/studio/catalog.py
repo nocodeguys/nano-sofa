@@ -107,6 +107,21 @@ _MATERIAL_NEGATIVES_EN = {
     m["id"]: list(m.get("avoid_en", [])) for m in CATALOG["materials"]
 }
 
+# Fabric construction families whose reference-slot instructions differ from
+# the default short-pile wording (generator: GenerationRequest.material_structure).
+# Keyed by the material's `tex`, so a bouclé added in the Katalog admin inherits
+# the looped wording without a code change.
+_LOOPED_TEX = {"boucle"}
+
+
+def material_structure(material_id: str) -> str:
+    """'looped' for bouclé-type fabrics, '' (default pile wording) otherwise.
+    Reads CATALOG at call time — reload_catalog mutates it in place."""
+    for material in CATALOG.get("materials", []):
+        if material["id"] == material_id:
+            return "looped" if material.get("tex") in _LOOPED_TEX else ""
+    return ""
+
 
 def reload_catalog(catalog: dict | None = None) -> dict:
     """Atomically refresh all in-memory catalogue views in place.

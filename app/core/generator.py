@@ -96,6 +96,11 @@ class GenerationRequest:
     # to a catalog entry after the prompt wording has been edited.
     color_id: str = ""
     material_id: str = ""
+    # Fabric construction family. "looped" (bouclé) swaps the material-slot
+    # instructions for loop-specific wording: the default wording was written
+    # for short-pile Cremona (fine nubs, pearly sheen, "calm, finely tactile at
+    # distance") and pushed bouclé into fine uniform grain. "" = default.
+    material_structure: str = ""
     fabric_code: str = ""
     # Exact target colour as #RRGGBB. When set, a flat colour patch is
     # attached as its own reference slot (COLOUR AUTHORITY) and deep shades
@@ -1045,27 +1050,49 @@ def _build_prompt_text(
     # batch pass), make the role explicit so the model copies fabric appearance
     # only and not geometry.
     # ------------------------------------------------------------------ #
+    # Bouclé-type fabrics get loop-specific wording in every material slot;
+    # the default wording below describes short-pile Cremona.
+    looped = req.material_structure == "looped"
     if req.use_swatch_for_fabric and "material_macro" in slots:
         swatch_slot = slots["material_macro"]
         if req.swatch_texture_only:
+            if looped:
+                construction = (
+                    f"Copy ONLY its yarn construction: the shape, size mix and "
+                    f"irregular clustering of the loops, their depth, and the dark "
+                    f"gaps between them. Apply that authentic surface to every "
+                    f"upholstered part of the {product_noun} in slot 1. Preserve its "
+                    f"true physical scale: this is a coarse looped textile, so "
+                    f"individual loops and loop clusters stay legible at normal "
+                    f"product-photography distance as distinct three-dimensional "
+                    f"bumps, each with its own soft highlight and shadowed gap. Never "
+                    f"shrink them into fine sand-like grain, felt or a uniform pebbled "
+                    f"surface, never enlarge them into an oversized repeating motif, "
+                    f"and do not blur, denoise or smooth the loops away. "
+                )
+                ignored = "colour, folds, zoom, lighting, shadows, crop, and perspective"
+            else:
+                construction = (
+                    f"Copy ONLY its microscopic yarn construction: strand, "
+                    f"nub or loop shape as actually present, real-world scale, density, "
+                    f"depth, gaps between yarns, pile direction and surface relief. "
+                    f"Do not invent loops or force a matte finish when the reference "
+                    f"shows a different construction or optical response. Apply that authentic surface "
+                    f"to every upholstered part of the {product_noun} in slot 1. "
+                    f"Preserve its true physical scale: fine textiles must merge into "
+                    f"dense tactile microdetail at normal product-photography distance, "
+                    f"never enlarged into a coarse repeating motif. 'Merge' describes "
+                    f"perceived scale only: do not blur, denoise or smooth away the crisp "
+                    f"high-frequency separation, fibre edges and micro-shadows. "
+                )
+                ignored = "colour, folds, scale, lighting, shadows, crop, and perspective"
             lines.append(
                 f"\nMATERIAL TEXTURE AUTHORITY (slot {swatch_slot}): Slot "
                 f"{swatch_slot} is a close-up photograph of the real target "
-                f"fabric. Copy ONLY its microscopic yarn construction: strand, "
-                f"nub or loop shape as actually present, real-world scale, density, "
-                f"depth, gaps between yarns, pile direction and surface relief. "
-                f"Do not invent loops or force a matte finish when the reference "
-                f"shows a different construction or optical response. Apply that authentic surface "
-                f"to every upholstered part of the {product_noun} in slot 1. "
-                f"Preserve its true physical scale: fine textiles must merge into "
-                f"dense tactile microdetail at normal product-photography distance, "
-                f"never enlarged into a coarse repeating motif. 'Merge' describes "
-                f"perceived scale only: do not blur, denoise or smooth away the crisp "
-                f"high-frequency separation, fibre edges and micro-shadows. "
+                f"fabric. {construction}"
                 f"\n\nCRITICAL ROLE SEPARATION: Slot 1 is the PRODUCT GEOMETRY "
                 f"authority. Slot {swatch_slot} is the MATERIAL MICROSTRUCTURE "
-                f"authority only. IGNORE the photographed colour, folds, scale, "
-                f"lighting, shadows, crop, and perspective of slot {swatch_slot}. "
+                f"authority only. IGNORE the photographed {ignored} of slot {swatch_slot}. "
                 f"The upholstery colour must remain exactly the selected colour: "
                 f"{req.upholstery_color}. Do not copy the fold visible in the "
                 f"swatch onto the furniture.\n\nMATERIAL DOMAIN MASK — HARD "
@@ -1135,20 +1162,50 @@ def _build_prompt_text(
             "infer the stable three-dimensional yarn relief separately from "
             "angle-dependent brightness."
         )
+        if looped:
+            optics = (
+                "Preserve the same individual loops and loop clusters in both bright "
+                "and shaded orientations; do not average the two views into a smooth "
+                "or fine-grained surface. The looped surface is matte: loop tops catch "
+                "soft diffuse highlights, the gaps between loops stay visibly darker, "
+                "and the relief reads the same from either side, with no pile sheen, "
+                "no pearly glints and no directional nap."
+            )
+        else:
+            optics = (
+                "Preserve the "
+                "same fine nub and slub geometry in both bright and shaded orientations; "
+                "do not average the two views into a smooth surface. Reproduce the short "
+                "pile's reversible directional sheen: tiny fibres and raised yarn faces "
+                "catch pearly grazing highlights while recessed crossings retain narrow "
+                "micro-shadows."
+            )
         lines.append(
             f"\nFABRIC MULTI-ANGLE OPTICAL AUTHORITY ({noun.lower()} {slots_label}): "
-            f"{noun} {slots_label} {viewpoint_clause} Preserve the "
-            f"same fine nub and slub geometry in both bright and shaded orientations; "
-            f"do not average the two views into a smooth surface. Reproduce the short "
-            f"pile's reversible directional sheen: tiny fibres and raised yarn faces "
-            f"catch pearly grazing highlights while recessed crossings retain narrow "
-            f"micro-shadows. This evidence describes material optics only. Do not copy "
+            f"{noun} {slots_label} {viewpoint_clause} {optics} "
+            f"This evidence describes material optics only. Do not copy "
             f"the photographed colour, white background, crop, depth of field, camera "
             f"angle or light direction into the final composition. Keep the selected "
             f"upholstery colour and slot 1 geometry authoritative."
         )
 
-    if "material_behavior" in slots:
+    if "material_behavior" in slots and looped:
+        behavior_slot = slots["material_behavior"]
+        lines.append(
+            f"\nFABRIC LIGHT-RESPONSE AUTHORITY (slot {behavior_slot}): Slot "
+            f"{behavior_slot} shows the same target fabric bent over a fold or "
+            f"curved edge. Copy ONLY how the looped surface behaves there: on convex "
+            f"edges the loops open slightly and their tops catch the light, in concave "
+            f"bends and seams they press into denser, darker clusters, and the "
+            f"fabric's thickness rounds every edge softly. Loop size stays the same "
+            f"on flat panels, curves and edges, never stretched, shrunk or smoothed. "
+            f"It is a thick, springy textile upholstered taut over foam: it bends in "
+            f"broad soft radii and never forms thin sharp creases, crumples, ripples "
+            f"or gathered wrinkles on flat panels. Do not copy slot {behavior_slot}'s "
+            f"photographed colour, crop, fold, camera angle or depth of field. Keep "
+            f"the selected upholstery colour authoritative."
+        )
+    elif "material_behavior" in slots:
         behavior_slot = slots["material_behavior"]
         lines.append(
             f"\nFABRIC LIGHT-RESPONSE AUTHORITY (slot {behavior_slot}): Slot "
@@ -1172,7 +1229,30 @@ def _build_prompt_text(
             f"colour authoritative."
         )
 
-    if "material_application" in slots:
+    if "material_application" in slots and looped:
+        application_slot = slots["material_application"]
+        lines.append(
+            f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "
+            f"sample photographs in the preceding fabric slots are the absolute "
+            f"authority for loop construction, loop size, irregularity and matte "
+            f"light response. Slot {application_slot} is secondary context only and "
+            f"can never override or reinterpret those samples."
+            f"\n\nFABRIC IN-USE SCALE CHECK (slot {application_slot}): "
+            f"Slot {application_slot} shows a comparable bouclé applied across "
+            f"upholstered furniture at normal viewing distance. Use ONLY how large and "
+            f"how legible the loops remain at that distance — never the reference "
+            f"piece's geometry, dimensions, seams, channeling, storage mechanism, room, "
+            f"camera, colour or styling. If slot {application_slot} shows several "
+            f"pieces or materials, read only the looped bouclé surfaces and ignore any "
+            f"smooth, suede, velvet or woven ones. At hero distance the upholstery must "
+            f"still read as distinctly nubbly bouclé: loop clusters remain visible as "
+            f"a lively three-dimensional relief across every panel and never dissolve "
+            f"into fine grain, felt, suede or a smooth plaster look. Do not copy any "
+            f"visual feature from slot {application_slot} when it conflicts with the "
+            f"physical sample slots. Slot 1 remains the absolute product-geometry "
+            f"authority."
+        )
+    elif "material_application" in slots:
         application_slot = slots["material_application"]
         lines.append(
             f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "

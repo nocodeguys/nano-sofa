@@ -207,6 +207,47 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert "Slot 1 remains the absolute product-geometry authority" in text
 
 
+def test_boucle_reference_set_uses_looped_wording_not_cremona_pile(
+    server, base_image, tmp_path, monkeypatch
+):
+    """The default slot wording describes short-pile Cremona (fine nubs, pearly
+    sheen, 'calm, finely tactile at distance'); on bouclé it produced fine
+    uniform grain. A full bouclé set must get the loop-specific wording."""
+    import studio.request_builder as request_builder
+
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    for name in ("boucle", "boucle-left", "boucle-right", "boucle-behavior", "boucle-application"):
+        Image.new("RGB", (64, 64), (230, 225, 215)).save(refs / f"{name}.jpg")
+    monkeypatch.setattr(request_builder, "_MATERIAL_REFS_DIR", refs)
+
+    req = _request(
+        server, base_image, catalog=True, mat="boucle",
+        model="gemini-3.1-flash-image", res="2K",
+    )
+    assert req.material_structure == "looped"
+    text = _build_prompt_text(req)
+
+    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (slots 5 and 6)" in text
+    assert "FABRIC LIGHT-RESPONSE AUTHORITY (slot 7)" in text
+    assert "FABRIC IN-USE SCALE CHECK (slot 8)" in text
+    assert "coarse looped textile" in text
+    assert "Preserve the same individual loops and loop clusters" in text
+    assert "never forms thin sharp creases" in text
+    assert "read only the looped bouclé surfaces" in text
+    assert "never dissolve into fine grain" in text
+    # None of the Cremona pile wording may reach a bouclé prompt.
+    for cremona_phrase in (
+        "fine textiles must merge into dense tactile microdetail",
+        "fine nub and slub geometry",
+        "pearly grazing highlights",
+        "soft pearly highlights",
+        "calm, continuous, finely tactile surface",
+        "delicate fuzzy rim",
+    ):
+        assert cremona_phrase not in text, cremona_phrase
+
+
 def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
     server, base_image
 ):

@@ -30,7 +30,7 @@
       "finish_pl": "matowy",
       "tex": "boucle",
       "noun_en": "bouclé fabric",
-      "texture_en": "Authentic heavy upholstery bouclé made from clearly visible looped yarns. The surface is built from irregular open and closed yarn loops in mixed small-to-medium sizes, with uneven clusters, occasional larger curls, and tiny darker cavities between the loops. The loop scale remains readable at normal furniture-photography distance instead of collapsing into uniform grain. Soft wool-and-cotton character, dense and substantial, tactile three-dimensional relief, diffuse matte highlights, and subtle warm tonal variation between individual yarns. The distribution is organic and non-repeating, never a perfectly even pebble texture.",
+      "texture_en": "Authentic heavy upholstery bouclé made from clearly visible looped yarns. The surface is built from irregular open and closed yarn loops in mixed sizes, mostly about 4–7 mm across with occasional larger curls up to about 1 cm, gathered into uneven clusters with tiny darker cavities between the loops. Scale anchor: roughly 80–150 loop clusters span the width of a 60 cm seat cushion, so at normal furniture-photography distance the loops stay legible as a distinctly nubbly, three-dimensional relief, each loop top catching a soft highlight and each gap holding a small shadow, never collapsing into fine sand-like grain, felt or a uniform pebbled surface. Soft wool-and-cotton character, dense and substantial, completely matte with diffuse highlights only; tonal variation between individual yarns stays within the selected colour and never warms or cools it. The distribution is organic and non-repeating, never a perfectly even pebble texture. Drape: a thick, springy, fairly stiff textile upholstered taut over firm foam. Flat panels stay smooth and tensioned, edges and seams are softly rounded by the fabric's own thickness, and it bends only in broad soft radii, with no wrinkles, puckering, gathering, ripples or loose slipcover folds.",
       "avoid_en": [
         "teddy or sherpa fleece",
         "terry-towel pile",
@@ -39,7 +39,14 @@
         "uniform pebbled foam",
         "stucco or plaster texture",
         "matted synthetic fur",
-        "flat printed grain"
+        "flat printed grain",
+        "fine sand-like or salt-grain texture",
+        "felt or flat microfleece",
+        "suede or brushed nubuck",
+        "wrinkled, puckered or gathered upholstery",
+        "ripples or creases on flat panels",
+        "loose slipcover drape",
+        "pearly or satin sheen"
       ]
     },
     {
