@@ -19,6 +19,7 @@ const { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById
         SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
         LENSES, TIMES_OF_DAY, SHADOWS,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
+        CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
         CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS } = NS_DATA;
 
@@ -531,6 +532,10 @@ function App({ t, mode = "photos" }) {
   const bedLegsHidden = st.kind === "bed" && !st.bedLegs;
   const effectiveLegs = bedLegsHidden ? "keep" : st.legs;
   const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
+  // "Keep base camera" only applies while a base photo is loaded. A preset saved
+  // with it on (or a removed base) must not leave the camera grids locked
+  // behind a checkbox that is itself disabled and shown unchecked.
+  const baseCamLocked = st.uploaded && !!st.preserveBaseCamera;
   // The Szybki preset tile stays highlighted only while the seeded structured
   // fields still match — clicking "Detal makro" then changing the shot type
   // chip auto-deselects the preset, so the row never lies about current state.
@@ -749,7 +754,7 @@ function App({ t, mode = "photos" }) {
       fd.append("catalog", "1");
       fd.append("catalog_profile", st.catalogProfile || "ivory");
     }
-    if (!st.catalog && st.preserveBaseCamera) fd.append("preserve_base", "1");
+    if (!st.catalog && baseCamLocked) fd.append("preserve_base", "1");
     if (st.kind === "bed") {
       fd.append("bedding", st.bedding || "");
       fd.append("bedding_custom", st.beddingCustom || "");
@@ -2496,7 +2501,7 @@ function App({ t, mode = "photos" }) {
             const yawObj = CAMERA_YAWS.find(y => y.id === st.yaw);
             return `profil 85 mm · f/8 · ${yawObj?.name || "obrót produktu"}`;
           }
-          if (st.preserveBaseCamera) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
+          if (baseCamLocked) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
           const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
           let regionTable = null;
           if (st.shot === "detail_fabric") regionTable = DETAIL_REGIONS_FABRIC;
@@ -2529,14 +2534,14 @@ function App({ t, mode = "photos" }) {
           <label style={{
             display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
             padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
-            background: st.preserveBaseCamera ? "rgba(95,122,86,.06)" : "var(--bg-1)",
+            background: baseCamLocked ? "rgba(95,122,86,.06)" : "var(--bg-1)",
             cursor: st.uploaded ? "pointer" : "not-allowed",
             opacity: st.uploaded ? 1 : 0.55,
             fontSize:12.5, lineHeight:1.45,
           }}>
             <input
               type="checkbox"
-              checked={st.uploaded && !!st.preserveBaseCamera}
+              checked={baseCamLocked}
               disabled={!st.uploaded}
               onChange={e => set({ preserveBaseCamera: e.target.checked })}
               style={{marginTop:2, flexShrink:0}} />
@@ -2552,7 +2557,7 @@ function App({ t, mode = "photos" }) {
               sensible starting point that they can then tweak. Mirrors
               _CAM_PRESET_TO_STRUCTURED in server.py. */}
           <div className="field-lbl">szybki preset</div>
-          <div className="cam-grid" style={st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : undefined}>
+          <div className="cam-grid" style={baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : undefined}>
             {CAMERAS.map(c => (
               <div key={c.id} className={"cam " + (matchedPreset === c.id ? "sel" : "")} onClick={() => {
                 set({ cam: c.id, ...(CAM_PRESET_DEFAULTS[c.id] || {}) });
@@ -2576,7 +2581,7 @@ function App({ t, mode = "photos" }) {
           <div className="field-lbl" style={{marginTop:16}}>typ kadru</div>
           <div className="cam-grid" style={{
             gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))",
-            ...(st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : {}),
+            ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
           }}>
             {SHOT_TYPES.map(s => (
               <div key={s.id} className={"cam " + (st.shot === s.id ? "sel" : "")} onClick={() => {
@@ -2646,7 +2651,7 @@ function App({ t, mode = "photos" }) {
               height are dimmed for detail shots because the macro crop fills
               the frame regardless of where the camera is yawed. */}
           <div className="tri-row" style={{marginTop:12,
-            ...(st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : {}),
+            ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
           }}>
             <div style={(st.shot === "detail_fabric" || st.shot === "detail_corner") ? {opacity:0.45, pointerEvents:"none"} : undefined}>
               <div className="field-lbl">kąt (yaw)</div>
