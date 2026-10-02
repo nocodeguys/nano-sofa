@@ -18,7 +18,7 @@ const LAB_PAGES = [
   { id: "editorial", href: "/editorial", label: "Editorial", hint: "kadr od zera, Gemini / OpenRouter / OpenAI" },
 ];
 const LAB_IDS = new Set(LAB_PAGES.map(p => p.id));
-const SUFFIX = { video: "wideo", editorial: "lab · editorial", lab: "lab · OpenAI", experiments: "lab · porównywarka", admin: "katalog" };
+const SUFFIX = { video: "wideo", editorial: "lab · editorial", lab: "lab · GPT Image", experiments: "lab · porównywarka", admin: "katalog" };
 
 // Page intro shared by every tab: a small mono eyebrow and one short,
 // friendly paragraph — no display headings, one typographic voice.

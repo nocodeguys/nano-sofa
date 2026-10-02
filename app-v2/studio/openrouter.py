@@ -9,7 +9,10 @@ key model; the server never persists it).
 
 Since 2026-09 the same route also carries OpenAI's GPT Image models, which
 accept up to 16 input references — the whole fabric reference set plus the
-colour patch and the moodboards ride along as `input_references`.
+colour patch and the moodboards ride along as `input_references`. The models
+flagged `product` also run the Lab tab's product wizard
+(generate_product_openrouter): base photo + the full reference plan, the same
+prompt the OpenAI-direct path sends, paid with the OpenRouter key.
 """
 
 from __future__ import annotations
@@ -31,10 +34,16 @@ from studio.external_engine import (
     persist_external_render,
     reference_data_url,
 )
+from studio.openai_images import generate_product_external
 from studio.paths import logger
 
-# Editorial-only alternative models. Quirks (verified live against
-# /api/v1/images/models/{slug}/endpoints, 2026-08 and 2026-09-08):
+# Alternative models for the editorial tab; `product: True` ones are also
+# offered in the Lab product wizard (edit-capable, product-true — the bake-off
+# ruled FLUX / Seedream out of that pipeline). Quirks (verified live against
+# /api/v1/images/models/{slug}/endpoints, 2026-08, 2026-09-08 and 2026-09-29):
+#  - openai/gpt-image-2.5-flare / -sunburst: every aspect we offer, 0–16 input
+#    references, quality low…max (adds xhigh / max), same token rates as
+#    GPT Image 2. No size parameter — output size is the provider's default.
 #  - openai/gpt-image-2 takes every aspect we offer, 0–16 input references
 #    and a `quality` enum (low / medium / high); billed per token
 #    (in 8 $/M image, 5 $/M text, out 30 $/M) so the hint is an estimate.
@@ -49,7 +58,28 @@ from studio.paths import logger
 # `qualities` (when present) is forwarded as the Images API `quality` field.
 _ALL_ASPECTS = list(ALL_ASPECTS)
 _GPT_IMAGE_QUALITIES = ["low", "medium", "high"]
+_GPT_IMAGE_25_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
 OPENROUTER_MODELS = {
+    "openai/gpt-image-2.5-flare": {
+        "label": "GPT Image 2.5 Flare · OpenRouter",
+        "max_refs": 16,
+        "price_hint": "≈$0.01–0.13/obraz wg jakości",
+        "aspects": _ALL_ASPECTS,
+        "qualities": _GPT_IMAGE_25_QUALITIES,
+        "default_quality": "high",
+        "product": True,
+        "note_pl": "ten sam model co Flare przez OpenAI, płatny kluczem OpenRouter",
+    },
+    "openai/gpt-image-2.5-sunburst": {
+        "label": "GPT Image 2.5 Sunburst · OpenRouter",
+        "max_refs": 16,
+        "price_hint": "≈$0.01–0.13/obraz wg jakości",
+        "aspects": _ALL_ASPECTS,
+        "qualities": _GPT_IMAGE_25_QUALITIES,
+        "default_quality": "high",
+        "product": True,
+        "note_pl": "ten sam model co Sunburst przez OpenAI, płatny kluczem OpenRouter",
+    },
     "openai/gpt-image-2": {
         "label": "GPT Image 2 · OpenRouter",
         "max_refs": 16,
@@ -57,6 +87,7 @@ OPENROUTER_MODELS = {
         "aspects": _ALL_ASPECTS,
         "qualities": _GPT_IMAGE_QUALITIES,
         "default_quality": "high",
+        "product": True,
     },
     "openai/gpt-image-1": {
         "label": "GPT Image 1 · OpenRouter",
@@ -216,6 +247,8 @@ def generate_openrouter(
             for _role, source, image in refs
         ]
 
+    logger.info("OpenRouter request: %s aspect=%s quality=%s refs=%d prompt=%d chars",
+                model, payload["aspect_ratio"], quality_used or "-", len(refs), len(prompt))
     try:
         r = httpx.post(
             _API_URL, json=payload, timeout=_TIMEOUT_S,
@@ -226,6 +259,7 @@ def generate_openrouter(
                               "NETWORK_TIMEOUT", str(exc)[:300], True) from exc
 
     if r.status_code >= 400:
+        logger.warning("OpenRouter %s failed: HTTP %s %s", model, r.status_code, r.text[:600])
         raise _classify(r.status_code, r.text[:300])
 
     try:
@@ -265,3 +299,21 @@ def generate_openrouter(
         "resolution": "auto",
         "quality": quality_used,
     }
+
+
+# Models the Lab product wizard may run through OpenRouter.
+PRODUCT_MODELS = {slug: cfg for slug, cfg in OPENROUTER_MODELS.items() if cfg.get("product")}
+
+
+def generate_product_openrouter(req: Any, api_key: str) -> Any:
+    """The Lab product pipeline on OpenRouter — the same reference plan and
+    prompt as the OpenAI-direct path (openai_images.generate_product_external),
+    billed to the user's OpenRouter key."""
+    cfg = OPENROUTER_MODELS.get(req.model_id, {"max_refs": 16})
+    return generate_product_external(
+        req, engine="openrouter", max_refs=cfg["max_refs"],
+        render=lambda **kw: generate_openrouter(
+            api_key=api_key, model=req.model_id, aspect=req.aspect_ratio,
+            quality=req.engine_quality, trace_request=req, **kw,
+        ),
+    )

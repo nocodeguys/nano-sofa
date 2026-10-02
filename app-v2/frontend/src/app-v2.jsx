@@ -161,6 +161,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key";
 const OPENAI_KEY_STORAGE = "nano-sofa-v2-openai-key"; // Lab tab (GPT Image 2.5 direct), shared with /editorial
+const OPENROUTER_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // Lab tab via OpenRouter, shared with /editorial
 // lab.html mounts this same bundle with <body data-mode="lab">.
 const PAGE_MODE = (typeof document !== "undefined" && document.body && document.body.dataset && document.body.dataset.mode) || "photos";
 const PRESETS_STORAGE = "nano-sofa-v2-presets";
@@ -265,6 +266,12 @@ function App({ t, mode = "photos" }) {
   useEffect(() => {
     try { localStorage.setItem(OPENAI_KEY_STORAGE, oaKey); } catch {}
   }, [oaKey]);
+  const [orKey, setOrKey] = useState(() => {
+    try { return localStorage.getItem(OPENROUTER_KEY_STORAGE) || ""; } catch { return ""; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(OPENROUTER_KEY_STORAGE, orKey); } catch {}
+  }, [orKey]);
   const [quality, setQuality] = useState("");   // Images API quality tier (Lab models)
   const [apiKey, setApiKey] = useState(() => {
     try { return localStorage.getItem(API_KEY_STORAGE) || ""; } catch { return ""; }
@@ -276,11 +283,6 @@ function App({ t, mode = "photos" }) {
   const [showKeyEdit, setShowKeyEdit] = useState(() => {
     try { return !(localStorage.getItem(isLab ? OPENAI_KEY_STORAGE : API_KEY_STORAGE) || ""); } catch { return true; }
   });
-  // The key the active engine needs — Gemini in the studio, OpenAI in the Lab.
-  const activeKey = isLab ? oaKey : apiKey;
-  const setActiveKey = isLab ? setOaKey : setApiKey;
-  const keyHint = isLab ? "Wklej klucz OpenAI u góry sceny." : "Wklej klucz Gemini API u góry sceny.";
-  const keyCode = isLab ? "MISSING_OPENAI_KEY" : "MISSING_API_KEY";
 
   // Server-driven config: models + per-model constraints (max_refs, resolutions).
   // Falls back to a single Flash entry if the request fails so the UI still loads.
@@ -613,6 +615,14 @@ function App({ t, mode = "photos" }) {
     () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
     [serverConfig, st.model],
   );
+  // The key the active engine needs — Gemini in the studio; in the Lab the
+  // selected model's provider: OpenAI direct or OpenRouter ("openai/…" slugs).
+  const labViaOpenRouter = isLab && (modelObj?.provider === "openrouter" || st.model.includes("/"));
+  const keyName = !isLab ? "Gemini" : labViaOpenRouter ? "OpenRouter" : "OpenAI";
+  const activeKey = !isLab ? apiKey : labViaOpenRouter ? orKey : oaKey;
+  const setActiveKey = !isLab ? setApiKey : labViaOpenRouter ? setOrKey : setOaKey;
+  const keyHint = `Wklej klucz ${keyName}${isLab ? "" : " API"} u góry sceny.`;
+  const keyCode = !isLab ? "MISSING_API_KEY" : labViaOpenRouter ? "MISSING_OPENROUTER_KEY" : "MISSING_OPENAI_KEY";
 
   // If the server's catalogue doesn't include the currently-selected model
   // (e.g. dev edited the schema), snap to the server default. Same for resolution
@@ -684,7 +694,7 @@ function App({ t, mode = "photos" }) {
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
-    if (isLab) { fd.append("openai_key", oaKey.trim()); if (quality) fd.append("quality", quality); }
+    if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
     fd.append("color", st.color);
     fd.append("color_custom", customColorText());
@@ -909,7 +919,7 @@ function App({ t, mode = "photos" }) {
   // Note: no `mat`/colour here — those come from the pairs (grid) or the tile (regen).
   const appendShootConfig = (fd) => {
     fd.append("api_key", apiKey.trim());
-    if (isLab) { fd.append("openai_key", oaKey.trim()); if (quality) fd.append("quality", quality); }
+    if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
     fd.append("color_custom", customColorText());
     fd.append("mat_notes", st.matNotes || "");
@@ -1096,7 +1106,7 @@ function App({ t, mode = "photos" }) {
 
     const fd = new FormData();
     fd.append("api_key", apiKey.trim());
-    if (isLab) { fd.append("openai_key", oaKey.trim()); if (quality) fd.append("quality", quality); }
+    if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
     fd.append("colors_csv", variantColors.join(","));
     // Empty materials_csv → server reuses single `mat` for every variant.
@@ -1176,7 +1186,7 @@ function App({ t, mode = "photos" }) {
   return (
     <div className="app-frame">
       <NanoTopbar active={isLab ? "lab" : "photos"} apiKey={activeKey} setApiKey={setActiveKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit}
-        keyName={isLab ? "OpenAI" : "Gemini"} keyPlaceholder={isLab ? "sk-… wklej klucz OpenAI" : "AIza… wklej klucz Gemini"} />
+        keyName={keyName} keyPlaceholder={!isLab ? "AIza… wklej klucz Gemini" : labViaOpenRouter ? "sk-or-… wklej klucz OpenRouter" : "sk-… wklej klucz OpenAI"} />
 
       {catalogStale && (
         <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 16px",
@@ -1963,9 +1973,9 @@ function App({ t, mode = "photos" }) {
       <section className="form-pane">
         {isLab ? (
           <PageIntro eyebrow={<>Lab · generator OpenAI · eksperyment · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
-            Ten sam przebieg co w Zdjęciach: sesja, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API,
-            a zdjęcie bazowe, komplet referencji tkaniny i plamka koloru idą jako obrazy edycji. Warianty i fotosesja
-            też przechodzą przez OpenAI; wyniki lądują w Porównywarce obok Gemini.
+            Ten sam przebieg co w Zdjęciach: sesja, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API
+            albo przez OpenRouter (wybór w ustawieniach technicznych), a zdjęcie bazowe, komplet referencji tkaniny
+            i plamka koloru idą jako obrazy edycji. Warianty i fotosesja też; wyniki lądują w Porównywarce obok Gemini.
           </PageIntro>
         ) : (
           <PageIntro eyebrow={<>Zdjęcia · brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
@@ -1993,9 +2003,13 @@ function App({ t, mode = "photos" }) {
           <div className="api-banner">
             <div className="api-banner-head">
               <div className="api-banner-eyebrow">krok zerowy</div>
-              <div className="api-banner-title serif">{isLab ? "Wklej swój klucz OpenAI API, żeby zacząć" : "Wklej swój klucz Gemini API, żeby zacząć"}</div>
+              <div className="api-banner-title serif">{`Wklej swój klucz ${keyName} API, żeby zacząć`}</div>
               <div className="api-banner-help">
-                {isLab ? (
+                {labViaOpenRouter ? (
+                  <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
+                  openrouter.ai przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
+                  <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer">openrouter.ai/settings/keys</a>.</>
+                ) : isLab ? (
                   <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
                   api.openai.com przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>.</>
@@ -2011,7 +2025,7 @@ function App({ t, mode = "photos" }) {
                 autoFocus
                 type="password"
                 className="input"
-                placeholder={isLab ? "sk-..." : "AIza..."}
+                placeholder={!isLab ? "AIza..." : labViaOpenRouter ? "sk-or-..." : "sk-..."}
                 onChange={e => setActiveKey(e.target.value)}
                 style={{flex:1, fontFamily:"Geist Mono", fontSize: 13}}
               />
@@ -2021,9 +2035,9 @@ function App({ t, mode = "photos" }) {
 
         {/* Technical output settings stay available, but no longer lead the workflow. */}
         <AdvancedSection title="Ustawienia techniczne"
-          summary={`${isLab ? (st.model.includes("sunburst") ? "sunburst" : "flare") + (quality ? " · " + quality : "") : (st.model.includes("pro") ? "pro" : "flash")} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          summary={`${isLab ? (st.model.includes("sunburst") ? "sunburst" : st.model.includes("flare") ? "flare" : "gpt-image-2") + (labViaOpenRouter ? " · openrouter" : "") + (quality ? " · " + quality : "") : (st.model.includes("pro") ? "pro" : "flash")} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help={isLab
-            ? "Model OpenAI, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
+            ? "Model GPT Image, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Wersje „· OpenRouter” to te same modele płacone kluczem OpenRouter — bez wyboru rozdzielczości (rozmiar domyślny dostawcy). Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
             : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki."}>
           <div className="out-grid">
             <div>
@@ -2031,7 +2045,7 @@ function App({ t, mode = "photos" }) {
               <select className="select" value={st.model} onChange={e => set({ model: e.target.value })}>
                 {serverConfig.models.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.label}{m.tier ? (m.tier === "pro" ? " · pro" : " · flash") : ""} · do {m.max_resolution || "1K"}
+                    {m.label}{m.tier ? (m.tier === "pro" ? " · pro" : " · flash") : ""} · {m.max_resolution === "auto" ? "rozmiar domyślny" : `do ${m.max_resolution || "1K"}`}
                   </option>
                 ))}
               </select>

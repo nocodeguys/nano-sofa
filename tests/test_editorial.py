@@ -132,15 +132,22 @@ def test_config_lists_lab_models(client):
     cfg = client.get("/api/config").json()
     lab = cfg.get("lab_models") or []
     ids = {m["id"]: m for m in lab}
-    assert set(ids) == {"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"}
+    assert set(ids) == {
+        "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
+        "openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2",
+    }
     assert cfg["lab_default_model"] == "gpt-image-2.5-flare"
     for m in lab:
-        assert m["provider"] == "openai"
         assert m["max_refs"] == 16 and m["moodboard_max"] == 6
-        assert m["resolutions"] == ["1K", "2K"]
-        assert {"xhigh", "max"} <= set(m["qualities"])
         assert m["default_quality"] == "high"
         assert len(m["aspects"]) == 8
+        if m["provider"] == "openai":
+            assert m["resolutions"] == ["1K", "2K"]
+            assert {"xhigh", "max"} <= set(m["qualities"])
+        else:
+            # OpenRouter has no size parameter — provider default size.
+            assert m["provider"] == "openrouter" and m["resolutions"] == ["auto"]
+    assert {"xhigh", "max"} <= set(ids["openai/gpt-image-2.5-sunburst"]["qualities"])
 
 
 def test_openrouter_aspect_clamping(server):

@@ -31,6 +31,7 @@ from studio.media import _MEDIA_TYPES, _read_png_meta
 from studio.normalize import is_raw_copy as _is_raw
 from studio.openai_images import OPENAI_MODELS
 from studio.openrouter import OPENROUTER_MODELS
+from studio.openrouter import PRODUCT_MODELS as OPENROUTER_PRODUCT_MODELS
 from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger, page_response
 
 router = APIRouter()
@@ -188,9 +189,14 @@ def api_config():
     ] + [
         _external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()
     ]
-    # Lab tab: the product wizard (index page in data-mode="lab") on the
-    # OpenAI Images API — GPT Image 2.5 with the full reference plan.
-    lab_models = [_external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()]
+    # Lab tab: the product wizard (index page in data-mode="lab") on GPT Image
+    # with the full reference plan — OpenAI direct, or the same models through
+    # OpenRouter (paid with the OpenRouter key).
+    lab_models = [
+        _external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()
+    ] + [
+        _external_model(slug, cfg, "openrouter") for slug, cfg in OPENROUTER_PRODUCT_MODELS.items()
+    ]
     return {
         "models": models,
         "default_model": default_id,

@@ -352,3 +352,58 @@ def test_openai_retries_without_input_fidelity_when_model_refuses_it(server, san
                                         aspect="4:3", references=[("base_product", base_image, img)])
     assert seen == [True, False]
     assert Path(out["output_path"]).is_file()
+
+
+def test_product_pipeline_on_openrouter_matches_the_openai_request(server, base_image, sandbox, monkeypatch):
+    """Lab wizard via OpenRouter: same base photo + reference plan + variant
+    prompt as the OpenAI-direct path, sent as input_references."""
+    from dataclasses import replace
+    from studio import openrouter
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        return _Resp(200, {"data": [{"b64_json": _png_b64()}], "usage": {"cost": 0.05}})
+
+    monkeypatch.setattr(openrouter.httpx, "post", fake_post)
+    req = replace(_bed_request(server, base_image, model="openai/gpt-image-2.5-sunburst"),
+                  engine_quality="xhigh")
+    result = openrouter.generate_product_openrouter(req, "sk-or-test")
+
+    assert result.success, result.error_message
+    body = captured["json"]
+    assert captured["url"].endswith("/api/v1/images")
+    assert body["model"] == "openai/gpt-image-2.5-sunburst"
+    assert body["quality"] == "xhigh" and body["aspect_ratio"] == "4:3"
+    trace = json.loads((sandbox / "traces" / f"{result.generation_id}.json").read_text())
+    roles = [r["role"] for r in trace["references"]]
+    assert roles[0] == "base_product"
+    assert {"material_macro", "color_patch", "material_left", "material_right",
+            "material_behavior", "material_application"} <= set(roles)
+    assert len(body["input_references"]) == len(roles)
+    assert "slot 1" in body["prompt"] and "COLOUR AUTHORITY" in body["prompt"]
+    assert "BRIEF:" not in body["prompt"]
+    assert trace["engine"] == "openrouter"
+    assert result.actual_cost == pytest.approx(0.05)
+
+
+def test_product_routes_require_openrouter_key_for_openrouter_lab_models(server, base_image):
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    with open(base_image, "rb") as fh:
+        r = client.post("/api/generate", data={"api_key": "AIza-x", "openai_key": "sk-x",
+                                               "kind": "bed", "model": "openai/gpt-image-2.5-flare"},
+                        files={"base_image": ("base.png", fh, "image/png")})
+    assert r.json()["error_code"] == "MISSING_OPENROUTER_KEY"
+
+
+def test_lab_config_lists_openrouter_product_models(server):
+    from fastapi.testclient import TestClient
+    cfg = TestClient(server.app).get("/api/config").json()
+    lab = {m["id"]: m for m in cfg["lab_models"]}
+    assert lab["gpt-image-2.5-flare"]["provider"] == "openai"
+    assert lab["openai/gpt-image-2.5-flare"]["provider"] == "openrouter"
+    assert lab["openai/gpt-image-2.5-sunburst"]["qualities"][-1] == "max"
+    # FLUX / Seedream stay editorial-only — they don't preserve product geometry.
+    assert not any("flux" in mid or "seedream" in mid for mid in lab)

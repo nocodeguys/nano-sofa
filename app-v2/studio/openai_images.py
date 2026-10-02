@@ -18,8 +18,10 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import time
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Callable, Optional
 
 import httpx
 from PIL import Image
@@ -276,14 +278,20 @@ def _failure(req: GenerationRequest, generation_id: str, *, code: str, message: 
     )
 
 
-def generate_product_openai(req: GenerationRequest, api_key: str) -> GenerationResult:
+def generate_product_external(
+    req: GenerationRequest, *, engine: str, max_refs: int, render: Callable[..., dict]
+) -> GenerationResult:
     """The product pipeline (base photo + leg / scene / fabric set / colour
-    patch / moodboards, the full variant prompt) on the OpenAI Images API —
+    patch / moodboards, the full variant prompt) on a non-Gemini Images API —
     what the Lab tab's wizard calls instead of generator.generate(). Same
-    plan_reference_slots order with the model's 16-reference cap, same
+    plan_reference_slots order with the model's reference cap, same
     _build_prompt_text numbered from the images actually attached, result
-    shaped like a Gemini GenerationResult so every route treats it alike."""
-    cfg = OPENAI_MODELS.get(req.model_id, {"max_refs": 16})
+    shaped like a Gemini GenerationResult so every route treats it alike.
+
+    `render(prompt=, references=, png_meta=, prompt_summary=)` is the engine
+    call (generate_openai / generate_openrouter with the model, key, aspect
+    and quality already bound); it returns the engines' shared result dict or
+    raises ExternalEngineError."""
     base_img = _load_image(req.base_product_image)
     if base_img is None:
         return _failure(req, new_generation_id(), code="BAD_INPUT_IMAGE",
@@ -292,10 +300,19 @@ def generate_product_openai(req: GenerationRequest, api_key: str) -> GenerationR
     if req.base_image_has_alpha or base_img.mode in ("RGBA", "LA"):
         base_img = _flatten_alpha(base_img)
 
-    loaded = _load_reference_plan(req, base_img, cfg["max_refs"])
+    loaded = _load_reference_plan(req, base_img, max_refs)
     slots = slot_numbers([slot for slot, _image in loaded])
     prompt = _build_prompt_text(req, slots)
     references = [(slot.role, slot.source, image) for slot, image in loaded]
+    logger.info(
+        "Product setup (%s) model=%s refs=[%s]", engine, req.model_id,
+        ", ".join(f"{n}:{role}={Path(str(source)).name}"
+                  for n, (role, source, _image) in enumerate(references, start=1)),
+    )
+    # Same opt-in full-prompt dump as the Gemini path (generator.generate).
+    if os.environ.get("NANO_SOFA_LOG_PROMPT"):
+        logger.info("── PROMPT → %s (%d chars, %d refs) ──\n%s\n── END PROMPT ──",
+                    engine, len(prompt), len(references), prompt)
     png_meta = {
         "nano_sofa_color": req.upholstery_color or "",
         "nano_sofa_material": req.upholstery_material or "",
@@ -307,11 +324,8 @@ def generate_product_openai(req: GenerationRequest, api_key: str) -> GenerationR
     }
     summary = f"{req.upholstery_color} {req.upholstery_material} {req.camera_angle}".strip()
     try:
-        out = generate_openai(
-            api_key=api_key, model=req.model_id, prompt=prompt, aspect=req.aspect_ratio,
-            resolution=req.resolution, references=references, quality=req.engine_quality,
-            png_meta=png_meta, prompt_summary=summary, trace_request=req,
-        )
+        out = render(prompt=prompt, references=references, png_meta=png_meta,
+                     prompt_summary=summary)
     except ExternalEngineError as exc:
         return _failure(req, new_generation_id(), code=exc.code, message=exc.message_pl,
                         detail=exc.detail, retryable=exc.retryable, http_status=exc.http_status)
@@ -322,4 +336,16 @@ def generate_product_openai(req: GenerationRequest, api_key: str) -> GenerationR
         output_image=output_image, next_history=list(req.prior_history),
         actual_cost=out["cost"], attempts=1, error_message=None,
         model_id=req.model_id, resolution=out["resolution"], elapsed_ms=out["elapsed_ms"],
+    )
+
+
+def generate_product_openai(req: GenerationRequest, api_key: str) -> GenerationResult:
+    """The Lab product pipeline on the OpenAI Images API (direct key)."""
+    cfg = OPENAI_MODELS.get(req.model_id, {"max_refs": 16})
+    return generate_product_external(
+        req, engine="openai", max_refs=cfg["max_refs"],
+        render=lambda **kw: generate_openai(
+            api_key=api_key, model=req.model_id, aspect=req.aspect_ratio,
+            resolution=req.resolution, quality=req.engine_quality, trace_request=req, **kw,
+        ),
     )
