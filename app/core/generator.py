@@ -495,6 +495,14 @@ def relative_luminance(hex_value: str) -> Optional[float]:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+def prompt_engine(model_id: str) -> str:
+    """Which prompt dialect a model gets: "gpt" for the GPT Image family (OpenAI
+    direct ids and OpenRouter "openai/gpt-image-*" slugs), else "gemini".
+    GPT Image follows texture wording literally and exaggerates it (bigger,
+    crisper, higher-contrast loops); Gemini leans on the reference photos."""
+    return "gpt" if "gpt-image" in (model_id or "") else "gemini"
+
+
 def is_dark_hex(hex_value: str) -> bool:
     lum = relative_luminance(hex_value)
     return lum is not None and lum < _DARK_LUMINANCE
@@ -1053,10 +1061,30 @@ def _build_prompt_text(
     # Bouclé-type fabrics get loop-specific wording in every material slot;
     # the default wording below describes short-pile Cremona.
     looped = req.material_structure == "looped"
+    # GPT Image renders looped fabrics 2–3× too large and ~40 % too contrasty
+    # with the Gemini wording (A/B 2026-09-29 against the real product photo),
+    # so it gets a restraint dialect that ties scale and contrast to the samples.
+    restrained = looped and prompt_engine(req.model_id) == "gpt"
     if req.use_swatch_for_fabric and "material_macro" in slots:
         swatch_slot = slots["material_macro"]
         if req.swatch_texture_only:
-            if looped:
+            if restrained:
+                construction = (
+                    f"Copy ONLY its yarn construction: the shape, size mix and "
+                    f"irregular clustering of the loops, their depth, and the gaps "
+                    f"between them. Apply that authentic surface to every upholstered "
+                    f"part of the {product_noun} in slot 1 at the sample's true "
+                    f"physical scale. SCALE AND CONTRAST LIMIT — HARD REQUIREMENT: do "
+                    f"not enlarge, sharpen or exaggerate the loops beyond what the "
+                    f"sample photographs show. At normal product-photography distance "
+                    f"the bouclé reads as a fine, dense, soft nubbly surface with "
+                    f"gentle, low-contrast relief; the gaps between loops are only "
+                    f"slightly darker than the loop tops, never grey or black. Do not "
+                    f"add crisp edges, glints or extra micro-shadows to make the "
+                    f"texture more visible. "
+                )
+                ignored = "colour, folds, zoom, lighting, shadows, crop, and perspective"
+            elif looped:
                 construction = (
                     f"Copy ONLY its yarn construction: the shape, size mix and "
                     f"irregular clustering of the loops, their depth, and the dark "
@@ -1171,6 +1199,11 @@ def _build_prompt_text(
                 "and the relief reads the same from either side, with no pile sheen, "
                 "no pearly glints and no directional nap."
             )
+            if restrained:
+                optics += (
+                    " Keep the relief exactly as soft and low-contrast as these "
+                    "photographs and the loops exactly as small; never coarser or crisper."
+                )
         else:
             optics = (
                 "Preserve the "
@@ -1231,6 +1264,17 @@ def _build_prompt_text(
 
     if "material_application" in slots and looped:
         application_slot = slots["material_application"]
+        hero_distance = (
+            f"At hero distance the upholstery reads exactly as fine and soft as the "
+            f"bouclé in slot {application_slot} and the samples: a dense, gentle, "
+            f"low-contrast nubbly surface, never coarser, larger or more contrasty, "
+            f"and never smooth felt, suede or plaster."
+            if restrained else
+            "At hero distance the upholstery must still read as distinctly nubbly "
+            "bouclé: loop clusters remain visible as a lively three-dimensional relief "
+            "across every panel and never dissolve into fine grain, felt, suede or a "
+            "smooth plaster look."
+        )
         lines.append(
             f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "
             f"sample photographs in the preceding fabric slots are the absolute "
@@ -1244,10 +1288,7 @@ def _build_prompt_text(
             f"piece's geometry, dimensions, seams, channeling, storage mechanism, room, "
             f"camera, colour or styling. If slot {application_slot} shows several "
             f"pieces or materials, read only the looped bouclé surfaces and ignore any "
-            f"smooth, suede, velvet or woven ones. At hero distance the upholstery must "
-            f"still read as distinctly nubbly bouclé: loop clusters remain visible as "
-            f"a lively three-dimensional relief across every panel and never dissolve "
-            f"into fine grain, felt, suede or a smooth plaster look. Do not copy any "
+            f"smooth, suede, velvet or woven ones. {hero_distance} Do not copy any "
             f"visual feature from slot {application_slot} when it conflicts with the "
             f"physical sample slots. Slot 1 remains the absolute product-geometry "
             f"authority."

@@ -30,7 +30,7 @@
       "finish_pl": "matowy",
       "tex": "boucle",
       "noun_en": "bouclé fabric",
-      "texture_en": "Authentic heavy upholstery bouclé made from clearly visible looped yarns. The surface is built from irregular open and closed yarn loops in mixed sizes, mostly about 4–7 mm across with occasional larger curls up to about 1 cm, gathered into uneven clusters with tiny darker cavities between the loops. Scale anchor: roughly 80–150 loop clusters span the width of a 60 cm seat cushion, so at normal furniture-photography distance the loops stay legible as a distinctly nubbly, three-dimensional relief, each loop top catching a soft highlight and each gap holding a small shadow, never collapsing into fine sand-like grain, felt or a uniform pebbled surface. Soft wool-and-cotton character, dense and substantial, completely matte with diffuse highlights only; tonal variation between individual yarns stays within the selected colour and never warms or cools it. The distribution is organic and non-repeating, never a perfectly even pebble texture. Drape: a thick, springy, fairly stiff textile upholstered taut over firm foam. Flat panels stay smooth and tensioned, edges and seams are softly rounded by the fabric's own thickness, and it bends only in broad soft radii, with no wrinkles, puckering, gathering, ripples or loose slipcover folds.",
+      "texture_en": "Authentic heavy upholstery bouclé made from looped yarns. The surface is built from irregular open and closed yarn loops gathered into small uneven clusters, with tiny darker cavities between the loops. Loop size, density and softness match the physical sample photographs exactly: at normal furniture-photography distance the bouclé reads as a fine, dense, soft nubbly surface with gentle three-dimensional relief, neither enlarged into coarse curls nor flattened into smooth felt, foam or plaster. The relief is soft and low in contrast: loops and gaps differ by only a few tones of the same colour, like soft cotton-wool, never crisp, crinkled, flaky or glittering, with no dark flecks, grey speckle or multi-tone tweed effect. The large-scale shading of the form (curves, edges, the roll of the base) stays stronger than the texture contrast, so the texture follows the shape instead of lying on it like noise. Soft wool-and-cotton character, dense and substantial, completely matte; tonal variation between individual yarns stays within the selected colour and never warms or cools it. The distribution is organic and non-repeating, never a perfectly even pebble texture. Drape: a thick, springy, fairly stiff textile upholstered taut over firm foam. Flat panels stay smooth and tensioned, edges and seams are softly rounded by the fabric's own thickness, and it bends only in broad soft radii, with no wrinkles, puckering, gathering, ripples or loose slipcover folds.",
       "avoid_en": [
         "teddy or sherpa fleece",
         "terry-towel pile",
@@ -40,13 +40,18 @@
         "stucco or plaster texture",
         "matted synthetic fur",
         "flat printed grain",
-        "fine sand-like or salt-grain texture",
+        "flat sand-like grain without visible loops",
         "felt or flat microfleece",
         "suede or brushed nubuck",
         "wrinkled, puckered or gathered upholstery",
         "ripples or creases on flat panels",
         "loose slipcover drape",
-        "pearly or satin sheen"
+        "pearly or satin sheen",
+        "crumpled paper or crinkled tissue texture",
+        "astrakhan or curly lamb fleece",
+        "dark flecks, grey speckle or tweed-like multicolour",
+        "high-contrast, noisy or glittering grain",
+        "oversized chunky curls or enlarged loops"
       ]
     },
     {

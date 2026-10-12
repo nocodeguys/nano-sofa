@@ -123,12 +123,13 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     """Product, studio, and real fabric have separate visual authorities."""
     req = _request(server, base_image, catalog=True, mat="boucle")
 
-    assert Path(req.swatch_reference_image).name == "boucle.png"
+    assert Path(req.swatch_reference_image).name == "boucle.jpg"
     assert req.use_swatch_for_fabric
     assert req.swatch_texture_only
-    assert req.material_left_reference_image is None
-    assert req.material_right_reference_image is None
-    assert req.material_behavior_reference_image is None
+    # Real-sample photos of the physical bouclé (2026-09); no in-use photo yet.
+    assert Path(req.material_left_reference_image).name == "boucle-left.jpg"
+    assert Path(req.material_right_reference_image).name == "boucle-right.jpg"
+    assert Path(req.material_behavior_reference_image).name == "boucle-behavior.jpg"
     assert req.material_application_reference_image is None
     # 2.5-flash caps at 3 refs: base + cyclorama + macro. The colour patch
     # does not fit and must not be named in the prompt.
@@ -696,3 +697,30 @@ def test_normalization_never_raises_on_a_bad_file(tmp_path):
     p = tmp_path / "broken.png"
     p.write_bytes(b"not an image")
     assert normalize_packshot(p) == (p, False)
+
+
+def test_gpt_models_get_the_restrained_boucle_dialect(server, base_image, tmp_path, monkeypatch):
+    """GPT Image exaggerates the Gemini loop wording (bigger, crisper loops):
+    GPT ids — direct and via OpenRouter — get the scale/contrast limit, Gemini
+    keeps its wording."""
+    import studio.request_builder as request_builder
+
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    for name in ("boucle", "boucle-left", "boucle-right", "boucle-behavior", "boucle-application"):
+        Image.new("RGB", (64, 64), (230, 225, 215)).save(refs / f"{name}.jpg")
+    monkeypatch.setattr(request_builder, "_MATERIAL_REFS_DIR", refs)
+
+    def prompt_for(model):
+        req = _request(server, base_image, catalog=True, mat="boucle", model=model, res="2K")
+        return _build_prompt_text(req, slot_numbers(plan_reference_slots(req, 16)))
+
+    gemini = prompt_for("gemini-3.1-flash-image")
+    assert "SCALE AND CONTRAST LIMIT" not in gemini
+    assert "stay legible at normal product-photography distance" in gemini
+    for model in ("gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"):
+        gpt = prompt_for(model)
+        assert "SCALE AND CONTRAST LIMIT — HARD REQUIREMENT" in gpt
+        assert "the loops exactly as small" in gpt
+        assert "never coarser, larger or more contrasty" in gpt
+        assert "stay legible at normal product-photography distance" not in gpt
