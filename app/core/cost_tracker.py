@@ -30,6 +30,12 @@ OUTPUT_IMAGE_PRICE_STD: dict[str, dict[str, float]] = {
         "2K": 0.101,
         "4K": 0.151,
     },
+    # Nano Banana 2.1 (GA 2026-10-06, pricing verified 2026-10-12)
+    "gemini-nano-banana-2.1": {
+        "1K": 0.0336,
+        "2K": 0.0504,
+        "4K": 0.113,
+    },
     "gemini-3-pro-image": {
         "1K": 0.134,
         "2K": 0.134,   # Pro pricing covers 1K–2K at same rate
@@ -49,6 +55,11 @@ OUTPUT_IMAGE_PRICE_BATCH: dict[str, dict[str, float]] = {
         "2K": 0.050,
         "4K": 0.076,
     },
+    "gemini-nano-banana-2.1": {
+        "1K": 0.0168,
+        "2K": 0.0252,
+        "4K": 0.0567,
+    },
     "gemini-3-pro-image": {
         "1K": 0.067,
         "2K": 0.067,
@@ -62,6 +73,7 @@ OUTPUT_IMAGE_PRICE_BATCH: dict[str, dict[str, float]] = {
 INPUT_IMAGE_TOKEN_COST: dict[str, float] = {
     "gemini-2.5-flash-image": 0.000077,   # 258 tok × $0.30/1M
     "gemini-3.1-flash-image": 0.000129,  # 258 tok × $0.50/1M
+    "gemini-nano-banana-2.1": 0.000387,  # 258 tok × $1.50/1M
     "gemini-3-pro-image": 0.000516,      # 258 tok × $2.00/1M
 }
 
@@ -69,6 +81,7 @@ INPUT_IMAGE_TOKEN_COST: dict[str, float] = {
 THINKING_TOKEN_PRICE_PER_1M: dict[str, float] = {
     "gemini-2.5-flash-image": 0.0,
     "gemini-3.1-flash-image": 3.00,
+    "gemini-nano-banana-2.1": 7.50,
     "gemini-3-pro-image": 12.00,
 }
 
@@ -81,6 +94,7 @@ THINKING_TOKEN_ESTIMATE_COMPLEX = 600
 TEXT_INPUT_PRICE_PER_1M: dict[str, float] = {
     "gemini-2.5-flash-image": 0.30,
     "gemini-3.1-flash-image": 0.50,
+    "gemini-nano-banana-2.1": 1.50,
     "gemini-3-pro-image": 2.00,
 }
 

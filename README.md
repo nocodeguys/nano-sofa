@@ -53,9 +53,12 @@ The model picker reads from `prompts/schemas/sofa.json` at startup, so adding a 
 |---|---|---|---|
 | `gemini-2.5-flash-image` | flash | 3 | 1K |
 | `gemini-3.1-flash-image` | flash · recommended | 14 total | 4K |
+| `gemini-nano-banana-2.1` | flash · Nano Banana 2.1 (GA 2026-10-06), cheaper successor of 3.1 | 14 total | 4K |
 | `gemini-3-pro-image` | pro · precision | 14 total | 4K |
 
 The UI disables resolution/ref-count options that the active model doesn't support.
+
+Nano Banana 2.1 is also offered through OpenRouter (`google/gemini-nano-banana-2.1`, Editorial + Lab tabs, OpenRouter key, 1K/2K/4K) — registered in `app-v2/studio/openrouter.py`.
 
 ## Local development (without Docker)
 

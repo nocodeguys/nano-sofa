@@ -135,9 +135,15 @@ def test_config_lists_lab_models(client):
     assert set(ids) == {
         "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
         "openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2",
+        "google/gemini-nano-banana-2.1",
     }
     assert cfg["lab_default_model"] == "gpt-image-2.5-flare"
-    for m in lab:
+    # Nano Banana 2.1 via OpenRouter: Google's caps, 1K–4K, no quality tiers.
+    nb = ids.pop("google/gemini-nano-banana-2.1")
+    assert nb["provider"] == "openrouter"
+    assert nb["max_refs"] == 14 and nb["resolutions"] == ["1K", "2K", "4K"]
+    assert nb["qualities"] == [] and len(nb["aspects"]) == 8
+    for m in ids.values():
         assert m["max_refs"] == 16 and m["moodboard_max"] == 6
         assert m["default_quality"] == "high"
         assert len(m["aspects"]) == 8
@@ -163,6 +169,14 @@ def test_openrouter_aspect_clamping(server):
     assert _clamp_aspect("openai/gpt-image-1", "21:9") == "3:2"
     assert _clamp_aspect("openai/gpt-image-1", "9:16") == "2:3"
     assert _clamp_aspect("openai/gpt-image-2", "21:9") == "21:9"
+
+
+def test_openrouter_resolution_only_for_models_that_take_it(server):
+    from studio.openrouter import _resolve_resolution
+    assert _resolve_resolution("google/gemini-nano-banana-2.1", "2K") == "2K"
+    assert _resolve_resolution("google/gemini-nano-banana-2.1", "4K (4096)") == "4K"
+    assert _resolve_resolution("google/gemini-nano-banana-2.1", "auto") == "1K"
+    assert _resolve_resolution("openai/gpt-image-2", "2K") == ""
 
 
 def test_generate_free_openrouter_requires_or_key(client):

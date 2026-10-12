@@ -53,13 +53,26 @@ from studio.paths import logger
 #  - flux.2-pro has no resolution parameter at all.
 #  - krea-2-* supports a REDUCED aspect vocabulary (no 3:4, no 21:9) and only
 #    ONE input reference; its pricing is not published in the endpoints API.
+#  - google/gemini-nano-banana-2.1 (verified 2026-10-12): every aspect we
+#    offer, 0–14 input references, `resolution` 1K / 2K / 4K (no 512). The
+#    same model as the Google-direct path, paid with the OpenRouter key.
 # `aspects` lists what the provider accepts from the page's vocabulary; the
 # frontend disables the rest and _clamp_aspect is the server-side backstop.
-# `qualities` (when present) is forwarded as the Images API `quality` field.
+# `qualities` (when present) is forwarded as the Images API `quality` field;
+# `resolutions` (when present) as the `resolution` field.
 _ALL_ASPECTS = list(ALL_ASPECTS)
 _GPT_IMAGE_QUALITIES = ["low", "medium", "high"]
 _GPT_IMAGE_25_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
 OPENROUTER_MODELS = {
+    "google/gemini-nano-banana-2.1": {
+        "label": "Nano Banana 2.1 · OpenRouter",
+        "max_refs": 14,
+        "price_hint": "≈$0.034 (1K) / $0.05 (2K) / $0.11 (4K) za obraz",
+        "aspects": _ALL_ASPECTS,
+        "resolutions": ["1K", "2K", "4K"],
+        "product": True,
+        "note_pl": "ten sam model co Nano Banana 2.1 przez Google, płatny kluczem OpenRouter",
+    },
     "openai/gpt-image-2.5-flare": {
         "label": "GPT Image 2.5 Flare · OpenRouter",
         "max_refs": 16,
@@ -165,6 +178,15 @@ def _clamp_aspect(model: str, aspect: str) -> str:
     return fallback
 
 
+def _resolve_resolution(model: str, resolution: str) -> str:
+    """The `resolution` value to send, or "" for models without the parameter."""
+    resolutions = OPENROUTER_MODELS.get(model, {}).get("resolutions") or []
+    if not resolutions:
+        return ""
+    res = (resolution or "").split(" ")[0].strip().upper()
+    return res if res in resolutions else resolutions[0]
+
+
 def _resolve_quality(model: str, quality: str) -> str:
     """The `quality` value to send, or "" for models without the parameter."""
     cfg = OPENROUTER_MODELS.get(model, {})
@@ -218,6 +240,7 @@ def generate_openrouter(
     references: Optional[list[ReferenceItem]] = None,
     ref_paths: Optional[list[Path]] = None,
     quality: str = "",
+    resolution: str = "",
     png_meta: Optional[dict[str, str]] = None,
     prompt_summary: str = "",
     trace_request: Any = None,
@@ -241,14 +264,18 @@ def generate_openrouter(
     quality_used = _resolve_quality(model, quality)
     if quality_used:
         payload["quality"] = quality_used
+    resolution_used = _resolve_resolution(model, resolution)
+    if resolution_used:
+        payload["resolution"] = resolution_used
     if refs:
         payload["input_references"] = [
             {"type": "image_url", "image_url": {"url": reference_data_url(source, image)}}
             for _role, source, image in refs
         ]
 
-    logger.info("OpenRouter request: %s aspect=%s quality=%s refs=%d prompt=%d chars",
-                model, payload["aspect_ratio"], quality_used or "-", len(refs), len(prompt))
+    logger.info("OpenRouter request: %s aspect=%s quality=%s res=%s refs=%d prompt=%d chars",
+                model, payload["aspect_ratio"], quality_used or "-", resolution_used or "-",
+                len(refs), len(prompt))
     try:
         r = httpx.post(
             _API_URL, json=payload, timeout=_TIMEOUT_S,
@@ -281,7 +308,7 @@ def generate_openrouter(
         references=refs,
         cost=cost,
         elapsed_ms=elapsed_ms,
-        resolution="auto",
+        resolution=resolution_used or "auto",
         prompt=prompt,
         prompt_summary=prompt_summary,
         png_meta={**(png_meta or {}), **({"nano_sofa_quality": quality_used} if quality_used else {})},
@@ -296,7 +323,7 @@ def generate_openrouter(
         "cost": cost,
         "elapsed_ms": elapsed_ms,
         "model_id": model,
-        "resolution": "auto",
+        "resolution": resolution_used or "auto",
         "quality": quality_used,
     }
 
@@ -314,6 +341,7 @@ def generate_product_openrouter(req: Any, api_key: str) -> Any:
         req, engine="openrouter", max_refs=cfg["max_refs"],
         render=lambda **kw: generate_openrouter(
             api_key=api_key, model=req.model_id, aspect=req.aspect_ratio,
-            quality=req.engine_quality, trace_request=req, **kw,
+            quality=req.engine_quality, resolution=req.resolution,
+            trace_request=req, **kw,
         ),
     )

@@ -1413,7 +1413,7 @@ function App({ t, mode = "photos" }) {
                     <span>· {lensObj?.name?.split(" — ")[0]}</span>
                     <span>· {todObj?.name?.split(" — ")[0]}</span>
                     {beddingObj && <span>· {beddingObj.name}</span>}
-                    <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
+                    <span>· {st.model.includes("pro") ? "pro" : st.model.includes("nano-banana-2.1") ? "nano banana 2.1" : "flash 3.1"}</span>
                   </div>
                 );
               })()}
@@ -2037,8 +2037,8 @@ function App({ t, mode = "photos" }) {
         <AdvancedSection title="Ustawienia techniczne"
           summary={`${isLab ? (st.model.includes("sunburst") ? "sunburst" : st.model.includes("flare") ? "flare" : "gpt-image-2") + (labViaOpenRouter ? " · openrouter" : "") + (quality ? " · " + quality : "") : (st.model.includes("pro") ? "pro" : "flash")} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help={isLab
-            ? "Model GPT Image, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Wersje „· OpenRouter” to te same modele płacone kluczem OpenRouter — bez wyboru rozdzielczości (rozmiar domyślny dostawcy). Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
-            : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki."}>
+            ? "Model GPT Image, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Wersje „· OpenRouter” to te same modele płacone kluczem OpenRouter — GPT Image bez wyboru rozdzielczości (rozmiar domyślny dostawcy). Nano Banana 2.1 · OpenRouter to model Google'a z pełnym planem referencji i rozdzielczością 1K / 2K / 4K. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
+            : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Nano Banana 2.1 to jego nowszy, tańszy następca (te same limity, lepsza zgodność z promptem); Pro wybierz dla najbardziej wymagającej zgodności marki."}>
           <div className="out-grid">
             <div>
               <div className="field-lbl">model</div>

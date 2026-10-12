@@ -918,7 +918,7 @@ async def api_generate_free(
                 out = await asyncio.to_thread(
                     generate_openrouter,
                     api_key=openrouter_key.strip(), model=model,
-                    prompt=req.freeform_prompt, aspect=aspect,
+                    prompt=req.freeform_prompt, aspect=aspect, resolution=res,
                     references=plan, quality=quality,
                     png_meta=png_meta, prompt_summary=prompt.strip()[:300],
                     trace_request=req,

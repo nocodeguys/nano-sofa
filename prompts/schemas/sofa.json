@@ -15,9 +15,10 @@
       "enum": [
         "gemini-2.5-flash-image",
         "gemini-3.1-flash-image",
+        "gemini-nano-banana-2.1",
         "gemini-3-pro-image"
       ],
-      "description": "Active Nano Banana model ID, verified against official Google docs updated 2026-08-26. gemini-3.1-flash-image (Nano Banana 2) is the recommended general-purpose production model; gemini-3-pro-image is the precision/brand-consistency tier. gemini-2.5-flash-image remains available only as the legacy low-resolution option."
+      "description": "Active Nano Banana model ID, verified against official Google docs updated 2026-08-26. gemini-3.1-flash-image (Nano Banana 2) is the recommended general-purpose production model; gemini-3-pro-image is the precision/brand-consistency tier. gemini-2.5-flash-image remains available only as the legacy low-resolution option. gemini-nano-banana-2.1 (Nano Banana 2.1, GA 2026-10-06) is Google's successor to gemini-3.1-flash-image: same 14-reference cap and 1K/2K/4K output, cheaper per image; gemini-3.1-flash-image is deprecated without a shutdown date."
     },
 
     "model_constraints": {
@@ -34,6 +35,16 @@
           }
         },
         "gemini-3.1-flash-image": {
+          "type": "object",
+          "properties": {
+            "max_reference_images": { "const": 14 },
+            "max_output_resolution": { "const": "4K" },
+            "supports_resolution_param": { "const": true },
+            "thinking_on_by_default": { "const": true },
+            "deprecation_date": { "const": null }
+          }
+        },
+        "gemini-nano-banana-2.1": {
           "type": "object",
           "properties": {
             "max_reference_images": { "const": 14 },

@@ -133,6 +133,7 @@ def api_config():
     model_labels = {
         "gemini-2.5-flash-image": "Nano Banana · legacy 1K",
         "gemini-3.1-flash-image": "Nano Banana 2 · polecany",
+        "gemini-nano-banana-2.1": "Nano Banana 2.1 · nowy, tańszy",
         "gemini-3-pro-image": "Nano Banana Pro · precyzja",
     }
     for mid in schema.model_ids:
