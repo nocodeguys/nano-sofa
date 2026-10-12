@@ -319,6 +319,7 @@ def generate_product_external(
         "nano_sofa_color_id": req.color_id or "",
         "nano_sofa_material_id": req.material_id or "",
         "nano_sofa_fabric_code": req.fabric_code or "",
+        "nano_sofa_product": req.product_name or "",
         "nano_sofa_color_hex": req.upholstery_hex or "",
         "nano_sofa_leg_id": req.leg_id or "",
     }

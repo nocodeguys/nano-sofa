@@ -58,6 +58,13 @@ function errorFromException(e) {
 }
 
 // A local validation error raised before any request is sent.
+// Download-name segment: "Aria 160", "Lincoln D 17" → "aria-160", "lincoln-d-17".
+function fileSlug(...parts) {
+  return parts.filter(Boolean).join("-").toLowerCase().replace(/ł/g, "l")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 function mkErr(message, code = "VALIDATION") {
   return { message, code, retryable: false };
 }
@@ -338,6 +345,9 @@ function App({ t, mode = "photos" }) {
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
     alpha: false, kind: "bed",
+    // Catalogue name of the product in the base photo (TRE-92). Identity only:
+    // stamped into the render's metadata and download name, never the prompt.
+    product: "",
     color: "greige", colorCustom: "", colorCustomHex: "",
     mat: "boucle", matNotes: "",
     size: "160",
@@ -488,6 +498,7 @@ function App({ t, mode = "photos" }) {
       const slim = gallery.slice(0, 60).map(g => ({
         url: g.url, generation_id: g.generation_id || null,
         color: g.color || null, color_id: g.color_id || null, fabric_code: g.fabric_code || null,
+        product_name: g.product_name || null,
         material: g.material || null, catalog_profile: g.catalog_profile || null,
         tag: g.tag || null, cost: g.cost ?? null, ts: g.ts || null,
       }));
@@ -696,6 +707,7 @@ function App({ t, mode = "photos" }) {
     fd.append("api_key", apiKey.trim());
     if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
+    fd.append("product_name", st.product.trim());
     fd.append("color", st.color);
     fd.append("color_custom", customColorText());
     fd.append("mat", st.mat);
@@ -788,6 +800,7 @@ function App({ t, mode = "photos" }) {
             color: st.color === "custom" ? (st.colorCustomHex || null) : (colorObj?.hex || null),
             color_id: st.color === "custom" ? "custom" : (colorObj?.id || null),
             fabric_code: colorObj?.fabricCode || null,
+            product_name: st.product.trim() || null,
             material: matObj?.id || null,
             catalog_profile: data.catalog_profile || null,
             tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
@@ -921,6 +934,7 @@ function App({ t, mode = "photos" }) {
     fd.append("api_key", apiKey.trim());
     if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
+    fd.append("product_name", st.product.trim());
     fd.append("color_custom", customColorText());
     fd.append("mat_notes", st.matNotes || "");
     fd.append("size", st.size);
@@ -1108,6 +1122,7 @@ function App({ t, mode = "photos" }) {
     fd.append("api_key", apiKey.trim());
     if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
     fd.append("kind", st.kind);
+    fd.append("product_name", st.product.trim());
     fd.append("colors_csv", variantColors.join(","));
     // Empty materials_csv → server reuses single `mat` for every variant.
     fd.append("materials_csv", variantMaterials.join(","));
@@ -1315,7 +1330,8 @@ function App({ t, mode = "photos" }) {
               const sceneId = activeImg.catalog_profile
                 ? `catalog-${activeImg.catalog_profile}`
                 : envObj?.id;
-              const slug = [activeImg.color_id || colorObj?.id, activeImg.material || matObj?.id, sceneId].filter(Boolean).join("-");
+              const slug = fileSlug(activeImg.product_name, activeImg.fabric_code || activeImg.color_id || colorObj?.id,
+                activeImg.material || matObj?.id, sceneId);
               ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
               downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
             }
@@ -1578,7 +1594,7 @@ function App({ t, mode = "photos" }) {
                           </div>
                         );
                       }
-                      const slug = [v.color, vMatId, envObj?.id].filter(Boolean).join("-");
+                      const slug = fileSlug(st.product, cObj?.fabricCode || v.color, vMatId, envObj?.id);
                       const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
                       const dlName = `nano-sofa-${i === 0 ? "anchor" : "v" + (i + 1)}-${slug}.${ext}`;
                       return (
@@ -1900,7 +1916,7 @@ function App({ t, mode = "photos" }) {
                                 </div>
                               );
                             }
-                            const slug = [v.color, v.material].filter(Boolean).join("-");
+                            const slug = fileSlug(st.product, cObj?.fabricCode || v.color, v.material);
                             const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
                             const dlName = `nano-sofa-${slug}.${ext}`;
                             return (
@@ -2267,6 +2283,15 @@ function App({ t, mode = "photos" }) {
             <div className={"opt " + (st.kind === "bed" ? "sel" : "")} onClick={() => set({ kind: "bed" })}>
               <span className="ic">{Ic.bed}</span>
               <div><div className="nm">łóżko</div><div className="ds">rama, materac, zagłówek</div></div>
+            </div>
+          </div>
+
+          <div>
+            <div className="field-lbl">model produktu</div>
+            <input className="input" placeholder={st.kind === "bed" ? "np. Aria 160" : "np. Rima 1"}
+              value={st.product} maxLength={80} onChange={e => set({ product: e.target.value })} />
+            <div style={{fontSize: 11, color: "var(--ink-3)", marginTop: 4}}>
+              Zapisywany w metadanych i nazwie pobranego pliku razem z kodem tkaniny — nie wpływa na prompt.
             </div>
           </div>
 

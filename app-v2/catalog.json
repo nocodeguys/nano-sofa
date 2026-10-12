@@ -147,21 +147,26 @@
     {
       "id": "corduroy",
       "name_pl": "sztruks",
-      "prop_pl": "wyraźne prążki, miękki włos",
+      "prop_pl": "szeroki prążek ok. 6 mm, miękki puszysty włos",
       "finish_pl": "matowy, kierunkowy",
       "tex": "corduroy",
-      "noun_en": "fine-wale corduroy upholstery fabric with soft cut pile ribs",
-      "note": "Added 2026-09 for the Lincoln D collection (TRE-92). No physical sample photographed yet — text-only until references are uploaded in the Katalog panel.",
-      "texture_en": "Fine-wale corduroy: parallel raised ribs (wales) of soft cut pile separated by narrow recessed channels, roughly 1.5–2 mm pitch, running in one consistent direction across each upholstered panel. The ribs are velvety and catch light along their crests, the channels stay slightly darker; the contrast between rib and channel is gentle, not graphic. At normal furniture-photography distance the surface reads as a calm, finely striped velvety textile with a soft directional sheen; the ribs follow the product's curves and change direction only at seams. Matte overall, no plastic gloss, no printed stripes.",
+      "noun_en": "medium-wide-wale corduroy upholstery fabric with soft plush pile ribs",
+      "note": "Rewritten 2026-10-12 (TRE-92) from the 26 Lincoln D manufacturer swatches (davis.pl) and the product photos in the ticket. Lincoln D is NOT fine-wale: ribs are ~6–7 mm wide, separated by a narrow, sharp, dark channel, and each rib carries a soft, slightly fleecy plush pile. The old 'fine-wale, 1.5–2 mm' text and its 'avoid wide ribs' negative pulled the model toward pin-cord. Keep noun_en in agreement (catalog _readme RULE).",
+      "texture_en": "Lincoln D medium-wide-wale corduroy: parallel raised ribs of soft, dense, slightly fleecy plush pile, each rib roughly 6–7 mm wide (about 14–16 ribs across a 10 cm span), separated by a narrow, crisp recessed channel that reads as a thin darker line. The rib tops are rounded and velvety-soft with a fine, slightly woolly micro-texture, never shiny; the channels are narrow grooves, not wide gaps. Ribs run in one consistent straight direction across each upholstered panel, follow the product's curves, and change direction only at seams and panel joins, where the meeting ribs form clean mitred or perpendicular junctions. At normal furniture-photography distance the surface reads as a calm, clearly ribbed, plush textile: the stripes stay visible on every panel but are low in contrast — rib and channel differ only by a few tones of the same colour. Where the pile is pressed (seat, top of the mattress frame, headboard face) it shows soft, irregular lighter and darker patches of crushed nap that follow use and light, never a printed pattern. Completely matte with a soft, diffuse pile sheen; medium-heavy, thick upholstery drape that rounds edges softly and keeps flat panels taut.",
       "avoid_en": [
+        "fine pin-cord or needle-cord ribs",
         "printed pin-stripes",
         "flat painted lines",
-        "wide chunky jumbo cord ribs",
+        "extremely wide jumbo ribs over 1 cm",
+        "wide open gaps between ribs",
         "ribs changing direction mid-panel",
+        "wavy or crooked ribs",
         "plain smooth velvet without ribs",
         "knitted rib texture",
-        "glossy plastic sheen",
-        "regular grid or checkerboard"
+        "glossy plastic or satin sheen",
+        "high-contrast black stripes",
+        "regular grid or checkerboard",
+        "teddy or sherpa fleece without ribs"
       ]
     },
     {
@@ -237,55 +242,175 @@
       "id": "cremona",
       "name_pl": "Cremona",
       "material": "cremona",
-      "description_pl": "Szenil Cremona. Kody odziedziczyły HEX grupy TreeTale; wpisz dokładne HEX-y z próbek.",
+      "description_pl": "Szenil Cremona (DAVIS). Pełna paleta 21 kodów z davis.pl; HEX-y wyliczone ze zdjęć próbek producenta (TRE-92, 2026-10-12).",
       "codes": [
         {
           "code": "1",
-          "hex": "#E7E0D6",
+          "hex": "#E3E2DD",
           "name_pl": "Cremona 1",
-          "prompt_en": "soft creamy off-white ivory, like natural unbleached cotton (hex #E7E0D6)",
-          "hex_verified": false,
+          "prompt_en": "Cremona 1 — soft warm white, like natural undyed cotton (exact upholstery colour hex #E3E2DD)",
+          "hex_verified": true,
           "group": "cream"
         },
         {
           "code": "2",
-          "hex": "#D9D4CD",
+          "hex": "#DAD5CE",
           "name_pl": "Cremona 2",
-          "prompt_en": "light sandy beige with warm champagne undertones (hex #D9D4CD)",
-          "hex_verified": false,
+          "prompt_en": "Cremona 2 — pale warm greige with a faint blush undertone (exact upholstery colour hex #DAD5CE)",
+          "hex_verified": true,
           "group": "sand"
         },
         {
           "code": "4",
-          "hex": "#BCBCBC",
+          "hex": "#CAC8BF",
           "name_pl": "Cremona 4",
-          "prompt_en": "light cool ash grey / silver (hex #BCBCBC)",
-          "hex_verified": false,
-          "group": "ash"
-        },
-        {
-          "code": "14",
-          "hex": "#C3BEB6",
-          "name_pl": "Cremona 14",
-          "prompt_en": "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
-          "hex_verified": false,
+          "prompt_en": "Cremona 4 — pale cool stone grey-beige (exact upholstery colour hex #CAC8BF)",
+          "hex_verified": true,
           "group": "greige"
         },
         {
+          "code": "14",
+          "hex": "#CBC3B9",
+          "name_pl": "Cremona 14",
+          "prompt_en": "Cremona 14 — light warm greige, between sand and stone (exact upholstery colour hex #CBC3B9)",
+          "hex_verified": true,
+          "group": "greige"
+        },
+        {
+          "code": "18",
+          "hex": "#947E66",
+          "name_pl": "Cremona 18",
+          "prompt_en": "Cremona 18 — warm mid camel brown, like milky coffee (exact upholstery colour hex #947E66)",
+          "hex_verified": true,
+          "group": "taupe"
+        },
+        {
           "code": "24",
-          "hex": "#938A83",
+          "hex": "#958C85",
           "name_pl": "Cremona 24",
-          "prompt_en": "medium taupe blending grey and brown (hex #938A83)",
-          "hex_verified": false,
+          "prompt_en": "Cremona 24 — mid warm taupe grey (exact upholstery colour hex #958C85)",
+          "hex_verified": true,
           "group": "taupe"
         },
         {
           "code": "34",
-          "hex": "#6A7763",
+          "hex": "#7F8973",
           "name_pl": "Cremona 34",
-          "prompt_en": "muted earthy olive / sage green (hex #6A7763)",
-          "hex_verified": false,
+          "prompt_en": "Cremona 34 — muted mid sage green (exact upholstery colour hex #7F8973)",
+          "hex_verified": true,
+          "group": "taupe"
+        },
+        {
+          "code": "38",
+          "hex": "#7E774E",
+          "name_pl": "Cremona 38",
+          "prompt_en": "Cremona 38 — deep olive with a golden-khaki cast (exact upholstery colour hex #7E774E)",
+          "hex_verified": true,
           "group": "olive"
+        },
+        {
+          "code": "39",
+          "hex": "#63705F",
+          "name_pl": "Cremona 39",
+          "prompt_en": "Cremona 39 — muted dark green-grey, like eucalyptus leaves (exact upholstery colour hex #63705F)",
+          "hex_verified": true,
+          "group": "olive"
+        },
+        {
+          "code": "48",
+          "hex": "#9F8247",
+          "name_pl": "Cremona 48",
+          "prompt_en": "Cremona 48 — warm ochre mustard gold (exact upholstery colour hex #9F8247)",
+          "hex_verified": true,
+          "group": "caramel"
+        },
+        {
+          "code": "52",
+          "hex": "#996755",
+          "name_pl": "Cremona 52",
+          "prompt_en": "Cremona 52 — muted terracotta, a soft brick orange-brown (exact upholstery colour hex #996755)",
+          "hex_verified": true,
+          "group": "caramel"
+        },
+        {
+          "code": "59",
+          "hex": "#5B2736",
+          "name_pl": "Cremona 59",
+          "prompt_en": "Cremona 59 — deep burgundy wine red (exact upholstery colour hex #5B2736)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "70",
+          "hex": "#A2ABB3",
+          "name_pl": "Cremona 70",
+          "prompt_en": "Cremona 70 — pale dusty blue-grey (exact upholstery colour hex #A2ABB3)",
+          "hex_verified": true,
+          "group": "cappuccino"
+        },
+        {
+          "code": "77",
+          "hex": "#607182",
+          "name_pl": "Cremona 77",
+          "prompt_en": "Cremona 77 — mid denim blue with a grey cast (exact upholstery colour hex #607182)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "79",
+          "hex": "#323F48",
+          "name_pl": "Cremona 79",
+          "prompt_en": "Cremona 79 — very dark navy blue, near ink (exact upholstery colour hex #323F48)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "81",
+          "hex": "#B8BBBB",
+          "name_pl": "Cremona 81",
+          "prompt_en": "Cremona 81 — light cool silver grey (exact upholstery colour hex #B8BBBB)",
+          "hex_verified": true,
+          "group": "ash"
+        },
+        {
+          "code": "85",
+          "hex": "#ADABA7",
+          "name_pl": "Cremona 85",
+          "prompt_en": "Cremona 85 — light warm pebble grey (exact upholstery colour hex #ADABA7)",
+          "hex_verified": true,
+          "group": "cappuccino"
+        },
+        {
+          "code": "93",
+          "hex": "#666B67",
+          "name_pl": "Cremona 93",
+          "prompt_en": "Cremona 93 — dark grey with a faint green cast (exact upholstery colour hex #666B67)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "95",
+          "hex": "#666B6E",
+          "name_pl": "Cremona 95",
+          "prompt_en": "Cremona 95 — mid-dark slate grey with a cool blue cast (exact upholstery colour hex #666B6E)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "96",
+          "hex": "#818783",
+          "name_pl": "Cremona 96",
+          "prompt_en": "Cremona 96 — mid grey-green, like lichen (exact upholstery colour hex #818783)",
+          "hex_verified": true,
+          "group": "taupe"
+        },
+        {
+          "code": "97",
+          "hex": "#3C4142",
+          "name_pl": "Cremona 97",
+          "prompt_en": "Cremona 97 — very dark charcoal with a faint green cast (exact upholstery colour hex #3C4142)",
+          "hex_verified": true,
+          "group": "choc"
         }
       ]
     },
@@ -293,47 +418,167 @@
       "id": "barrel",
       "name_pl": "Barrel",
       "material": "basketweave",
-      "description_pl": "Plecionka Barrel. Kody odziedziczyły HEX grupy TreeTale; wpisz dokładne HEX-y z próbek.",
+      "description_pl": "Plecionka Barrel (DAVIS), melanżowa, Easy Clean. Pełna paleta 20 kodów z davis.pl; HEX-y wyliczone ze zdjęć próbek producenta (TRE-92, 2026-10-12).",
       "codes": [
         {
           "code": "3",
-          "hex": "#C3BEB6",
+          "hex": "#C4BFB7",
           "name_pl": "Barrel 3",
-          "prompt_en": "neutral greige grey-beige, like light natural stone (hex #C3BEB6)",
-          "hex_verified": false,
+          "prompt_en": "Barrel 3 — light cool stone grey-beige (exact upholstery colour hex #C4BFB7)",
+          "hex_verified": true,
+          "group": "greige"
+        },
+        {
+          "code": "4",
+          "hex": "#C9C2B6",
+          "name_pl": "Barrel 4",
+          "prompt_en": "Barrel 4 — light warm oatmeal beige (exact upholstery colour hex #C9C2B6)",
+          "hex_verified": true,
           "group": "greige"
         },
         {
           "code": "9",
-          "hex": "#938A83",
+          "hex": "#9D9484",
           "name_pl": "Barrel 9",
-          "prompt_en": "medium taupe blending grey and brown (hex #938A83)",
-          "hex_verified": false,
+          "prompt_en": "Barrel 9 — mid warm khaki greige (exact upholstery colour hex #9D9484)",
+          "hex_verified": true,
+          "group": "taupe"
+        },
+        {
+          "code": "19",
+          "hex": "#91877B",
+          "name_pl": "Barrel 19",
+          "prompt_en": "Barrel 19 — mid warm taupe beige (exact upholstery colour hex #91877B)",
+          "hex_verified": true,
           "group": "taupe"
         },
         {
           "code": "21",
-          "hex": "#656F70",
+          "hex": "#766D65",
           "name_pl": "Barrel 21",
-          "prompt_en": "dark moody graphite / anthracite grey (hex #656F70)",
-          "hex_verified": false,
-          "group": "graphite"
-        },
-        {
-          "code": "38",
-          "hex": "#6A7763",
-          "name_pl": "Barrel 38",
-          "prompt_en": "muted earthy olive / sage green (hex #6A7763)",
-          "hex_verified": false,
+          "prompt_en": "Barrel 21 — dark warm taupe, a grey-brown mushroom (exact upholstery colour hex #766D65)",
+          "hex_verified": true,
           "group": "olive"
         },
         {
+          "code": "37",
+          "hex": "#414B40",
+          "name_pl": "Barrel 37",
+          "prompt_en": "Barrel 37 — deep muted forest green (exact upholstery colour hex #414B40)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "38",
+          "hex": "#54523D",
+          "name_pl": "Barrel 38",
+          "prompt_en": "Barrel 38 — dark olive khaki green (exact upholstery colour hex #54523D)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "39",
+          "hex": "#20322E",
+          "name_pl": "Barrel 39",
+          "prompt_en": "Barrel 39 — very dark bottle green, near black-green (exact upholstery colour hex #20322E)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "48",
+          "hex": "#816633",
+          "name_pl": "Barrel 48",
+          "prompt_en": "Barrel 48 — deep ochre mustard (exact upholstery colour hex #816633)",
+          "hex_verified": true,
+          "group": "caramel"
+        },
+        {
+          "code": "54",
+          "hex": "#653724",
+          "name_pl": "Barrel 54",
+          "prompt_en": "Barrel 54 — rust orange-brown, like burnt sienna (exact upholstery colour hex #653724)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "56",
+          "hex": "#48322A",
+          "name_pl": "Barrel 56",
+          "prompt_en": "Barrel 56 — dark chocolate brown (exact upholstery colour hex #48322A)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "59",
+          "hex": "#3C1F27",
+          "name_pl": "Barrel 59",
+          "prompt_en": "Barrel 59 — very dark aubergine burgundy (exact upholstery colour hex #3C1F27)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "72",
+          "hex": "#4B5C5F",
+          "name_pl": "Barrel 72",
+          "prompt_en": "Barrel 72 — muted dark petrol teal-grey (exact upholstery colour hex #4B5C5F)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "74",
+          "hex": "#323C44",
+          "name_pl": "Barrel 74",
+          "prompt_en": "Barrel 74 — very dark navy, a blue-black ink (exact upholstery colour hex #323C44)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
           "code": "80",
-          "hex": "#BCBCBC",
+          "hex": "#BDBDBD",
           "name_pl": "Barrel 80",
-          "prompt_en": "light cool ash grey / silver (hex #BCBCBC)",
-          "hex_verified": false,
+          "prompt_en": "Barrel 80 — light neutral silver grey (exact upholstery colour hex #BDBDBD)",
+          "hex_verified": true,
           "group": "ash"
+        },
+        {
+          "code": "83",
+          "hex": "#727370",
+          "name_pl": "Barrel 83",
+          "prompt_en": "Barrel 83 — mid neutral grey (exact upholstery colour hex #727370)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "90",
+          "hex": "#636464",
+          "name_pl": "Barrel 90",
+          "prompt_en": "Barrel 90 — mid-dark neutral graphite grey (exact upholstery colour hex #636464)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "92",
+          "hex": "#4E4B49",
+          "name_pl": "Barrel 92",
+          "prompt_en": "Barrel 92 — dark warm charcoal brown-grey (exact upholstery colour hex #4E4B49)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "97",
+          "hex": "#393B3A",
+          "name_pl": "Barrel 97",
+          "prompt_en": "Barrel 97 — very dark charcoal (exact upholstery colour hex #393B3A)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "99",
+          "hex": "#191919",
+          "name_pl": "Barrel 99",
+          "prompt_en": "Barrel 99 — near-black, a deep soft black (exact upholstery colour hex #191919)",
+          "hex_verified": true,
+          "group": "black"
         }
       ]
     },
@@ -341,8 +586,217 @@
       "id": "lincoln-d",
       "name_pl": "Lincoln D",
       "material": "corduroy",
-      "description_pl": "Sztruks Lincoln D. Brak kodów w matrycy TreeTale — dodaj kody i HEX-y w panelu Katalog.",
-      "codes": []
+      "description_pl": "Sztruks Lincoln D (DAVIS), prążek ok. 6–7 mm. Pełna paleta 26 kodów z davis.pl; HEX-y wyliczone ze zdjęć próbek producenta (TRE-92, 2026-10-12).",
+      "codes": [
+        {
+          "code": "1",
+          "hex": "#EBE8DE",
+          "name_pl": "Lincoln D 1",
+          "prompt_en": "Lincoln D 1 — soft warm off-white, like ecru cream (exact upholstery colour hex #EBE8DE)",
+          "hex_verified": true,
+          "group": "cream"
+        },
+        {
+          "code": "3",
+          "hex": "#DFDCCB",
+          "name_pl": "Lincoln D 3",
+          "prompt_en": "Lincoln D 3 — pale warm cream beige (exact upholstery colour hex #DFDCCB)",
+          "hex_verified": true,
+          "group": "sand"
+        },
+        {
+          "code": "4",
+          "hex": "#D2CEC0",
+          "name_pl": "Lincoln D 4",
+          "prompt_en": "Lincoln D 4 — light warm sand beige (exact upholstery colour hex #D2CEC0)",
+          "hex_verified": true,
+          "group": "sand"
+        },
+        {
+          "code": "9",
+          "hex": "#A6A39A",
+          "name_pl": "Lincoln D 9",
+          "prompt_en": "Lincoln D 9 — mid warm stone grey (exact upholstery colour hex #A6A39A)",
+          "hex_verified": true,
+          "group": "cappuccino"
+        },
+        {
+          "code": "17",
+          "hex": "#9C8D7A",
+          "name_pl": "Lincoln D 17",
+          "prompt_en": "Lincoln D 17 — mid warm taupe, a light cocoa brown (exact upholstery colour hex #9C8D7A)",
+          "hex_verified": true,
+          "group": "taupe"
+        },
+        {
+          "code": "24",
+          "hex": "#575352",
+          "name_pl": "Lincoln D 24",
+          "prompt_en": "Lincoln D 24 — dark warm grey-brown, like wet slate (exact upholstery colour hex #575352)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "29",
+          "hex": "#38302E",
+          "name_pl": "Lincoln D 29",
+          "prompt_en": "Lincoln D 29 — very dark espresso brown (exact upholstery colour hex #38302E)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "37",
+          "hex": "#676A55",
+          "name_pl": "Lincoln D 37",
+          "prompt_en": "Lincoln D 37 — muted mid olive green (exact upholstery colour hex #676A55)",
+          "hex_verified": true,
+          "group": "olive"
+        },
+        {
+          "code": "39",
+          "hex": "#38443F",
+          "name_pl": "Lincoln D 39",
+          "prompt_en": "Lincoln D 39 — very dark muted forest green, near green-black (exact upholstery colour hex #38443F)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "48",
+          "hex": "#77643C",
+          "name_pl": "Lincoln D 48",
+          "prompt_en": "Lincoln D 48 — warm golden ochre brown (exact upholstery colour hex #77643C)",
+          "hex_verified": true,
+          "group": "caramel"
+        },
+        {
+          "code": "52",
+          "hex": "#704534",
+          "name_pl": "Lincoln D 52",
+          "prompt_en": "Lincoln D 52 — rust brown, like burnt terracotta (exact upholstery colour hex #704534)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "57",
+          "hex": "#69413F",
+          "name_pl": "Lincoln D 57",
+          "prompt_en": "Lincoln D 57 — deep muted red-brown, like oxblood (exact upholstery colour hex #69413F)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "61",
+          "hex": "#ABA3A1",
+          "name_pl": "Lincoln D 61",
+          "prompt_en": "Lincoln D 61 — light dusty mauve grey (exact upholstery colour hex #ABA3A1)",
+          "hex_verified": true,
+          "group": "cappuccino"
+        },
+        {
+          "code": "70",
+          "hex": "#738995",
+          "name_pl": "Lincoln D 70",
+          "prompt_en": "Lincoln D 70 — muted mid steel blue (exact upholstery colour hex #738995)",
+          "hex_verified": true,
+          "group": "steelblue"
+        },
+        {
+          "code": "72",
+          "hex": "#94A6A2",
+          "name_pl": "Lincoln D 72",
+          "prompt_en": "Lincoln D 72 — pale muted sage-aqua grey (exact upholstery colour hex #94A6A2)",
+          "hex_verified": true,
+          "group": "steelblue"
+        },
+        {
+          "code": "75",
+          "hex": "#54707B",
+          "name_pl": "Lincoln D 75",
+          "prompt_en": "Lincoln D 75 — muted mid-dark petrol blue (exact upholstery colour hex #54707B)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "77",
+          "hex": "#384354",
+          "name_pl": "Lincoln D 77",
+          "prompt_en": "Lincoln D 77 — very dark navy blue (exact upholstery colour hex #384354)",
+          "hex_verified": true,
+          "group": "forest"
+        },
+        {
+          "code": "82",
+          "hex": "#D4D4C8",
+          "name_pl": "Lincoln D 82",
+          "prompt_en": "Lincoln D 82 — pale cool off-white, like light putty (exact upholstery colour hex #D4D4C8)",
+          "hex_verified": true,
+          "group": "sand"
+        },
+        {
+          "code": "83",
+          "hex": "#B9BBB3",
+          "name_pl": "Lincoln D 83",
+          "prompt_en": "Lincoln D 83 — light cool grey-green, like pale sage stone (exact upholstery colour hex #B9BBB3)",
+          "hex_verified": true,
+          "group": "ash"
+        },
+        {
+          "code": "84",
+          "hex": "#9DA2A2",
+          "name_pl": "Lincoln D 84",
+          "prompt_en": "Lincoln D 84 — light-mid cool grey (exact upholstery colour hex #9DA2A2)",
+          "hex_verified": true,
+          "group": "steelblue"
+        },
+        {
+          "code": "85",
+          "hex": "#6D7175",
+          "name_pl": "Lincoln D 85",
+          "prompt_en": "Lincoln D 85 — mid-dark cool grey (exact upholstery colour hex #6D7175)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "86",
+          "hex": "#A9AAAC",
+          "name_pl": "Lincoln D 86",
+          "prompt_en": "Lincoln D 86 — light cool silver grey (exact upholstery colour hex #A9AAAC)",
+          "hex_verified": true,
+          "group": "cappuccino"
+        },
+        {
+          "code": "90",
+          "hex": "#5E5F61",
+          "name_pl": "Lincoln D 90",
+          "prompt_en": "Lincoln D 90 — dark neutral graphite grey (exact upholstery colour hex #5E5F61)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "94",
+          "hex": "#5A6265",
+          "name_pl": "Lincoln D 94",
+          "prompt_en": "Lincoln D 94 — dark slate grey with a faint teal cast (exact upholstery colour hex #5A6265)",
+          "hex_verified": true,
+          "group": "graphite"
+        },
+        {
+          "code": "96",
+          "hex": "#464A4D",
+          "name_pl": "Lincoln D 96",
+          "prompt_en": "Lincoln D 96 — very dark charcoal grey (exact upholstery colour hex #464A4D)",
+          "hex_verified": true,
+          "group": "choc"
+        },
+        {
+          "code": "100",
+          "hex": "#24252A",
+          "name_pl": "Lincoln D 100",
+          "prompt_en": "Lincoln D 100 — near-black charcoal with a blue cast (exact upholstery colour hex #24252A)",
+          "hex_verified": true,
+          "group": "forest"
+        }
+      ]
     }
   ],
   "colors": [

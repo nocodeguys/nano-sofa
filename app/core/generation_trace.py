@@ -151,6 +151,7 @@ def build_generation_trace(
             "material_id": getattr(req, "material_id", ""),
             "color_id": getattr(req, "color_id", ""),
             "fabric_code": getattr(req, "fabric_code", ""),
+            "product_name": getattr(req, "product_name", ""),
             "color_hex": getattr(req, "upholstery_hex", ""),
             "camera_angle": req.camera_angle,
             "shot_type": req.shot_type,

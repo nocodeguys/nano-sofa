@@ -113,6 +113,7 @@ async def api_generate(
     openrouter_key: str = Form(""),
     quality: str = Form(""),
     kind: str = Form("sofa"),
+    product_name: str = Form(""),
     color: str = Form("greige"),
     color_custom: str = Form(""),
     mat: str = Form("boucle"),
@@ -228,7 +229,7 @@ async def api_generate(
         )
 
     req = _build_generation_request(
-        api_key=api_key, kind=kind,
+        api_key=api_key, kind=kind, product_name=product_name,
         color=color, color_custom=color_custom,
         mat=mat, mat_notes=mat_notes,
         size=size, legs=legs, cam=cam,
@@ -298,6 +299,7 @@ async def api_generate_set(
     openrouter_key: str = Form(""),
     quality: str = Form(""),
     kind: str = Form("sofa"),
+    product_name: str = Form(""),
     colors_csv: str = Form(""),     # comma-separated English color ids (anchor first)
     # Optional materials, paired positionally with colors_csv. Empty → fall
     # back to a single shared `mat` for the whole batch (legacy behavior).
@@ -428,7 +430,7 @@ async def api_generate_set(
     )
 
     anchor_req = _build_generation_request(
-        api_key=api_key, kind=kind,
+        api_key=api_key, kind=kind, product_name=product_name,
         color=anchor_color, color_custom=color_custom,
         mat=anchor_mat, mat_notes=mat_notes,
         size=size, legs=legs, cam=cam,
@@ -484,7 +486,7 @@ async def api_generate_set(
         # Build a request mirroring the anchor, then mutate color + material +
         # scene_reference_image + prior_history.
         v_req = _build_generation_request(
-            api_key=api_key, kind=kind,
+            api_key=api_key, kind=kind, product_name=product_name,
             color=color_id, color_custom=color_custom,
             mat=material_id, mat_notes=mat_notes,
             size=size, legs=legs, cam=cam,
@@ -567,6 +569,7 @@ async def api_generate_variants(
     openrouter_key: str = Form(""),
     quality: str = Form(""),
     kind: str = Form("sofa"),
+    product_name: str = Form(""),
     # Shared colour+material PAIRS applied to EVERY source.
     # JSON: [{"color": "<chip id>", "material": "<chip id>"}, ...]
     pairs_json: str = Form(""),
@@ -692,7 +695,7 @@ async def api_generate_variants(
     # user sees first results immediately instead of waiting for the whole batch.
     def _render(src_path, pair):
         return _render_product(_recolor_request(
-            api_key=api_key, kind=kind,
+            api_key=api_key, kind=kind, product_name=product_name,
             color=pair["color"], color_custom=color_custom,
             mat=pair["material"], mat_notes=mat_notes,
             size=size, legs=legs, cam=cam, lens=lens, tod=tod, shadow=shadow,
@@ -742,6 +745,7 @@ async def api_regenerate_variant(
     openrouter_key: str = Form(""),
     quality: str = Form(""),
     kind: str = Form("sofa"),
+    product_name: str = Form(""),
     color: str = Form(""),
     # Every other endpoint calls the material field `mat`; this one grew up
     # with `material`. Accept both — `mat` wins when both are present.
@@ -807,7 +811,7 @@ async def api_regenerate_variant(
             tidy=tidy, density=density, accents_csv=accents, bed_note=bed_note,
         )
     req = _recolor_request(
-        api_key=api_key, kind=kind, color=color, color_custom=color_custom,
+        api_key=api_key, kind=kind, product_name=product_name, color=color, color_custom=color_custom,
         mat=material, mat_notes=mat_notes, size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow, shot=shot, yaw=yaw, height=height,
         dof=dof, detail_region=detail_region, model=model, aspect=aspect, res=res,

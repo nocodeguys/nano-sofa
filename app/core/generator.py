@@ -99,9 +99,14 @@ class GenerationRequest:
     # Fabric construction family. "looped" (bouclé) swaps the material-slot
     # instructions for loop-specific wording: the default wording was written
     # for short-pile Cremona (fine nubs, pearly sheen, "calm, finely tactile at
-    # distance") and pushed bouclé into fine uniform grain. "" = default.
+    # distance") and pushed bouclé into fine uniform grain. "ribbed" (Lincoln D
+    # corduroy) keeps the wales legible instead of merging them. "" = default.
     material_structure: str = ""
     fabric_code: str = ""
+    # Catalogue name of the product in the base photo (e.g. "Aria 160") —
+    # identity only, never part of the prompt. Stamped into PNG tEXt, trace
+    # and history so a render is traceable to product model + fabric code.
+    product_name: str = ""
     # Exact target colour as #RRGGBB. When set, a flat colour patch is
     # attached as its own reference slot (COLOUR AUTHORITY) and deep shades
     # get a dedicated exposure clause — text alone drifts on dark colours.
@@ -1061,6 +1066,7 @@ def _build_prompt_text(
     # Bouclé-type fabrics get loop-specific wording in every material slot;
     # the default wording below describes short-pile Cremona.
     looped = req.material_structure == "looped"
+    ribbed = req.material_structure == "ribbed"
     # GPT Image renders looped fabrics 2–3× too large and ~40 % too contrasty
     # with the Gemini wording (A/B 2026-09-29 against the real product photo),
     # so it gets a restraint dialect that ties scale and contrast to the samples.
@@ -1099,6 +1105,25 @@ def _build_prompt_text(
                     f"and do not blur, denoise or smooth the loops away. "
                 )
                 ignored = "colour, folds, zoom, lighting, shadows, crop, and perspective"
+            elif ribbed:
+                construction = (
+                    f"Copy ONLY its rib construction: the width of each raised "
+                    f"wale, the narrow recessed channel between wales, the soft "
+                    f"plush pile on the rib tops and its gentle tonal relief. Apply "
+                    f"that authentic surface to every upholstered part of the "
+                    f"{product_noun} in slot 1 at the sample's true physical scale: "
+                    f"the ribs are a few millimetres wide, so at normal "
+                    f"product-photography distance they stay clearly legible as "
+                    f"fine parallel stripes on every panel — never merged into "
+                    f"plain velvet, never shrunk into pin-cord, never enlarged into "
+                    f"jumbo cord. Ribs run straight and parallel within each panel, "
+                    f"follow the panel's curvature, and change direction only at "
+                    f"seams and panel joins, following the construction of the "
+                    f"{product_noun} in slot 1. Keep the stripe contrast as low as "
+                    f"in the sample: channels are only slightly darker than the rib "
+                    f"tops, never black lines. "
+                )
+                ignored = "colour, folds, zoom, lighting, shadows, crop, rib orientation, and perspective"
             else:
                 construction = (
                     f"Copy ONLY its microscopic yarn construction: strand, "
@@ -1569,6 +1594,7 @@ def _png_text_metadata(req: GenerationRequest, generation_id: str, ts: int) -> d
         "nano_sofa_color_id": req.color_id or "",
         "nano_sofa_material_id": req.material_id or "",
         "nano_sofa_fabric_code": req.fabric_code or "",
+        "nano_sofa_product": req.product_name or "",
         "nano_sofa_color_hex": req.upholstery_hex or "",
         "nano_sofa_leg_id": req.leg_id or "",
         "nano_sofa_camera_angle": req.camera_angle or "",
