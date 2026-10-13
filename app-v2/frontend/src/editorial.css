@@ -82,3 +82,24 @@
   border-radius: 50%; border: 0; background: rgba(0,0,0,.55); color: #fff;
   font-size: 11px; line-height: 1; cursor: pointer;
 }
+
+/* ---- Meli (wood recolor) ---- */
+.meli-sw { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.meli-sw button {
+  font-family: inherit; cursor: pointer; text-align: left;
+  border: 1px solid var(--line-2, #d8d3c8); background: var(--paper, #F4F1EA);
+  border-radius: 10px; padding: 5px; display: flex; flex-direction: column; gap: 5px;
+}
+.meli-sw button.on { border-color: var(--ink, #1c1a17); box-shadow: 0 0 0 1px var(--ink, #1c1a17) inset; }
+.meli-sw .chip {
+  display: block; height: 44px; border-radius: 7px;
+  background-size: cover; background-position: center;
+  border: 1px solid rgba(0,0,0,.08);
+}
+.meli-sw .nm { font-size: 11px; color: var(--ink-2, #4a463f); line-height: 1.25; padding: 0 2px 2px; }
+.meli-own {
+  font-family: inherit; font-size: 12px; cursor: pointer;
+  border: 1px dashed var(--line-2, #d8d3c8); background: transparent;
+  color: var(--ink-2, #4a463f); padding: 6px 12px; border-radius: 8px;
+}
+.meli-own.on { border-style: solid; border-color: var(--ink, #1c1a17); color: var(--ink, #1c1a17); }

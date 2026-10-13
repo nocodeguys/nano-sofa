@@ -1,0 +1,8 @@
+{
+  "_readme": [
+    "Meli wood palette — read on every request by app-v2/studio/meli.py (no restart needed).",
+    "Each colour: id (a-z, 0-9, dashes — also the reference file name), name_pl, finish ('stain' = transparent stain/oil, grain fully visible; 'opaque' = covering paint/lacquer), optional hex '#RRGGBB', optional prompt_en (short English description of the tone), optional group (picker heading).",
+    "Finish photographs: app-v2/meli/references/<id>.jpg, <id>-2.jpg, <id>-3.jpg … (JPEG ≤ 2048 px). Up to 4 per colour are sent to the model."
+  ],
+  "colors": []
+}

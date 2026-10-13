@@ -55,6 +55,12 @@ def lab_page():
     return page_response("lab.html")
 
 
+@router.get("/meli")
+def meli_page():
+    """Lab: wood-colour recolor of solid-wood beds on OpenRouter models."""
+    return page_response("meli.html")
+
+
 @router.get("/experiments")
 def experiments_page():
     return page_response("experiments.html")
