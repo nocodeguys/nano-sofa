@@ -21,10 +21,16 @@ import { NanoTopbar, PageIntro } from "./header.jsx";
 
 const OR_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // shared with /editorial and /lab
 const MAX_CUSTOM_REFS = 4;
-const FINISHES = [
-  { id: "stain", name: "bejca / olej", hint: "słoje w pełni widoczne, zmienia się tylko odcień" },
-  { id: "opaque", name: "kryjący", hint: "farba / lakier kryjący, słoje tylko jako delikatna faktura" },
-];
+// Coverage levels (server: studio/meli.py OPACITY_LEVELS) — how much grain
+// shows through the new colour. "auto" = copy it from the finish photographs.
+const OPACITY_HINTS = {
+  10: "olej / bezbarwny — słoje w pełni, naturalny ton drewna prześwituje",
+  30: "bejca — słoje wyraźne, zmienia się cały odcień",
+  55: "lazura półkryjąca — kolor dominuje, słoje przebijają przez pigment",
+  80: "farba kryjąca — słoje tylko jako delikatna faktura w świetle",
+  100: "gładki lakier — bez widocznych słojów",
+};
+const DEFAULT_LEVELS = [10, 30, 55, 80, 100].map(v => ({ value: v, name: String(v) }));
 
 const Ic = {
   sparkle: <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="currentColor"/></svg>,
@@ -50,12 +56,14 @@ function App() {
 
   // ---- palette + models -----------------------------------------------------
   const [palette, setPalette] = useState([]);
+  const [levels, setLevels] = useState(DEFAULT_LEVELS);
   const [models, setModels] = useState([]);
   const [modelId, setModelId] = useState("");
   const [configError, setConfigError] = useState(false);
   useEffect(() => {
     fetch("/api/meli/config").then(r => r.ok ? r.json() : Promise.reject()).then(c => {
       setPalette(c.palette || []);
+      if ((c.opacity_levels || []).length) setLevels(c.opacity_levels);
       setModels(c.models || []);
       setModelId(c.default_model || (c.models && c.models[0] && c.models[0].id) || "");
     }).catch(() => setConfigError(true));
@@ -79,7 +87,7 @@ function App() {
   const [colorId, setColorId] = useState("");      // "" = own colour
   const [customName, setCustomName] = useState("");
   const [customHex, setCustomHex] = useState("");
-  const [customFinish, setCustomFinish] = useState("stain");
+  const [opacity, setOpacity] = useState("auto");   // "auto" | level number
   const [customRefs, setCustomRefs] = useState([]); // [{file, url}]
   const refInputRef = useRef(null);
   const [res, setRes] = useState("2K");
@@ -96,6 +104,14 @@ function App() {
 
   const selected = palette.find(c => c.id === colorId) || null;
   const isCustom = !selected;
+  // "wg próbki" only makes sense when finish photographs will be sent.
+  const hasSamples = selected ? selected.references.length > 0 : customRefs.length > 0;
+  const autoLevel = selected
+    ? (selected.opacity ?? (hasSamples ? null : (selected.finish === "opaque" ? 80 : 30)))
+    : (hasSamples ? null : 30);
+  const effectiveLevel = opacity === "auto" ? autoLevel : opacity;
+  const levelName = (v) => (levels.find(l => l.value === v) || {}).name || String(v);
+  const opacityLabel = effectiveLevel == null ? "wg próbki" : `${levelName(effectiveLevel)} · ${effectiveLevel}%`;
   const colorLabel = selected ? selected.name_pl : (customName.trim() || customHex.trim() || "");
 
   const onPickBase = (f) => {
@@ -145,9 +161,9 @@ function App() {
       } else {
         fd.append("custom_name", customName.trim());
         fd.append("custom_hex", customHex.trim());
-        fd.append("custom_finish", customFinish);
         for (const r of customRefs) fd.append("references", r.file);
       }
+      if (opacity !== "auto") fd.append("opacity", String(opacity));
       fd.append("res", res);
       if (quality) fd.append("quality", quality);
       const r = await fetch("/api/meli/recolor", { method: "POST", body: fd });
@@ -211,7 +227,7 @@ function App() {
                   <button className={showBefore ? "on" : ""} onClick={() => setShowBefore(true)}>przed</button>
                 </div>
                 <a className="ed-dl" href={shown.image_url} download={dlName}>⭳ Pobierz {String(shown.format || "jpg").toUpperCase()}</a>
-                <span>{shown.color} · {shown.finish === "opaque" ? "kryjący" : "bejca"}</span><span>·</span>
+                <span>{shown.color} · krycie {shown.opacity_label}{shown.opacity !== "sample" ? ` ${shown.opacity}%` : ""}</span><span>·</span>
                 <span>{shown.model}</span><span>·</span>
                 <span>{shown.resolution}{shown.quality ? ` · ${shown.quality}` : ""} · {shown.aspect}</span><span>·</span>
                 <span>≈ ${Number(shown.cost || 0).toFixed(3)}</span><span>·</span>
@@ -304,7 +320,7 @@ function App() {
                 <div className="meli-sw">
                   {g.colors.map(c => (
                     <button key={c.id} className={colorId === c.id ? "on" : ""} onClick={() => setColorId(c.id)}
-                      title={`${c.name_pl} · ${c.finish === "opaque" ? "kryjący" : "bejca"}${c.references.length ? ` · ${c.references.length} zdj.` : ""}`}>
+                      title={`${c.name_pl}${c.references.length ? ` · ${c.references.length} zdj.` : ""}`}>
                       <span className="chip" style={c.references.length
                         ? { backgroundImage: `url(${c.references[0]})` }
                         : { background: c.hex || "#c9b79c" }} />
@@ -332,13 +348,6 @@ function App() {
                     onChange={e => setCustomHex(e.target.value)} style={{ maxWidth: 140, fontFamily: "Geist Mono" }} />
                   {customHex && <button className="meli-own" onClick={() => setCustomHex("")}>wyczyść</button>}
                 </div>
-                <div className="field-lbl" style={{ marginTop: 12 }}>wykończenie</div>
-                <div className="seg">
-                  {FINISHES.map(f => (
-                    <button key={f.id} className={customFinish === f.id ? "on" : ""} onClick={() => setCustomFinish(f.id)}>{f.name}</button>
-                  ))}
-                </div>
-                <div className="hint">{FINISHES.find(f => f.id === customFinish).hint}</div>
                 <div className="field-lbl" style={{ marginTop: 12 }}>zdjęcia próbki (opcjonalnie, do {MAX_CUSTOM_REFS})</div>
                 <div className="ed-refs">
                   {customRefs.map((r, i) => (
@@ -357,11 +366,32 @@ function App() {
             )}
             {selected && (
               <div className="hint">
-                {selected.finish === "opaque" ? "kryjący" : "bejca / olej"}
-                {selected.hex ? ` · ${selected.hex}` : ""}
-                {` · ${selected.references.length ? selected.references.length + " zdj. próbki" : "bez zdjęcia próbki"}`}
+                {selected.hex ? `${selected.hex} · ` : ""}
+                {selected.references.length ? selected.references.length + " zdj. próbki" : "bez zdjęcia próbki"}
               </div>
             )}
+
+            <div className="field-lbl" style={{ marginTop: 16 }}>poziom krycia</div>
+            <div className="seg">
+              <button className={opacity === "auto" ? "on" : ""} onClick={() => setOpacity("auto")}
+                title={hasSamples ? "widoczność słojów jak na zdjęciach próbki" : "domyślny poziom koloru"}>
+                {hasSamples && autoLevel == null ? "wg próbki" : `domyślny (${levelName(autoLevel)})`}
+              </button>
+              {levels.map(l => (
+                <button key={l.value} className={opacity === l.value ? "on" : ""} onClick={() => setOpacity(l.value)}>
+                  {l.name}
+                </button>
+              ))}
+            </div>
+            <div className="meli-opacity" aria-hidden="true">
+              <span style={{ width: `${effectiveLevel == null ? 50 : effectiveLevel}%`, opacity: effectiveLevel == null ? .35 : 1 }} />
+            </div>
+            <div className="hint">
+              {effectiveLevel == null
+                ? "słoje przebijają tak jak na zdjęciach próbki — zdjęcia są wzorcem krycia"
+                : `${effectiveLevel}% · ${OPACITY_HINTS[effectiveLevel] || ""}`}
+              {effectiveLevel != null && effectiveLevel <= 55 ? " · na malowanym drewnie model dorysuje słoje" : ""}
+            </div>
           </div>
         </div>
 
@@ -428,7 +458,8 @@ function App() {
             <div className="foot-lead">{busy ? `Zmieniam kolor… ${mm}:${ss}` : "Gotowe do generowania"}</div>
             <div className="foot-meta">
               <span className="mono">{modelId}</span><span className="dot">·</span>
-              <span className="mono">{colorLabel || "brak koloru"}</span>
+              <span className="mono">{colorLabel || "brak koloru"}</span><span className="dot">·</span>
+              <span className="mono">krycie {opacityLabel}</span>
             </div>
           </div>
           <div className="foot-actions">

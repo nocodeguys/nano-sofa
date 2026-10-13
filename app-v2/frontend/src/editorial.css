@@ -103,3 +103,8 @@
   color: var(--ink-2, #4a463f); padding: 6px 12px; border-radius: 8px;
 }
 .meli-own.on { border-style: solid; border-color: var(--ink, #1c1a17); color: var(--ink, #1c1a17); }
+.meli-opacity {
+  margin-top: 8px; height: 6px; border-radius: 999px; overflow: hidden;
+  background: repeating-linear-gradient(90deg, #d9c2a0 0 6px, #c9ae88 6px 9px);
+}
+.meli-opacity span { display: block; height: 100%; background: var(--ink, #1c1a17); transition: width .15s; }
