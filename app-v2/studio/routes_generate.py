@@ -35,6 +35,7 @@ from studio.request_builder import (
     _build_generation_request,
     _recolor_request,
 )
+from studio.source_match import fit_to_source, match_source_output
 
 router = APIRouter()
 
@@ -742,15 +743,21 @@ async def api_generate_variants(
     # The client fills the grid live and drives a real X/N progress bar so the
     # user sees first results immediately instead of waiting for the whole batch.
     def _render(src_path, pair):
-        return _render_product(_recolor_request(
+        # A recolor is the same photograph: its aspect and size come from the
+        # source, not from the page's pickers (see studio.source_match).
+        src_aspect, src_res, src_size = match_source_output(model, src_path, aspect, res)
+        r = _render_product(_recolor_request(
             api_key=api_key, kind=kind, product_name=product_name,
             color=pair["color"], color_custom=color_custom,
             mat=pair["material"], mat_notes=mat_notes,
             size=size, legs=legs, cam=cam, lens=lens, tod=tod, shadow=shadow,
             shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
-            model=model, aspect=aspect, res=res, seed=seed,
+            model=model, aspect=src_aspect, res=src_res, seed=seed,
             bedding_desc=bedding_desc, source_path=src_path,
         ), openai_key, quality, openrouter_key)
+        if r.success and r.output_path is not None:
+            fit_to_source(Path(r.output_path), src_size)
+        return r
 
     async def _job(s, pair):
         # Never raises — failures become an error tile so the stream stays intact.
@@ -863,16 +870,20 @@ async def api_regenerate_variant(
             bedding=bedding, bedding_custom=bedding_custom, throw=throw,
             tidy=tidy, density=density, accents_csv=accents, bed_note=bed_note,
         )
+    src_aspect, src_res, src_size = await asyncio.to_thread(
+        match_source_output, model, src_path, aspect, res
+    )
     req = _recolor_request(
         api_key=api_key, kind=kind, product_name=product_name, color=color, color_custom=color_custom,
         mat=material, mat_notes=mat_notes, size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow, shot=shot, yaw=yaw, height=height,
-        dof=dof, detail_region=detail_region, model=model, aspect=aspect, res=res,
+        dof=dof, detail_region=detail_region, model=model, aspect=src_aspect, res=src_res,
         seed=seed, bedding_desc=bedding_desc, source_path=src_path,
     )
     result = await asyncio.to_thread(_render_product, req, openai_key, quality, openrouter_key)
     if not result.success or result.output_path is None:
         return _result_error(result)
+    await asyncio.to_thread(fit_to_source, Path(result.output_path), src_size)
     # Same backdrop lock as the grid tile it replaces.
     _p, tone_locked = await asyncio.to_thread(match_background_tone, result.output_path, src_path)
     qual = _parse_quality(output_quality)

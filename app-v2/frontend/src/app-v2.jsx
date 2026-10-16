@@ -1548,7 +1548,7 @@ function App({ t, mode = "photos" }) {
                 color:"var(--ink-3)", fontFamily:"Geist Mono", lineHeight: 1.5,
               }}>
                 <span style={{color:"var(--ink-4, #888)"}}>Warianty dla wielu zdjęć:</span>
-                <span>wgraj / wybierz zdjęcia → dodaj pary kolor+materiał → ten sam kąt i tło każdego zdjęcia</span>
+                <span>wgraj / wybierz zdjęcia → dodaj pary kolor+materiał → ten sam kąt, tło i wymiary każdego zdjęcia (proporcje / rozdz. z ustawień technicznych nie dotyczą Serii)</span>
               </div>
 
               {/* ============ 1 — Zdjęcia bazowe (wiele) ============ */}
