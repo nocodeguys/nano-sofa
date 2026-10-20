@@ -73,6 +73,9 @@ const BACKDROPS = (_cat.backdrops || []).map(b => ({
   id: b.id, kind: "backdrop", name: b.name_pl, hex: b.hex || "", preview: b.preview || "",
   note: b.note_pl || "", locked: !!b.locks, normalize: !!b.normalize,
   transparent: !!b.transparent, plate: b.plate || null, aliases: b.aliases || [],
+  // Seeded into the camera controls when a locked backdrop is picked; the
+  // user may change any of them afterwards (phase 4).
+  cameraDefaults: b.camera_defaults || null,
 }));
 const SCENES = (_cat.scenes || []).map(sc => ({
   id: sc.id, kind: "scene", name: sc.name_pl, prop: sc.prop_pl || "", preview: sc.preview || "",

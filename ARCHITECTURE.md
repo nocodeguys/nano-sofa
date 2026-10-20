@@ -166,6 +166,13 @@ and Experiments treat every engine alike:
     replaces any caller scene with its own plate and strips moodboards. The
     old "tryb" select, tweaks panel, anchor picker and alpha checkbox are gone
     because none of them reached the prompt (`tests/test_background.py`).
+12. **A locked backdrop locks the light, not the camera** (phase 4). Its
+    `locks` block is `tod` + `shadow`; `camera_defaults` fill only fields a
+    client left empty. Shot type, lens, depth of field, height, yaw and the
+    detail region are the caller's under every background. The numeric
+    CATALOG FRAMING CONTRACT exists for `hero` only; `close_up`,
+    `detail_fabric` and `detail_corner` are `TIGHT_SHOTS`: no plate, no
+    in-use photo, their own CAMERA / SCENE paragraphs, no normalization.
 
 ## Deploy loop
 

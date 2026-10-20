@@ -107,6 +107,15 @@ class CameraSpec:
     def is_detail(self) -> bool:
         return self.shot_type in ("detail_fabric", "detail_corner")
 
+    @property
+    def is_close_up(self) -> bool:
+        return self.shot_type == "close_up"
+
+    @property
+    def is_tight(self) -> bool:
+        """Any crop into the product: close-up or macro detail."""
+        return self.is_detail or self.is_close_up
+
 
 @dataclass
 class SceneSpec:

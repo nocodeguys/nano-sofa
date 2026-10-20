@@ -194,6 +194,17 @@ def camera(s: PromptSpec) -> Lines:
             f"not its framing: do not reproduce image 1's full view."
         ]
     angle_label = c.angle_label.replace("-", " ")
+    if c.is_close_up:
+        return [
+            f"\nCAMERA — CLOSE-UP CROP: {angle_label} view, approximately {c.degrees} degrees "
+            f"from the left. "
+            f"Focal length equivalent {c.focal_mm} mm, {c.aperture} aperture. "
+            f"Framing: {c.framing}. "
+            f"The full {noun} must NOT be visible: only the region named in the framing "
+            f"fills the frame and the rest of the {noun} is cropped out by the frame edge. "
+            f"Image 1 supplies the {noun}'s geometry, colour and material, not its "
+            f"framing: do not reproduce image 1's full view."
+        ]
     return [
         f"\nCAMERA: {angle_label} view, approximately {c.degrees} degrees "
         f"from the left. "
@@ -286,6 +297,19 @@ def _scene_block(s: PromptSpec) -> str:
             "greying, yellowing or darkening the canonical backdrop and do not create "
             "a bright halo around the product."
         )
+        if s.camera.is_close_up:
+            # A close-up still shows a little backdrop behind the region —
+            # but no sweep, no top-light gradient, no contact shadow, and no
+            # whole-product framing cue that would pull the crop back out.
+            return (
+                f"\nSCENE (close-up crop): behind the cropped region only the backdrop is "
+                f"visible — {scene_desc.split(',')[0].split(' — ')[0]} — rendered softly "
+                f"out of focus; no horizon line, no floor-to-wall sweep, no contact "
+                f"shadow and no environment objects in the frame. The frame is filled "
+                f"by the region named in CAMERA."
+                f"{tod_clause}"
+                f"{lens_clause}"
+            )
         if s.camera.is_detail:
             return (
                 f"\nSCENE (detail crop): The background is the {noun}'s own "
@@ -358,6 +382,16 @@ def _scene_block(s: PromptSpec) -> str:
     # ---- Lifestyle mode ---------------------------------------------- #
     tod_clause = f" Time of day and lighting quality: {sc.tod}." if sc.tod else ""
     scene_desc = sc.description or "interior setting"
+    if s.camera.is_close_up:
+        return (
+            f"\nSCENE (close-up crop in {scene_desc}): behind the cropped region the "
+            f"room is visible only as soft, out-of-focus context — no full room view, "
+            f"no props in focus, no whole-product framing. The frame is filled by the "
+            f"region named in CAMERA. The ambient light colour and direction come from "
+            f"the surrounding {scene_desc}."
+            f"{tod_clause}"
+            f"{lens_clause}"
+        )
     if s.camera.is_detail:
         return (
             f"\nSCENE (detail crop in {scene_desc}): The background is the "

@@ -55,6 +55,11 @@ _REQUEST_TIMEOUT_MS = int(os.environ.get("GEMINI_TIMEOUT_MS", "120000"))
 # base products and leg-library renders share the same background value.
 _ALPHA_FLATTEN_GREY = (127, 127, 127)
 
+# Shot types that crop into the product. They never get references that
+# show a whole product or an empty studio at hero distance, and the packshot
+# normalization pass leaves them alone (phase 2b/4).
+TIGHT_SHOTS = ("close_up", "detail_fabric", "detail_corner")
+
 
 @dataclass
 class GenerationRequest:
@@ -535,7 +540,7 @@ def plan_reference_slots(
     # minimal profile keeps only the two references that pin texture and
     # colour. Both decisions happen here so the prompt describes exactly
     # what is attached.
-    tight = req.shot_type in ("detail_fabric", "detail_corner")
+    tight = req.shot_type in TIGHT_SHOTS
     excluded: set[str] = set()
     if tight:
         excluded |= {"scene", "material_application"}

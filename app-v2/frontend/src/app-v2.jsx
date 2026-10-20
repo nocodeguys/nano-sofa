@@ -15,6 +15,9 @@ const { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById
         SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, BACKGROUNDS, canonicalBackgroundId,
         LENSES, TIMES_OF_DAY, SHADOWS,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
+        // Missing since the Vite build (772d16c): picking "Close-up" threw
+        // ReferenceError, so the close-up shot was unreachable from the UI.
+        CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
         CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS } = NS_DATA;
 
@@ -303,11 +306,13 @@ function App({ t, mode = "photos" }) {
     // Beds skip legs by default (most sit on a plinth). Toggle on to render
     // visible legs — the backend already honours a non-"keep" leg for beds.
     bedLegs: false,
-    cam: "studio", lens: "50mm_natural", tod: "noon_neutral", shadow: "soft_diffuse",
+    // The default background (ivory) is a locked backdrop, so the camera
+    // starts on its defaults: 85 mm, f/8, eye level (see pickBackground).
+    cam: "studio", lens: "85mm_product", tod: "noon_neutral", shadow: "soft_diffuse",
     // Structured camera controls (section 08). When `shot` is "", the server
     // derives shot/yaw/height from the `cam` preset for back-compat. Once
     // the user touches any of these chips/selects we send explicit values.
-    shot: "hero", yaw: "34_left", height: "eye", dof: "standard",
+    shot: "hero", yaw: "34_left", height: "eye", dof: "deep",
     detailRegion: "weave",
     // Background (section 01): ONE id — a studio backdrop (locked ones get
     // the catalog treatment server-side), a lifestyle scene, or "custom"
@@ -362,6 +367,9 @@ function App({ t, mode = "photos" }) {
         ? canonicalBackgroundId(params.catalogProfile)
         : canonicalBackgroundId(params.env)) || "ivory";
     }
+    // Pre-phase-4 catalog presets had their camera ignored by the server
+    // (85 mm, f/8, eye level were forced); apply those so they render the same.
+    if (params.catalog === true) Object.assign(params, { lens: "85mm_product", dof: "deep", height: "eye" });
     for (const k of ["env", "envNote", "envMode", "catalog", "catalogProfile", "anchorRef", "alpha"]) delete params[k];
     set(params);   // merges params; base image, API key and seed untouched
     setPresetMsg(`Wczytano „${name}” — zdjęcie bazowe i seed bez zmian.`);
@@ -518,6 +526,20 @@ function App({ t, mode = "photos" }) {
   // A locked backdrop = the catalog treatment (lens / light locks, framing
   // contract, curated plate, normalization), decided by catalog.json.
   const bgLocked = !!bgObj?.locked;
+  // Choosing a background. Moving onto a locked backdrop seeds its camera
+  // defaults (85 mm, f/8, eye level); moving off one restores the lifestyle
+  // defaults. Shot type and detail region are never touched — they are the
+  // user's, under any background (phase 4).
+  const pickBackground = (b) => {
+    const patch = { bg: b.id };
+    if (b.locked && !bgLocked) {
+      const d = b.cameraDefaults || {};
+      Object.assign(patch, { lens: d.lens || "85mm_product", dof: d.dof || "deep", height: d.height || "eye" });
+    } else if (!b.locked && bgLocked) {
+      Object.assign(patch, { lens: "50mm_natural", dof: "standard" });
+    }
+    set(patch);
+  };
   const lensObj   = useMemo(() => LENSES.find(l => l.id === st.lens),         [st.lens]);
   const todObj    = useMemo(() => TIMES_OF_DAY.find(t => t.id === st.tod),    [st.tod]);
   const shadowObj = useMemo(() => SHADOWS.find(s => s.id === st.shadow),      [st.shadow]);
@@ -2062,7 +2084,7 @@ function App({ t, mode = "photos" }) {
                   <button type="button" key={g.key} className={activeKind === g.key ? "selected" : ""}
                     onClick={() => {
                       const first = g.items[0];
-                      if (first) set({ bg: first.id, refsLock: false });
+                      if (first) { pickBackground(first); set({ refsLock: false }); }
                       setLockBackground(false);
                     }}>
                     <span className="mode-title">{g.label}</span>
@@ -2075,7 +2097,7 @@ function App({ t, mode = "photos" }) {
                 {group.items.map(b => (
                   <div key={b.id}
                     className={"env " + (st.bg === b.id ? "sel " : "") + (b.transparent ? "checker" : "")}
-                    onClick={() => set({ bg: b.id })}>
+                    onClick={() => pickBackground(b)}>
                     <div className="env-thumb" style={{ background: b.preview }}>
                       {b.kind === "scene" && (<>
                         <div className="floor" style={{ background: b.acc }}></div>
@@ -2103,8 +2125,9 @@ function App({ t, mode = "photos" }) {
                   fontSize: 10.5, color: "var(--ink-2)", lineHeight: 1.5,
                 }}>
                   <strong style={{ fontWeight: 650 }}>Tło katalogowe:</strong>{" "}
-                  światło, obiektyw 85 mm, f/8 i wysokość kamery są zablokowane, a render jest
-                  normalizowany do profilu. Zmieniasz produkt, jego obrót i typ kadru.
+                  światło jest zablokowane (południe, miękkie cienie), a render hero jest
+                  normalizowany do profilu. Kadr, obiektyw, głębia i region detalu są Twoje —
+                  obiektyw startuje od 85 mm, f/8; kontrakt kadrowania działa dla ujęcia hero.
                 </div>
               )}
 
@@ -2323,10 +2346,6 @@ function App({ t, mode = "photos" }) {
 
         {/* 07 — camera */}
         <Section num="08" title="Kamera i kadrowanie" summary={(() => {
-          if (bgLocked) {
-            const yawObj = CAMERA_YAWS.find(y => y.id === st.yaw);
-            return `profil 85 mm · f/8 · ${yawObj?.name || "obrót produktu"}`;
-          }
           if (st.preserveBaseCamera) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
           const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
           let regionTable = null;
@@ -2339,24 +2358,17 @@ function App({ t, mode = "photos" }) {
           parts.push(lensObj?.name?.split(" — ")[0] || "—");
           return parts.filter(Boolean).join(" · ");
         })()}
-          help="Wybierz typ kadru. Dla detali makro rezygnujemy z cyklorama tła i kierujemy model na samą fakturę.">
+          help="Wybierz typ kadru, obrót, obiektyw i głębię. Zbliżenia i detale makro nie dostają planszy tła ani zdjęcia całego mebla, a kontrakt kadrowania katalogu dotyczy tylko ujęcia hero.">
           {bgLocked && (
-            <div>
-              <div style={{
-                marginBottom:12, padding:"10px 12px", borderRadius:10,
-                border:"1px solid rgba(95,122,86,.28)", background:"rgba(95,122,86,.06)",
-                fontSize:12, lineHeight:1.5,
-              }}>
-                Profil katalogowy blokuje obiektyw 85 mm, f/8, wysokość kamery,
-                ekspozycję i miękkie światło. Tutaj wybierasz tylko stronę produktu.
-              </div>
-              <div className="field-lbl">obrót produktu</div>
-              <select className="select" value={st.yaw} onChange={e => set({ yaw: e.target.value })}>
-                {CAMERA_YAWS.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
-              </select>
+            <div style={{
+              marginBottom:12, padding:"10px 12px", borderRadius:10,
+              border:"1px solid rgba(95,122,86,.28)", background:"rgba(95,122,86,.06)",
+              fontSize:12, lineHeight:1.5,
+            }}>
+              Tło katalogowe blokuje tylko światło (południe, miękkie cienie). Kadr, obrót,
+              obiektyw, głębia i region są Twoje; render hero jest normalizowany do profilu.
             </div>
           )}
-          {!bgLocked && (<>
           <label style={{
             display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
             padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
@@ -2506,20 +2518,21 @@ function App({ t, mode = "photos" }) {
                 {LENSES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
-            <div>
-              <div className="field-lbl">pora dnia</div>
-              <select className="select" value={st.tod} onChange={e => set({ tod: e.target.value })}>
+            <div style={bgLocked ? { opacity: 0.45 } : undefined} title={bgLocked ? "zablokowane przez tło katalogowe" : undefined}>
+              <div className="field-lbl">pora dnia{bgLocked ? " · katalog" : ""}</div>
+              <select className="select" value={bgLocked ? "noon_neutral" : st.tod} disabled={bgLocked}
+                      onChange={e => set({ tod: e.target.value })}>
                 {TIMES_OF_DAY.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
-            <div>
-              <div className="field-lbl">cienie</div>
-              <select className="select" value={st.shadow} onChange={e => set({ shadow: e.target.value })}>
+            <div style={bgLocked ? { opacity: 0.45 } : undefined} title={bgLocked ? "zablokowane przez tło katalogowe" : undefined}>
+              <div className="field-lbl">cienie{bgLocked ? " · katalog" : ""}</div>
+              <select className="select" value={bgLocked ? "soft_diffuse" : st.shadow} disabled={bgLocked}
+                      onChange={e => set({ shadow: e.target.value })}>
                 {SHADOWS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           </div>
-          </>)}
         </Section>
 
         {/* 08 — references: lifestyle only */}
@@ -2604,7 +2617,7 @@ function App({ t, mode = "photos" }) {
                         kadrowania, oświetlenia, cieni i sceny. Ustawienia z sekcji{" "}
                         <span style={{fontFamily:"'Geist Mono', monospace"}}>04 Ujęcie</span>{", "}
                         <span style={{fontFamily:"'Geist Mono', monospace"}}>06 Otoczenie</span>{" oraz "}
-                        <span style={{fontFamily:"'Geist Mono', monospace"}}>07 Światło</span>
+                        <span style={{fontFamily:"'Geist Mono', monospace"}}>08 Kamera (światło)</span>
                         {" "}są wtedy ignorowane. Kolor, materiał, nogi i rozmiar nadal pochodzą z kreatora.
                       </>
                     )}

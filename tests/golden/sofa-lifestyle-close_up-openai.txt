@@ -2,7 +2,7 @@
 # engine: openai | model: gpt-image-2.5-flare | max_refs: 16
 # kind=sofa mode=lifestyle shot=close_up shot_type=close_up catalog_profile=-
 # colour=#C3BEB6 material_id=boucle aspect=4:3 res=1K
-# stats: chars=5961 camera_offset_pct=20 preserve_offset_pct=-1 scene_offset_pct=33 negative_offset_pct=97
+# stats: chars=5975 camera_offset_pct=20 preserve_offset_pct=-1 scene_offset_pct=34 negative_offset_pct=97
 
 REFERENCES (3):
   1. base_product             <base-image>
@@ -12,7 +12,7 @@ REFERENCES (3):
 SYSTEM INSTRUCTION:
 (no system field — the persona above is the first paragraph of the prompt)
 
-PROMPT (5961 chars):
+PROMPT (5975 chars):
 You are a product photography assistant producing clean e-commerce imagery of the exact product shown in image 1. Preserve its frame geometry, cushion count, stitching pattern, leg count and leg positions, seat depth, arm height and all visible joinery exactly. Camera angle, framing and crop follow the CAMERA paragraph of the prompt; when it says to keep image 1's camera, keep it exactly. Never add throw pillows, decorative objects or accessories that are neither in image 1 nor asked for in the prompt. Never change proportions to look more editorial. Never render text, brand names or price labels.
 
 Edit the sofa in image 1 to produce a product photography variant with the specifications below. Image 1 is the geometry authority: the output shows this exact sofa, changed only where this prompt says so.
@@ -22,10 +22,10 @@ LEGS: Preserve the existing leg style exactly. The sofa has exactly 4 legs — d
 
 KEEP EXACTLY from image 1: frame silhouette, stitching; exactly 4 legs, in their positions. These do not change under any instruction below.
 
-CAMERA: front 34 left view, approximately 35 degrees from the left. Focal length equivalent 50 mm, f/4.5 aperture. Framing: close-up shot of one full-height corner of the sofa, showing the armrest, the backrest, and the seat at that corner; only that section of the product is visible in the frame; the rest of the product is intentionally cropped at the frame edge; product anatomy is still recognizable but the framing is tight on the chosen region; eye-level camera height, standing adult viewpoint. This camera overrides the viewpoint of image 1: image 1 is a reference for the sofa's geometry, not for the angle it is seen from. Rotate the sofa to this viewpoint and keep every part of its construction.
+CAMERA — CLOSE-UP CROP: front 34 left view, approximately 35 degrees from the left. Focal length equivalent 50 mm, f/4.5 aperture. Framing: close-up shot of one full-height corner of the sofa, showing the armrest, the backrest, and the seat at that corner; only that section of the product is visible in the frame; the rest of the product is intentionally cropped at the frame edge; product anatomy is still recognizable but the framing is tight on the chosen region; eye-level camera height, standing adult viewpoint. The full sofa must NOT be visible: only the region named in the framing fills the frame and the rest of the sofa is cropped out by the frame edge. Image 1 supplies the sofa's geometry, colour and material, not its framing: do not reproduce image 1's full view.
 All leg contact shadows must be consistent with the shadow direction described in the SCENE section.
 
-SCENE (lifestyle): Place the sofa naturally within a scandinavian living room with light oak floors, white walls, and indoor plants. Render convincing room context — floor, walls, and ambient props consistent with that environment. The environment should look like a real photographed interior, not a studio backdrop. Time of day and lighting quality: midday neutral daylight, approximately 5500 K, overhead light with short even shadows. Lens: 50 mm natural perspective, matches the human eye, standard catalog framing. Soft diffuse shadow beneath the product, no strong directional cast, soft-box lighting quality. The shadow beneath the sofa must fall in the same direction as all other shadows in the scene.
+SCENE (close-up crop in a scandinavian living room with light oak floors, white walls, and indoor plants): behind the cropped region the room is visible only as soft, out-of-focus context — no full room view, no props in focus, no whole-product framing. The frame is filled by the region named in CAMERA. The ambient light colour and direction come from the surrounding a scandinavian living room with light oak floors, white walls, and indoor plants. Time of day and lighting quality: midday neutral daylight, approximately 5500 K, overhead light with short even shadows. Lens: 50 mm natural perspective, matches the human eye, standard catalog framing.
 
 UPHOLSTERY: neutral greige grey-beige, like light natural stone (hex #C3BEB6) bouclé fabric.
 Texture detail: Authentic heavy upholstery bouclé made from clearly visible looped yarns. The surface is built from irregular open and closed yarn loops in mixed small-to-medium sizes, with uneven clusters, occasional larger curls, and tiny darker cavities between the loops. The loop scale remains readable at normal furniture-photography distance instead of collapsing into uniform grain. Soft wool-and-cotton character, dense and substantial, tactile three-dimensional relief, diffuse matte highlights, and subtle warm tonal variation between individual yarns. The distribution is organic and non-repeating, never a perfectly even pebble texture.

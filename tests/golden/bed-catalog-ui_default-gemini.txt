@@ -3,7 +3,7 @@
 # kind=bed mode=catalog shot=- shot_type=hero catalog_profile=ivory
 # colour=#938A83 material_id=cremona aspect=4:3 res=1K
 # stats: chars=15347 camera_offset_pct=4 preserve_offset_pct=-1 scene_offset_pct=11 negative_offset_pct=92
-# note: mirrors the wizard's catalog POST: no shot/cam/lens fields
+# note: mirrors a pre-phase-4 client's catalog POST: only yaw, every camera field empty
 
 REFERENCES (8):
   1. base_product             <base-image>

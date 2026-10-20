@@ -96,11 +96,16 @@ def test_backdrop_reaches_the_prompt(server, base_image, bg):
     assert req.env_description == entry["prompt_en"]
     assert entry["prompt_en"][:60] in _build_prompt_text(req)
     if entry.get("locks"):
-        assert req.focal_length_mm == 85 and req.aperture == "f/8.0"
+        # Phase 4: the backdrop locks the LIGHT only; the posted camera wins.
         assert "golden" not in req.tod_description.lower()
-        assert req.catalog_framing_contract
+        assert "hard" not in req.shadow_description.lower()
+        assert req.focal_length_mm == 35            # the caller's lens survives
+        assert req.catalog_framing_contract        # hero → numeric contract
         assert (Path(req.scene_reference_image).name == entry["plate"]) if entry.get("plate") \
             else req.scene_reference_image is None
+        # An older client that posts no camera gets the backdrop's defaults.
+        old = _req(server, base_image, background=bg, lens="", dof="", height="", shot="")
+        assert old.focal_length_mm == 85 and old.aperture == "f/8.0" and old.shot_type == "hero"
     else:
         assert req.focal_length_mm == 35            # the caller's lens survives
         assert "golden" in req.tod_description.lower()
@@ -148,10 +153,25 @@ def test_legacy_catalog_and_env_fields_map_onto_background(server, base_image):
     assert resolve_profile("cyclorama_softblush").name == "softblush"
 
 
-def test_detail_shot_keeps_its_crop_under_a_locked_backdrop(server, base_image):
-    req = _req(server, base_image, background="ivory", shot="detail_fabric")
-    assert req.shot_type == "detail_fabric"
-    assert not req.catalog_framing_contract            # the contract is for hero / wide / 3/4
+@pytest.mark.parametrize("shot", ["wide", "three_quarter", "cropped", "close_up", "detail_fabric", "detail_corner"])
+def test_only_hero_gets_the_framing_contract(server, base_image, shot):
+    req = _req(server, base_image, background="ivory", shot=shot)
+    assert req.shot_type == shot
+    assert not req.catalog_framing_contract
+    assert _req(server, base_image, background="ivory", shot="hero").catalog_framing_contract
+
+
+def test_close_up_is_a_tight_shot(server, base_image):
+    """A close-up drops the plate and the in-use photo like a macro does, and
+    its SCENE / CAMERA say the full product is not in the frame."""
+    from app.core.generator import plan_reference_slots
+    req = _req(server, base_image, background="ivory", shot="close_up")
+    roles = [s.role for s in plan_reference_slots(req, 14)]
+    assert "scene" not in roles and "material_application" not in roles
+    text = _build_prompt_text(req)
+    assert "CAMERA — CLOSE-UP CROP" in text and "SCENE (close-up crop)" in text
+    assert "SOURCE BACKGROUND DISCARD" not in text
+    assert "must NOT be visible" in text
 
 
 # --------------------------------------------------------------------------

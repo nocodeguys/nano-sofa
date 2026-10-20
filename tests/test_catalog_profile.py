@@ -62,14 +62,18 @@ def _request(server, base_image, **over):
 # --------------------------------------------------------------------------
 # The locked profile
 # --------------------------------------------------------------------------
-def test_catalog_mode_overrides_look_settings(server, base_image):
-    """Catalog mode ignores conflicting look settings — that is its whole job."""
+def test_catalog_mode_locks_the_light_and_keeps_the_callers_camera(server, base_image):
+    """A locked backdrop pins the light (that is what makes a range read as
+    one session); since phase 4 the camera stays with the caller, and only
+    an empty camera field takes the backdrop's default."""
     req = _request(server, base_image, catalog=True)
-
-    assert req.focal_length_mm == 85          # 85mm_product, not the 35mm asked for
-    assert req.aperture == "f/8.0"            # deep, not the default standard
     assert "golden" not in req.tod_description.lower()
     assert "hard" not in req.shadow_description.lower()
+    assert req.focal_length_mm == 35          # the 35mm the caller asked for survives
+
+    old_client = _request(server, base_image, catalog=True, lens="", dof="", height="")
+    assert old_client.focal_length_mm == 85   # 85mm_product default
+    assert old_client.aperture == "f/8.0"     # deep default
 
 
 @pytest.mark.parametrize("profile,hex_tone", [
@@ -114,7 +118,9 @@ def test_catalog_uses_its_canonical_empty_studio_reference(
     )
     assert Path(req.scene_reference_image).name == filename
     assert "yellow sunset" not in req.notes
-    assert not req.preserve_camera_from_base
+    # Phase 4: keeping image 1's camera is a camera choice, and the camera
+    # belongs to the caller even under a locked backdrop.
+    assert req.preserve_camera_from_base
 
 
 def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(

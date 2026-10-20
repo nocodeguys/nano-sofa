@@ -69,12 +69,18 @@ _CYCLORAMA_PROFILES = _backdrop_prompts()
 # only has to nudge it, rather than upscale a small product and soften it.
 # ---------------------------------------------------------------------------
 _CATALOG_LOCKS = {
+    "tod":    "noon_neutral",
+    "shadow": "soft_diffuse",
+}
+# What a locked backdrop seeds when the caller leaves a camera field empty
+# (older clients posted only `yaw` in catalog mode). The caller may set any
+# of them explicitly — phase 4 made shot type, lens, depth of field and
+# detail region first-class under a locked backdrop.
+_CATALOG_CAMERA_DEFAULTS = {
     "shot":   "hero",
     "height": "eye",
     "lens":   "85mm_product",
     "dof":    "deep",               # f/8 — no background separation on a cyclorama
-    "tod":    "noon_neutral",
-    "shadow": "soft_diffuse",
 }
 
 # Locked backdrops (catalog treatment) come from catalog.json: a backdrop
@@ -89,12 +95,20 @@ def _catalog_profile_locks(profile: str) -> dict:
     kind, entry = resolve_background(profile)
     if kind != "backdrop" or not entry.get("locks"):
         entry = BACKDROPS[DEFAULT_BACKDROP_ID]
-    return {**_CATALOG_LOCKS, **(entry.get("locks") or {}), "env": entry["id"]}
+    return {
+        **_CATALOG_LOCKS, **(entry.get("locks") or {}),
+        "camera_defaults": {**_CATALOG_CAMERA_DEFAULTS, **(entry.get("camera_defaults") or {})},
+        "env": entry["id"],
+    }
 
 # Shot type → numeric framing clause. Detail and close-up shots are absent on
 # purpose: a macro crop has no "subject scale within the frame" to lock, and
 # normalize.py refuses to touch those renders for the same reason.
 _CATALOG_FRAMING_CONTRACT = {
+    # Phase 4: the numeric contract exists for the hero packshot only. Wide,
+    # three-quarter, cropped, close-up and macro crops are editorial choices
+    # the caller makes on purpose; a second numeric contract fighting the
+    # framing string was one of the ways a close-up came back as a hero.
     "hero": (
         "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
         "framing language above): the product's widest visible extent spans "
@@ -106,22 +120,6 @@ _CATALOG_FRAMING_CONTRACT = {
         "backdrop fills every remaining margin. Do not crop the product at any "
         "frame edge, do not zoom in tighter than this, and do not pull back "
         "further than this."
-    ),
-    "wide": (
-        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
-        "framing language above): the product's widest visible extent spans "
-        "50-56 percent of the frame width, centred horizontally with equal "
-        "margins. The product's lowest point of contact with the floor sits at "
-        "78-82 percent of the frame height, measured downward from the top "
-        "edge. Do not crop the product at any frame edge."
-    ),
-    "three_quarter": (
-        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
-        "framing language above): the product's widest visible extent spans "
-        "88-94 percent of the frame width, centred horizontally. The product's "
-        "lowest point of contact with the floor sits at 88-92 percent of the "
-        "frame height, measured downward from the top edge. Do not crop the "
-        "product at any frame edge."
     ),
 }
 

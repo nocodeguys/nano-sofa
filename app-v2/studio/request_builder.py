@@ -185,18 +185,21 @@ def _build_generation_request(
         # interchangeable, and forcing a macro crop back to a hero shot
         # would just discard what the caller asked for.
         locks = _catalog_profile_locks(bg_id)
-        requested_shot = shot.strip() or _CAM_PRESET_TO_STRUCTURED.get(cam, ("hero",))[0]
-        keeps_shot = requested_shot in ("detail_fabric", "detail_corner", "close_up")
-        shot = requested_shot if keeps_shot else locks["shot"]
-        height = locks["height"]
-        lens = locks["lens"]
-        dof = locks["dof"]
+        defaults = locks["camera_defaults"]
+        # Phase 4: the backdrop locks the LIGHT; the camera belongs to the
+        # caller. Shot type, lens, depth of field, height and the detail
+        # region arrive as posted; a field an older client left empty takes
+        # the backdrop's default (85 mm, f/8, eye level, hero) — which is
+        # exactly what the old "catalog mode" forced on everyone.
+        shot = shot.strip() or defaults["shot"]
+        height = height.strip() or defaults["height"]
+        lens = lens.strip() or defaults["lens"]
+        dof = dof.strip() or defaults["dof"]
         tod = locks["tod"]
         shadow = locks["shadow"]
         # The locked backdrop owns the scene completely: the curated empty
         # studio plate (when the backdrop has one) replaces any caller scene.
         scene_image_path = _scene_reference_path(bg_id)
-        preserve_camera_from_base = False
     catalog = locked
 
     is_custom_color = color == "custom" and bool(color_custom.strip())
@@ -246,6 +249,7 @@ def _build_generation_request(
     preset_shot, preset_yaw, preset_height = _CAM_PRESET_TO_STRUCTURED.get(
         cam, ("hero", "34_left", "eye")
     )
+    lens = lens.strip() or "50mm_natural"
     shot_id   = shot.strip()   or preset_shot
     yaw_id    = yaw.strip()    or preset_yaw
     height_id = height.strip() or preset_height

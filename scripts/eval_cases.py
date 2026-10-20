@@ -116,7 +116,8 @@ def _product_cases() -> list[Case]:
         cases.append(Case(
             id=f"bed-catalog-ui_default-{engine}",
             engine=engine, kind="bed", mode="catalog", shot="",
-            note="mirrors the wizard's catalog POST: no shot/cam/lens fields",
+            note="mirrors a pre-phase-4 client's catalog POST: only yaw, every camera field empty",
+            extra=dict(lens="", dof="", height="", shot=""),
         ))
     for engine in ENGINES:
         cases.append(Case(
@@ -168,9 +169,13 @@ def build_request(case: Case, base_image: Optional[Path]) -> GenerationRequest:
         ),
         catalog=catalog, catalog_profile="ivory" if catalog else "",
     )
-    if not catalog:
-        # Lifestyle: the wizard posts every camera field plus its env.
-        kwargs.update(env="scandi", env_mode="reference",
+    if catalog:
+        # Phase 4: the wizard posts the camera it seeded when the locked
+        # backdrop was picked (85 mm, f/8, eye level); the light is locked.
+        kwargs.update(background="ivory", lens="85mm_product", dof="deep", height="eye")
+    else:
+        # Lifestyle: the wizard posts every camera field plus its scene.
+        kwargs.update(background="scandi", env="scandi", env_mode="reference",
                       height="eye", dof="standard")
     kwargs.update(case.extra)
     return _build_generation_request(**kwargs)

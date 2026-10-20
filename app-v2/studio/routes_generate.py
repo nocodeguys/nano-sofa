@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.core.generator import generate, load_freeform_reference_plan
+from app.core.generator import TIGHT_SHOTS, generate, load_freeform_reference_plan
 from app.core.model_registry import registry
 from studio.catalog import background_treatment
 from studio.errors import _item_error, _result_error, _validation_error
@@ -107,7 +107,7 @@ async def api_generate(
     size: str = Form("3"),
     legs: str = Form("keep"),
     cam: str = Form("studio"),
-    lens: str = Form("50mm_natural"),
+    lens: str = Form(""),
     tod: str = Form("noon_neutral"),
     shadow: str = Form("soft_diffuse"),
     # New structured camera fields — see _build_generation_request for the
@@ -264,7 +264,7 @@ async def api_generate(
     # derived from it, so the delivered JPG, the history thumbnail and any later
     # anchor all carry the normalized geometry and backdrop.
     normalized = False
-    if treat["normalize_profile"]:
+    if treat["normalize_profile"] and req.shot_type not in TIGHT_SHOTS:
         _, normalized = await asyncio.to_thread(
             normalize_packshot, result.output_path, treat["normalize_profile"]
         )
@@ -314,7 +314,7 @@ async def api_generate_set(
     size: str = Form("3"),
     legs: str = Form("keep"),
     cam: str = Form("studio"),
-    lens: str = Form("50mm_natural"),
+    lens: str = Form(""),
     tod: str = Form("noon_neutral"),
     shadow: str = Form("soft_diffuse"),
     # Structured camera fields — same semantics as /api/generate. When empty
@@ -465,7 +465,7 @@ async def api_generate_set(
     # their scene reference, so if the anchor is normalized first the whole
     # set inherits the profile geometry from the model rather than only from
     # their own post-pass — the two then agree instead of fighting.
-    if treat["normalize_profile"]:
+    if treat["normalize_profile"] and anchor_req.shot_type not in TIGHT_SHOTS:
         await asyncio.to_thread(
             normalize_packshot, anchor_result.output_path, treat["normalize_profile"]
         )
@@ -541,7 +541,7 @@ async def api_generate_set(
         if not r.success or r.output_path is None:
             variants_payload.append(_item_error({"color": cid, "material": mid}, r))
             continue
-        if treat["normalize_profile"]:
+        if treat["normalize_profile"] and anchor_req.shot_type not in TIGHT_SHOTS:
             await asyncio.to_thread(normalize_packshot, r.output_path, treat["normalize_profile"])
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, transparent_env)
         variants_payload.append({
@@ -589,7 +589,7 @@ async def api_generate_variants(
     size: str = Form("3"),
     legs: str = Form("keep"),
     cam: str = Form("studio"),
-    lens: str = Form("50mm_natural"),
+    lens: str = Form(""),
     tod: str = Form("noon_neutral"),
     shadow: str = Form("soft_diffuse"),
     shot: str = Form(""),
@@ -765,7 +765,7 @@ async def api_regenerate_variant(
     size: str = Form("3"),
     legs: str = Form("keep"),
     cam: str = Form("studio"),
-    lens: str = Form("50mm_natural"),
+    lens: str = Form(""),
     tod: str = Form("noon_neutral"),
     shadow: str = Form("soft_diffuse"),
     shot: str = Form(""),
