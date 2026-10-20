@@ -1,5 +1,5 @@
 # golden prompt — case: bed-lifestyle-close_up-gemini
-# engine: gemini | model: gemini-3.1-flash-image | max_refs: 14
+# engine: gemini | model: gemini-nano-banana-2.1 | max_refs: 14
 # kind=bed mode=lifestyle shot=close_up shot_type=close_up catalog_profile=-
 # colour=#938A83 material_id=cremona aspect=4:3 res=1K
 # stats: chars=11174 camera_offset_pct=76 preserve_offset_pct=88 scene_offset_pct=81 negative_offset_pct=89

@@ -1,6 +1,7 @@
 """
 schema_loader.py — Loads prompts/schemas/sofa.json and exposes structured
-data for the Gradio UI. Watched for changes at startup; call reload() to
+data (preserve lists, system instruction, output vocab) to the generator and
+the studio. Model facts come from app.core.model_registry. Watched for changes at startup; call reload() to
 re-read from disk without restarting the process.
 """
 
@@ -14,6 +15,11 @@ from typing import Any
 # Resolve paths relative to this file so the app works from any cwd.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCHEMA_PATH = _REPO_ROOT / "prompts" / "schemas" / "sofa.json"
+
+
+def _registry():
+    from app.core.model_registry import registry
+    return registry
 
 
 def _load_raw() -> dict[str, Any]:
@@ -34,18 +40,11 @@ class SofaSchema:
         self._raw = raw
 
         # ------------------------------------------------------------------ #
-        # Model enum + constraints
+        # Models — the schema no longer carries them. app-v2/models.json is
+        # the registry; the Gemini ids are mirrored here for the callers that
+        # still ask the schema (healthz, validate_request).
         # ------------------------------------------------------------------ #
-        self.model_ids: list[str] = raw["properties"]["model"]["enum"]
-
-        mc_raw = raw["properties"]["model_constraints"]["properties"]
-        self.model_constraints: dict[str, dict[str, Any]] = {}
-        for model_id, props in mc_raw.items():
-            flat: dict[str, Any] = {}
-            for key, val_obj in props["properties"].items():
-                # Each leaf is {"const": <value>} from JSON Schema
-                flat[key] = val_obj.get("const")
-            self.model_constraints[model_id] = flat
+        self.model_ids: list[str] = [m.id for m in _registry().by_engine("gemini")]
 
         # ------------------------------------------------------------------ #
         # Reference slots
@@ -162,41 +161,40 @@ class SofaSchema:
     # Constraint helpers used by the UI
     # ---------------------------------------------------------------------- #
 
+    # The model helpers delegate to the registry so old call sites keep
+    # working; new code should import app.core.model_registry directly.
     def max_refs_for_model(self, model_id: str) -> int:
-        return self.model_constraints.get(model_id, {}).get("max_reference_images", 3)
+        return _registry().max_refs(model_id, 3)
 
     def max_resolution_for_model(self, model_id: str) -> str:
-        return self.model_constraints.get(model_id, {}).get("max_output_resolution", "1K")
+        m = _registry().get(model_id)
+        return m.max_resolution if m else "1K"
 
     def supports_resolution_param(self, model_id: str) -> bool:
-        return bool(
-            self.model_constraints.get(model_id, {}).get("supports_resolution_param", False)
-        )
+        m = _registry().get(model_id)
+        return bool(m.supports_resolution_param) if m else False
 
     def resolution_choices_for_model(self, model_id: str) -> list[str]:
-        ceiling = self.max_resolution_for_model(model_id)
-        order = ["1K", "2K", "4K"]
-        cutoff = order.index(ceiling) if ceiling in order else 0
-        return order[: cutoff + 1]
+        m = _registry().get(model_id)
+        return m.resolution_choices() if m else ["1K"]
 
     def deprecation_date_for_model(self, model_id: str) -> str | None:
-        return self.model_constraints.get(model_id, {}).get("deprecation_date")
+        m = _registry().get(model_id)
+        return (m.deprecation or {}).get("shutdown") if m else None
 
     def thinking_on_by_default(self, model_id: str) -> bool:
-        return bool(
-            self.model_constraints.get(model_id, {}).get("thinking_on_by_default", False)
-        )
+        m = _registry().get(model_id)
+        return bool(m.thinking.get("on_by_default", False)) if m else False
 
     def thinking_cannot_be_disabled(self, model_id: str) -> bool:
-        return bool(
-            self.model_constraints.get(model_id, {}).get("thinking_cannot_be_disabled", False)
-        )
+        m = _registry().get(model_id)
+        return (not m.thinking.get("can_disable", True)) if m else False
 
     def aspect_ratios_for_model(self, model_id: str) -> list[str]:
         """
-        gemini-3.1-flash-image supports additional extreme ratios; the schema limits
-        output.aspect_ratio to the 4 ratios needed for sofa photography, all
-        of which are valid on every active model. Return the full schema list.
+        Newer Gemini image models accept extra extreme ratios; the schema limits
+        output.aspect_ratio to the ratios needed for sofa photography, all of
+        which are valid on every active model. Return the full schema list.
         """
         return self.aspect_ratio_options
 

@@ -52,8 +52,10 @@ from studio.request_builder import (  # noqa: E402
     _build_generation_request,
 )
 
-GEMINI_MODEL = "gemini-3.1-flash-image"   # the route default today
-OPENAI_MODEL = "gpt-image-2.5-flare"
+from app.core.model_registry import registry  # noqa: E402
+
+GEMINI_MODEL = registry.default_for("studio")   # the route default (models.json)
+OPENAI_MODEL = registry.default_for("lab")
 
 ENGINES = {
     "gemini": GEMINI_MODEL,

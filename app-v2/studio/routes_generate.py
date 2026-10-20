@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.generator import generate, load_freeform_reference_plan
+from app.core.model_registry import registry
 from studio.errors import _item_error, _result_error, _validation_error
 from studio.mappings import _compose_bedding_description
 from studio.media import (
@@ -42,13 +43,18 @@ router = APIRouter()
 # The anchor renders first (sequentially), then variants fan out through this
 # gate. Created lazily so it binds to the running event loop; per-process.
 _BATCH_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "3"))
+
+# Form defaults come from the registry so a stale browser cache or a script
+# that omits `model` lands on the current recommended model, not a dead id.
+_DEFAULT_STUDIO_MODEL = registry.default_for("studio")
+_DEFAULT_EDITORIAL_MODEL = registry.default_for("editorial")
 _gen_semaphore: Optional[asyncio.Semaphore] = None
 
 
 def _missing_key_error(model: str, api_key: str, openai_key: str):
     """The product routes need the Gemini key — or, for a Lab (OpenAI) model,
     the OpenAI key. Returns the validation response or None."""
-    if model in OPENAI_MODELS:
+    if registry.engine_of(model) == "openai":
         if openai_key.strip():
             return None
         return _validation_error(
@@ -63,7 +69,7 @@ def _missing_key_error(model: str, api_key: str, openai_key: str):
 def _render_product(req, openai_key: str = "", quality: str = ""):
     """Engine dispatch for the product pipeline: Lab (OpenAI) models go to the
     Images API with the same request, everything else to generator.generate()."""
-    if req.model_id in OPENAI_MODELS:
+    if registry.engine_of(req.model_id) == "openai":
         return generate_product_openai(
             dataclass_replace(req, engine_quality=quality), openai_key.strip()
         )
@@ -114,7 +120,7 @@ async def api_generate(
     env: str = Form(""),
     env_note: str = Form(""),
     env_mode: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image"),
+    model: str = Form(_DEFAULT_STUDIO_MODEL),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -312,7 +318,7 @@ async def api_generate_set(
     density: str = Form(""),
     accents: str = Form(""),
     bed_note: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image"),
+    model: str = Form(_DEFAULT_STUDIO_MODEL),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -569,7 +575,7 @@ async def api_generate_variants(
     density: str = Form(""),
     accents: str = Form(""),
     bed_note: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image"),
+    model: str = Form(_DEFAULT_STUDIO_MODEL),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -745,7 +751,7 @@ async def api_regenerate_variant(
     density: str = Form(""),
     accents: str = Form(""),
     bed_note: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image"),
+    model: str = Form(_DEFAULT_STUDIO_MODEL),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -815,7 +821,7 @@ async def api_generate_free(
     color: str = Form(""),
     mat: str = Form(""),
     people: str = Form(""),
-    model: str = Form("gemini-3.1-flash-image"),
+    model: str = Form(_DEFAULT_EDITORIAL_MODEL),
     aspect: str = Form("4:3"),
     res: str = Form("1K"),
     seed: str = Form(""),
@@ -833,10 +839,8 @@ async def api_generate_free(
     OpenRouter Images API with the user's OpenRouter key, and GPT Image 2.5
     (the Lab tab) runs directly against the OpenAI Images API with the
     user's OpenAI key."""
-    engine = (
-        "openrouter" if model in OPENROUTER_MODELS
-        else "openai" if model in OPENAI_MODELS
-        else "google"
+    engine = {"openrouter": "openrouter", "openai": "openai"}.get(
+        registry.engine_of(model), "google"
     )
     if engine == "openrouter" and not openrouter_key.strip():
         return _validation_error(

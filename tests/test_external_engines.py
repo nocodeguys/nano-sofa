@@ -199,7 +199,7 @@ def test_openai_generation_without_references_is_json(server, sandbox, monkeypat
     assert captured["data"] is None
     body = captured["json"]
     assert body["size"] == "2304x1296"
-    assert body["quality"] == "high"          # unknown tier → model default
+    assert body["quality"] == "xhigh"         # unknown tier → model default (registry)
     assert "input_fidelity" not in body
     assert out["cost"] == pytest.approx(1056 * 30e-6)
     assert out["resolution"] == "2K"

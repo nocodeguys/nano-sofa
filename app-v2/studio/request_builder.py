@@ -17,7 +17,7 @@ from app.core.generator import (
     plan_freeform_reference_slots,
     slot_numbers,
 )
-from app.core.schema_loader import schema
+from app.core.model_registry import registry
 from studio.catalog import (
     _COLOR_META,
     _COLOR_PL_TO_EN,
@@ -425,7 +425,7 @@ def _build_freeform_request(
     color: str = "",
     mat: str = "",
     people: str = "",
-    model: str = "gemini-3.1-flash-image",
+    model: str = "",
     aspect: str = "4:3",
     res: str = "1K",
     seed: str = "",
@@ -452,7 +452,7 @@ def _build_freeform_request(
     behavior = _material_behavior_reference_path(mat) if mat else None
     application = _material_application_reference_path(mat) if mat else None
     req = GenerationRequest(
-        model_id=model,
+        model_id=registry.resolve(model, "editorial"),
         base_product_image=None,
         swatch_reference_image=str(macro) if macro else None,
         material_left_reference_image=str(left) if left else None,

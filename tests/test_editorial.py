@@ -139,8 +139,24 @@ def test_config_lists_lab_models(client):
         assert m["max_refs"] == 16 and m["moodboard_max"] == 6
         assert m["resolutions"] == ["1K", "2K"]
         assert {"xhigh", "max"} <= set(m["qualities"])
-        assert m["default_quality"] == "high"
+        # On 2.5 `high` is the old `medium` budget; the working default is xhigh.
+        assert m["default_quality"] == "xhigh"
         assert len(m["aspects"]) == 8
+        assert m["deprecated"] is False
+
+
+def test_config_flags_deprecated_models_and_never_defaults_to_them(client):
+    cfg = client.get("/api/config").json()
+    everything = cfg["models"] + cfg["editorial_models"] + cfg["lab_models"]
+    by_id = {m["id"]: m for m in everything}
+    # Deprecated ids stay listed (old presets must resolve) but are flagged.
+    for dead in ("gemini-3.1-flash-image", "gemini-2.5-flash-image", "openai/gpt-image-1"):
+        assert by_id[dead]["deprecated"] is True, dead
+    for key in ("default_model", "editorial_default_model", "lab_default_model"):
+        assert by_id[cfg[key]]["deprecated"] is False, key
+    # The studio default is the current recommended Gemini model.
+    assert by_id[cfg["default_model"]]["engine"] == "gemini"
+    assert by_id[cfg["default_model"]]["max_refs"] >= 14
 
 
 def test_openrouter_aspect_clamping(server):

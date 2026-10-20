@@ -4,63 +4,28 @@
   "title": "Furniture variant generation request (sofa, bed)",
   "version": "0.3.0",
   "type": "object",
-  "required": ["task", "model", "product", "variant", "camera", "output"],
+  "required": [
+    "task",
+    "model",
+    "product",
+    "variant",
+    "camera",
+    "output"
+  ],
   "properties": {
     "task": {
       "const": "generate_product_variant"
     },
-
     "model": {
       "type": "string",
-      "enum": [
-        "gemini-2.5-flash-image",
-        "gemini-3.1-flash-image",
-        "gemini-3-pro-image"
-      ],
-      "description": "Active Nano Banana model ID, verified against official Google docs updated 2026-08-26. gemini-3.1-flash-image (Nano Banana 2) is the recommended general-purpose production model; gemini-3-pro-image is the precision/brand-consistency tier. gemini-2.5-flash-image remains available only as the legacy low-resolution option."
+      "description": "Image model id. The list of models, their caps, resolutions and prices live in app-v2/models.json (app/core/model_registry.py); this field is no longer an enum so the schema does not have to change when the line-up does."
     },
-
-    "model_constraints": {
-      "type": "object",
-      "description": "Read-only summary of per-model limits. The Gradio app reads this to enforce ref-slot rules and resolution options at form-render time. Do not override these values in generation requests.",
-      "properties": {
-        "gemini-2.5-flash-image": {
-          "type": "object",
-          "properties": {
-            "max_reference_images": { "const": 3 },
-            "max_output_resolution": { "const": "1K" },
-            "supports_resolution_param": { "const": false },
-            "deprecation_date": { "const": "2026-10-02" }
-          }
-        },
-        "gemini-3.1-flash-image": {
-          "type": "object",
-          "properties": {
-            "max_reference_images": { "const": 14 },
-            "max_output_resolution": { "const": "4K" },
-            "supports_resolution_param": { "const": true },
-            "thinking_on_by_default": { "const": true },
-            "deprecation_date": { "const": null }
-          }
-        },
-        "gemini-3-pro-image": {
-          "type": "object",
-          "properties": {
-            "max_reference_images": { "const": 14 },
-            "max_output_resolution": { "const": "4K" },
-            "supports_resolution_param": { "const": true },
-            "thinking_on_by_default": { "const": true },
-            "thinking_cannot_be_disabled": { "const": true },
-            "deprecation_date": { "const": null }
-          }
-        }
-      }
-    },
-
     "reference_slots": {
       "type": "object",
       "description": "Declares which reference images are included in this request and their send-order. Order matters: slot 1 is always the base product; the model uses positional context to know which image is which. The Gradio app assembles the contents list in slot-number order. On gemini-2.5-flash-image the hard cap is 3 slots total. Attempting to fill base + legs + scene + swatch on Flash will fail or silently drop slot 4. Use a preview-tier model if more than 3 reference slots are needed.",
-      "required": ["slot_1_base_product"],
+      "required": [
+        "slot_1_base_product"
+      ],
       "properties": {
         "slot_1_base_product": {
           "type": "string",
@@ -80,29 +45,47 @@
         }
       }
     },
-
     "system_instruction": {
       "type": "string",
       "description": "Text sent as the system instruction in GenerateContentConfig. Supported on all three active models (confirmed via Vertex AI capability tables, treat as best-effort until independently verified). Use this field to establish a standing product-photography persona. The stronger the system instruction, the lower the implicit-redesign rate. Example: 'You are a product photography assistant. Always preserve the camera angle, perspective, and product identity from the reference image. Never redesign, add accessories to, or alter the proportions of the product.'",
       "default": "You are a product photography assistant. Your only job is to produce clean e-commerce imagery of the exact product shown in the reference photo. Preserve camera angle, frame geometry, cushion count, stitching pattern, leg count, leg positions, seat depth, arm height, and all visible joinery exactly. Never add throw pillows, decorative objects, or accessories that are not in the reference. Never change proportions to look more editorial. Never hallucinate text, brand names, or price labels."
     },
-
     "product": {
       "type": "object",
-      "required": ["type", "configuration", "base_reference", "preserve"],
+      "required": [
+        "type",
+        "configuration",
+        "base_reference",
+        "preserve"
+      ],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["sofa", "bed"],
+          "enum": [
+            "sofa",
+            "bed"
+          ],
           "description": "Product family. Drives prompt assembly: anatomy nouns, default preserve list, and whether leg-count emphasis is included. Adding a new family (chair, lounger, etc.) requires extending this enum and updating the prompt-builder branches in generator.py."
         },
         "configuration": {
           "type": "string",
           "description": "Sofa configurations or bed sizes. Validated per product.type at the application layer (the JSON schema's enum union accepts any of these values).",
           "enum": [
-            "1-seater", "2-seater", "3-seater", "4-seater", "corner-left", "corner-right", "modular",
-            "twin", "full", "queen", "king", "california-king",
-            "european-single", "european-double", "european-king",
+            "1-seater",
+            "2-seater",
+            "3-seater",
+            "4-seater",
+            "corner-left",
+            "corner-right",
+            "modular",
+            "twin",
+            "full",
+            "queen",
+            "king",
+            "california-king",
+            "european-single",
+            "european-double",
+            "european-king",
             "super-king"
           ]
         },
@@ -165,20 +148,36 @@
         }
       }
     },
-
     "variant": {
       "type": "object",
-      "required": ["upholstery"],
+      "required": [
+        "upholstery"
+      ],
       "properties": {
         "upholstery": {
           "type": "object",
-          "required": ["color", "material"],
+          "required": [
+            "color",
+            "material"
+          ],
           "properties": {
-            "color": { "type": "string" },
+            "color": {
+              "type": "string"
+            },
             "material": {
               "type": "string",
               "description": "Material id from app-v2/catalog.json (TreeTale fabric matrix) — the single source of truth; server startup validates the catalog against this enum.",
-              "enum": ["knit", "boucle", "basketweave", "chenille", "cremona", "ecoleather", "velour", "corduroy", "linen"]
+              "enum": [
+                "knit",
+                "boucle",
+                "basketweave",
+                "chenille",
+                "cremona",
+                "ecoleather",
+                "velour",
+                "corduroy",
+                "linen"
+              ]
             },
             "texture_notes": {
               "type": "string",
@@ -224,47 +223,82 @@
         }
       }
     },
-
     "camera": {
       "type": "object",
-      "required": ["angle"],
+      "required": [
+        "angle"
+      ],
       "description": "Camera contract. Stated explicitly in every prompt even when the base reference image is attached — long batch runs drift camera angle by a few degrees across variants even when re-anchored to the same reference. Belt-and-suspenders approach confirmed necessary by research.",
       "properties": {
         "angle": {
           "type": "string",
-          "enum": ["front-0", "front-34-left", "front-34-right", "side-90", "low-34"]
+          "enum": [
+            "front-0",
+            "front-34-left",
+            "front-34-right",
+            "side-90",
+            "low-34"
+          ]
         },
         "angle_degrees_from_left": {
           "type": "integer",
           "description": "Numeric equivalent of the angle enum, used for explicit prompt text (e.g. 'three-quarter front view, approximately 35 degrees from the left'). Values: front-0=0, front-34-left=35, front-34-right=325, side-90=90, low-34=35 (low). Include this in long-batch runs where camera drift is observed.",
-          "enum": [0, 35, 90, 325]
+          "enum": [
+            0,
+            35,
+            90,
+            325
+          ]
         },
         "shadow_direction": {
           "type": "string",
           "description": "Clock-position of the shadow cast by the sofa, stated from the sofa's perspective (e.g. '4 o-clock'). Included verbatim in the prompt. Required to mitigate shadow-direction-inconsistency failure mode — the model does not automatically match shadow angle for swapped elements (legs, backgrounds) unless explicitly instructed. Required when variant.legs or variant.scene are present.",
-          "examples": ["4 o-clock", "8 o-clock", "directly behind (12 o-clock)", "6 o-clock"]
+          "examples": [
+            "4 o-clock",
+            "8 o-clock",
+            "directly behind (12 o-clock)",
+            "6 o-clock"
+          ]
         },
-        "focal_length_mm": { "type": "integer", "default": 50 },
-        "aperture": { "type": "string", "default": "f/4.5" },
+        "focal_length_mm": {
+          "type": "integer",
+          "default": 50
+        },
+        "aperture": {
+          "type": "string",
+          "default": "f/4.5"
+        },
         "framing": {
           "type": "string",
           "default": "full product visible with breathing room above and below"
         }
       }
     },
-
     "output": {
       "type": "object",
-      "required": ["aspect_ratio"],
+      "required": [
+        "aspect_ratio"
+      ],
       "properties": {
         "aspect_ratio": {
           "type": "string",
-          "enum": ["1:1", "4:3", "3:2", "16:9", "9:16", "4:5"],
+          "enum": [
+            "1:1",
+            "4:3",
+            "3:2",
+            "16:9",
+            "9:16",
+            "4:5"
+          ],
           "description": "Supported on all three active models. 9:16 is the Instagram Stories / Reels vertical. 4:5 is the Instagram feed portrait (the most common social vertical for product photography). The extreme 1:4, 4:1, 1:8 and 8:1 ratios supported by Gemini 3.1 Flash Image are intentionally omitted because they are not useful for furniture catalog photography."
         },
         "resolution": {
           "type": "string",
-          "enum": ["1K", "2K", "4K"],
+          "enum": [
+            "1K",
+            "2K",
+            "4K"
+          ],
           "default": "1K",
           "description": "Target output resolution. gemini-2.5-flash-image is capped at 1K. Gemini 3.1 Flash Image and Gemini 3 Pro Image support 1K, 2K and 4K via ImageConfig.image_size; the UI enforces the per-model cap."
         },
@@ -274,10 +308,11 @@
         }
       }
     },
-
     "negative": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "default": [
         "text",
         "watermarks",
@@ -299,14 +334,15 @@
         "shadow direction inconsistent with scene lighting"
       ]
     },
-
     "multi_turn": {
       "type": "object",
       "description": "Controls thought-signature passthrough for multi-turn edit sessions. Fine features (stitching, leg joinery, small details) drift between edit turns even when the original reference is re-attached. Mitigation: pass thought_signatures from the prior turn back with the next request. Also: do not run chains longer than 2-3 turns from a single original reference — save intermediate good outputs and re-feed them as the new base_reference.",
       "properties": {
         "prior_thought_signatures": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "thought_signature values extracted from the prior generation response. Include these in the next turn's contents list to maintain model context. Reduces identity drift in multi-turn sessions. Extract from response.candidates[0].content.parts where part.thought_signature is non-empty."
         },
         "turn_number": {
@@ -320,7 +356,6 @@
         }
       }
     },
-
     "notes": {
       "type": "string",
       "description": "Free-form human-readable note included verbatim in the prompt for the model to consider. Use this for one-off instructions that do not fit other fields."

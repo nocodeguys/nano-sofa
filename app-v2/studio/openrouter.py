@@ -24,6 +24,7 @@ import httpx
 from PIL import Image
 
 from app.core.cost_tracker import new_generation_id
+from app.core.model_registry import registry
 from studio.external_engine import (
     ALL_ASPECTS,
     ExternalEngineError,
@@ -48,69 +49,24 @@ from studio.paths import logger
 # frontend disables the rest and _clamp_aspect is the server-side backstop.
 # `qualities` (when present) is forwarded as the Images API `quality` field.
 _ALL_ASPECTS = list(ALL_ASPECTS)
-_GPT_IMAGE_QUALITIES = ["low", "medium", "high"]
-OPENROUTER_MODELS = {
-    "openai/gpt-image-2": {
-        "label": "GPT Image 2 · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.01–0.13/obraz wg jakości",
-        "aspects": _ALL_ASPECTS,
-        "qualities": _GPT_IMAGE_QUALITIES,
-        "default_quality": "high",
-    },
-    "openai/gpt-image-1": {
-        "label": "GPT Image 1 · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.01–0.17/obraz wg jakości",
-        "aspects": ["1:1", "2:3", "3:2"],
-        "qualities": _GPT_IMAGE_QUALITIES,
-        "default_quality": "medium",
-    },
-    "openai/gpt-image-1-mini": {
-        "label": "GPT Image 1 mini · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.002–0.04/obraz wg jakości",
-        "aspects": ["1:1", "2:3", "3:2"],
-        "qualities": _GPT_IMAGE_QUALITIES,
-        "default_quality": "medium",
-    },
-    "black-forest-labs/flux.2-pro": {
-        "label": "FLUX.2 pro · OpenRouter",
-        "max_refs": 8,
-        "price_hint": "~$0.06/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "bytedance-seed/seedream-4.5": {
-        "label": "Seedream 4.5 · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "$0.04/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "bytedance-seed/seedream-5-0-pro": {
-        "label": "Seedream 5.0 Pro · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "$0.045/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "bytedance-seed/seedream-5-0-lite": {
-        "label": "Seedream 5.0 Lite · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "$0.035/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "krea/krea-2-large": {
-        "label": "Krea 2 Large · OpenRouter",
-        "max_refs": 1,
-        "price_hint": "cena wg OpenRouter",
-        "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
-    },
-    "krea/krea-2-medium": {
-        "label": "Krea 2 Medium · OpenRouter",
-        "max_refs": 1,
-        "price_hint": "cena wg OpenRouter",
-        "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
-    },
-}
+
+
+def _engine_cfg(m) -> dict:
+    cfg = {
+        "label": m.label,
+        "max_refs": m.max_refs,
+        "price_hint": m.pricing.get("price_hint", ""),
+        "aspects": list(m.aspects) or list(_ALL_ASPECTS),
+    }
+    if m.qualities:
+        cfg["qualities"] = list(m.qualities)
+        cfg["default_quality"] = m.default_quality or m.qualities[-1]
+    return cfg
+
+
+# slug → engine config view of the registry (OpenRouter models only; the
+# per-model quirks above are encoded there as `aspects` / `qualities`).
+OPENROUTER_MODELS = {m.id: _engine_cfg(m) for m in registry.by_engine("openrouter")}
 
 # Nearest supported stand-ins for aspects a model lacks (same orientation).
 # Followed as a chain until an allowed aspect is reached (21:9 → 16:9 → 3:2

@@ -1,5 +1,5 @@
 # golden prompt — case: bed-lifestyle-hero-gemini
-# engine: gemini | model: gemini-3.1-flash-image | max_refs: 14
+# engine: gemini | model: gemini-nano-banana-2.1 | max_refs: 14
 # kind=bed mode=lifestyle shot=hero shot_type=hero catalog_profile=-
 # colour=#938A83 material_id=cremona aspect=4:3 res=1K
 # stats: chars=10896 camera_offset_pct=78 preserve_offset_pct=87 scene_offset_pct=81 negative_offset_pct=89

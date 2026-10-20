@@ -1,5 +1,5 @@
 # golden prompt — case: sofa-lifestyle-close_up-gemini
-# engine: gemini | model: gemini-3.1-flash-image | max_refs: 14
+# engine: gemini | model: gemini-nano-banana-2.1 | max_refs: 14
 # kind=sofa mode=lifestyle shot=close_up shot_type=close_up catalog_profile=-
 # colour=#C3BEB6 material_id=boucle aspect=4:3 res=1K
 # stats: chars=5114 camera_offset_pct=65 preserve_offset_pct=91 scene_offset_pct=77 negative_offset_pct=95

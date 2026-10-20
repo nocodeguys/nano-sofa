@@ -61,18 +61,15 @@ function mkErr(message, code = "VALIDATION") {
   return { message, code, retryable: false };
 }
 
-// Client-side ETA seed, mirroring cost_tracker._DURATION_SEED. Used as the
-// instant, model-aware estimate AND the fallback when /api/eta is unavailable
-// (e.g. before the server is restarted with the new route), so the overlay
-// never shows a flat constant. /api/eta refines this with measured history.
-const _ETA_SEED = {
-  flash: { "1K": [8, 16], "2K": [13, 26], "4K": [20, 38] },
-  pro:   { "1K": [18, 34], "2K": [26, 50], "4K": [40, 72] },
-};
-function localEta(model, res, refs) {
-  const tier = (model || "").includes("pro") ? "pro" : "flash";
+// Client-side ETA: the per-tier seeds come with /api/config (`eta_seed`,
+// the same table cost_tracker uses), keyed by the model's `tier`. Used as the
+// instant estimate AND the fallback when /api/eta is unavailable, so the
+// overlay never shows a flat constant. /api/eta refines with measured history.
+const _ETA_FALLBACK = { "1K": [12, 24], "2K": [20, 40], "4K": [30, 60] };
+function localEta(modelObj, etaSeed, res, refs) {
   const r = (res || "1K").split(" ")[0].toUpperCase();
-  const seed = _ETA_SEED[tier][r] || _ETA_SEED[tier]["1K"];
+  const table = (etaSeed && etaSeed[modelObj?.tier]) || null;
+  const seed = (table && (table[r] || table["1K"])) || _ETA_FALLBACK[r] || _ETA_FALLBACK["1K"];
   const n = refs || 0;
   return {
     p50_s: Math.round((seed[0] + 1.2 * n) * 10) / 10,
@@ -281,18 +278,11 @@ function App({ t, mode = "photos" }) {
   const keyHint = isLab ? "Wklej klucz OpenAI u góry sceny." : "Wklej klucz Gemini API u góry sceny.";
   const keyCode = isLab ? "MISSING_OPENAI_KEY" : "MISSING_API_KEY";
 
-  // Server-driven config: models + per-model constraints (max_refs, resolutions).
-  // Falls back to a single Flash entry if the request fails so the UI still loads.
-  const [serverConfig, setServerConfig] = useState(isLab ? {
-    models: [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · OpenAI", provider: "openai",
-               max_refs: 16, max_resolution: "2K", resolutions: ["1K", "2K"],
-               qualities: ["low", "medium", "high", "xhigh", "max"], default_quality: "high" }],
-    default_model: "gpt-image-2.5-flare",
-  } : {
-    models: [{ id: "gemini-3.1-flash-image", label: "Nano Banana 2", tier: "flash",
-               max_refs: 14, max_resolution: "4K", resolutions: ["1K", "2K", "4K"] }],
-    default_model: "gemini-3.1-flash-image",
-  });
+  // Server-driven config: models + per-model constraints (max_refs,
+  // resolutions, pricing, eta seeds) from app-v2/models.json via /api/config.
+  // No model id lives in this file: until the config arrives the picker is
+  // empty and the POST carries model="" (the server applies its default).
+  const [serverConfig, setServerConfig] = useState({ models: [], default_model: "", eta_seed: null });
   useEffect(() => {
     fetch("/api/config")
       .then(r => r.ok ? r.json() : null)
@@ -367,7 +357,7 @@ function App({ t, mode = "photos" }) {
     density: "balanced",
     accents: [],            // array of BED_ACCENTS ids
     bedNote: "",            // optional free-text styling note
-    model: isLab ? "gpt-image-2.5-flare" : "gemini-3.1-flash-image", aspect: "4:3", res: "1K", seed: "",
+    model: "", aspect: "4:3", res: "1K", seed: "",
     outputFormat: "jpg", outputQuality: 82,
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
@@ -467,7 +457,7 @@ function App({ t, mode = "photos" }) {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genElapsed, setGenElapsed] = useState(0);   // seconds, live while generating
-  const [eta, setEta] = useState(() => localEta("gemini-3.1-flash-image", "1K", 0));
+  const [eta, setEta] = useState(() => localEta(null, null, "1K", 0));
   // When true, the next /api/generate call attaches the most recent gallery
   // image as scene_image — locking the backdrop pixel-perfectly across
   // re-renders. Same mechanism the Warianty tab uses for cross-variant
@@ -608,6 +598,15 @@ function App({ t, mode = "photos" }) {
     () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
     [serverConfig, st.model],
   );
+  // Display name for any model id (history rows, chips) — from the registry,
+  // never derived from the id string.
+  const modelShort = (id) => (serverConfig.models.find(m => m.id === id) || {}).short || id || "—";
+  // Registry price for the current model at a resolution ("1K" when unknown).
+  const modelPrice = (res) => {
+    const table = modelObj?.pricing || {};
+    const r = (res || "1K").split(" ")[0];
+    return Number(table[r] ?? table["1K"] ?? 0);
+  };
 
   // If the server's catalogue doesn't include the currently-selected model
   // (e.g. dev edited the schema), snap to the server default. Same for resolution
@@ -629,12 +628,9 @@ function App({ t, mode = "photos" }) {
   }, [serverConfig, st.model]);
 
   const cost = useMemo(() => {
-    const base = st.model.includes("pro") ? 0.12 : 0.03;
     const refMult = 1 + st.refs.filter(Boolean).length * 0.15;
-    const r = (st.res || "").split(" ")[0];
-    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
-    return (base * refMult * resMult).toFixed(3);
-  }, [st.model, st.refs, st.res]);
+    return (modelPrice(st.res) * refMult).toFixed(3);
+  }, [modelObj, st.refs, st.res]);
 
   // Honest ETA: ask the server for a measured-or-estimated duration whenever the
   // model / resolution / reference-count changes. Debounced so dragging controls
@@ -644,7 +640,7 @@ function App({ t, mode = "photos" }) {
     const res = (st.res || "1K").split(" ")[0];
     // Instant, model-aware estimate so the overlay reflects the current pick
     // immediately (and survives /api/eta being unavailable).
-    setEta(localEta(st.model, res, refs));
+    setEta(localEta(modelObj, serverConfig.eta_seed, res, refs));
     const t = setTimeout(() => {
       fetch(`/api/eta?model=${encodeURIComponent(st.model)}&resolution=${encodeURIComponent(res)}&refs=${refs}`)
         .then(r => (r.ok ? r.json() : null))
@@ -817,14 +813,12 @@ function App({ t, mode = "photos" }) {
   // Estimated cost for the whole set (anchor + N variants) using the same
   // per-render multipliers as the single-render cost calc above.
   const variantSetCost = useMemo(() => {
-    const base = st.model.includes("pro") ? 0.12 : 0.067;
-    const r = (st.res || "").split(" ")[0];
-    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
+    const base = modelPrice(st.res);
     // Each non-anchor variant has 1 extra reference (the anchor png), so apply 1.15× ref multiplier.
-    const anchorCost = base * resMult;
-    const variantCost = base * 1.15 * resMult;
+    const anchorCost = base;
+    const variantCost = base * 1.15;
     return (anchorCost + variantCost * Math.max(0, variantColors.length - 1)).toFixed(3);
-  }, [st.model, st.res, variantColors.length]);
+  }, [modelObj, st.res, variantColors.length]);
 
   // -------- Fotosesja v2 (variant grid from many base photos) handlers ------
   const SID = () => "s" + Math.random().toString(36).slice(2, 10);
@@ -894,11 +888,8 @@ function App({ t, mode = "photos" }) {
 
   // Total renders = sources × pairs; each carries the source as a reference (1.15×).
   const shootGridCost = useMemo(() => {
-    const base = st.model.includes("pro") ? 0.12 : 0.067;
-    const rr = (st.res || "").split(" ")[0];
-    const resMult = rr === "4K" ? 2.4 : rr === "2K" ? 1.6 : 1;
-    return (base * 1.15 * resMult * shootSources.length * shootPairs.length).toFixed(3);
-  }, [st.model, st.res, shootSources.length, shootPairs.length]);
+    return (modelPrice(st.res) * 1.15 * shootSources.length * shootPairs.length).toFixed(3);
+  }, [modelObj, st.res, shootSources.length, shootPairs.length]);
 
   // Shared scene/model/output config sent with both grid + per-tile regen.
   // Note: no `mat`/colour here — those come from the pairs (grid) or the tile (regen).
@@ -1398,7 +1389,7 @@ function App({ t, mode = "photos" }) {
                     <span>· {lensObj?.name?.split(" — ")[0]}</span>
                     <span>· {todObj?.name?.split(" — ")[0]}</span>
                     {beddingObj && <span>· {beddingObj.name}</span>}
-                    <span>· {st.model.includes("pro") ? "pro" : "flash 3.1"}</span>
+                    <span>· {modelShort(st.model)}</span>
                   </div>
                 );
               })()}
@@ -1695,7 +1686,7 @@ function App({ t, mode = "photos" }) {
                       key: h.generation_id || (h.image_url + "_" + i),
                       ref: h.generation_id || (h.image_url || "").split("/").pop(),
                       it: { generation_id: h.generation_id, image_url: h.image_url, color: h.color || null, material: h.material || null },
-                      label: (h.model || "").includes("pro") ? "pro" : "flash",
+                      label: modelShort(h.model),
                     }));
                   }
                   if (shootSourceTab === "history" && historyItems === null) {
@@ -1943,7 +1934,7 @@ function App({ t, mode = "photos" }) {
                     <div style={over ? undefined : { width: pct + "%", transition: "width .3s linear" }}></div>
                   </div>
                   <div className="meta">
-                    {st.model.includes("pro") ? "pro" : "flash"} · {st.aspect} · {st.res.split(" ")[0]} · {genElapsed.toFixed(0)} s
+                    {modelShort(st.model)} · {st.aspect} · {st.res.split(" ")[0]} · {genElapsed.toFixed(0)} s
                     {over ? "" : ` / ~${Math.round(p50)} s`}
                     {eta.source === "measured" ? " · zmierzone" : ""}
                   </div>
@@ -2016,7 +2007,7 @@ function App({ t, mode = "photos" }) {
 
         {/* Technical output settings stay available, but no longer lead the workflow. */}
         <AdvancedSection title="Ustawienia techniczne"
-          summary={`${isLab ? (st.model.includes("sunburst") ? "sunburst" : "flare") + (quality ? " · " + quality : "") : (st.model.includes("pro") ? "pro" : "flash")} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          summary={`${modelShort(st.model)}${isLab && quality ? " · " + quality : ""} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help={isLab
             ? "Model OpenAI, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
             : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki."}>
@@ -2026,7 +2017,7 @@ function App({ t, mode = "photos" }) {
               <select className="select" value={st.model} onChange={e => set({ model: e.target.value })}>
                 {serverConfig.models.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.label}{m.tier ? (m.tier === "pro" ? " · pro" : " · flash") : ""} · do {m.max_resolution || "1K"}
+                    {m.label} · do {m.max_resolution || "1K"} · {m.max_refs} ref.
                   </option>
                 ))}
               </select>

@@ -9,7 +9,8 @@ import "./experiments.css";
 import { NanoTopbar, PageIntro } from "./header.jsx";
 
 const short = value => value ? value.slice(0, 10) : "—";
-const modelName = value => value?.includes("3-pro") ? "Pro" : value?.includes("3.1-flash") ? "Flash" : value || "—";
+// The server attaches `model_label` (registry short name) and `tier` to every run.
+const modelName = run => run?.model_label || run?.model || "—";
 const dateLabel = value => value ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value * 1000)) : "—";
 
 function RunImage({ run, label }) {
@@ -17,7 +18,7 @@ function RunImage({ run, label }) {
     <article className="ab-result">
       <div className="ab-result-head">
         <span className="ab-letter">{label}</span>
-        <div><strong>{modelName(run.model)}</strong><small>{run.resolution || "—"} · {dateLabel(run.created_at)}</small></div>
+        <div><strong>{modelName(run)}</strong><small>{run.resolution || "—"} · {dateLabel(run.created_at)}</small></div>
         <span className={run.tracked ? "trace-chip good" : "trace-chip"}>{run.tracked ? "pełny zapis" : "starszy wynik"}</span>
       </div>
       <div className="ab-hero-image">{run.image_url ? <img src={run.image_url} alt={`Wariant ${label}`} /> : <span>brak obrazu</span>}</div>
@@ -47,7 +48,7 @@ function RunCard({ run, selected, onToggle }) {
     <button type="button" className={`run-card${selected ? " selected" : ""}`} onClick={onToggle}>
       <div className="run-thumb">{run.image_url ? <img src={run.image_url} alt="" loading="lazy" /> : <span>bez obrazu</span>}<i>{selected ? "✓" : "+"}</i></div>
       <div className="run-copy">
-        <strong>{modelName(run.model)} <em>{run.resolution}</em></strong>
+        <strong>{modelName(run)} <em>{run.resolution}</em></strong>
         <span>{run.material || run.prompt_summary || "Generacja obrazu"}</span>
         <small>{dateLabel(run.created_at)} · {run.tracked ? "pełny zapis" : "ograniczone dane"}</small>
       </div>
@@ -74,8 +75,8 @@ function ExperimentsApp() {
 
   const items = useMemo(() => (payload?.items || []).filter(run => {
     if (filter === "tracked" && !run.tracked) return false;
-    if (filter === "pro" && !run.model?.includes("pro")) return false;
-    if (filter === "flash" && !run.model?.includes("flash")) return false;
+    if (filter === "pro" && run.tier !== "pro") return false;
+    if (filter === "flash" && run.tier !== "flash") return false;
     const haystack = `${run.model} ${run.material} ${run.color} ${run.prompt_summary} ${run.generation_id}`.toLowerCase();
     return haystack.includes(query.trim().toLowerCase());
   }), [payload, filter, query]);

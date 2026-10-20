@@ -104,10 +104,12 @@ and Experiments treat every engine alike:
 
 | What | Where | Notes |
 |---|---|---|
-| Model catalogue + constraints (max refs, resolutions) | `prompts/schemas/sofa.json` | The contract. Editable without code; takes effect on server restart. UI reads it via `/api/config`. |
+| Model registry: ids, engine, caps, resolutions, aspects, prices, deprecation, ETA seeds, defaults per surface | `app-v2/models.json` via `app/core/model_registry.py` | Since 2026-10-20 the ONLY place a model id or price may appear (`tests/test_model_registry.py` greps the tree). Server, cost tracker, engines and the UI (`/api/config`) all read it. |
+| Prompt contract (preserve lists, system instruction, output vocab) | `prompts/schemas/sofa.json` | No longer carries models. Takes effect on server restart. |
 | Leg reference library | `legs/manifest.json` + renders | See `legs/ADDING-A-LEG.md`. |
 | Materials & colors | **currently duplicated in 5 places** — see invariant below | Being consolidated server-side, served via `/api/config`. |
-| Model research notes | `docs/research/nano-banana-state.md` | Refreshed by the `nano-banana-researcher` agent. |
+| Model research notes | `docs/research/nano-banana-state.md`, `docs/research/gpt-image-state.md` | Refreshed by the `nano-banana-researcher` / `gpt-image-researcher` agents. |
+| Evaluation harness | `scripts/eval_cases.py`, `tests/golden/`, `scripts/eval_matrix.py`, `scripts/eval_report.py` | See `docs/EVAL.md`. Any prompt change must update the goldens in the same PR. |
 
 ## Invariants (hard-won — do not relearn these)
 

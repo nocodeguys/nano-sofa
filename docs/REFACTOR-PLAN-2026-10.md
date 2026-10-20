@@ -322,6 +322,15 @@ Serce refactoru. Wejście: oba researche, obecne buildery, goldeny z fazy 0.
 
 ---
 
+## 4a. Stan realizacji
+
+| Faza | Stan | Commit / uwagi |
+|---|---|---|
+| 0 | ✅ zrobiona | `b653ae5` — 28 goldenów, `eval_matrix.py`, `eval_report.py`, `docs/EVAL.md`. Baseline macierzy **nieprzebiegnięty** (brak klucza Gemini/OpenAI w `.env`). |
+| 1 | ✅ zrobiona | `app-v2/models.json` + `app/core/model_registry.py`; schemat, cost_tracker, silniki, `/api/config`, front czytają rejestr; test grepujący drzewo pilnuje, że żaden id nie wraca do kodu. Default: `gemini-nano-banana-2.1`; NB2 i 2.5 Flash oznaczone `deprecated`, nadal akceptowane; GPT 2.5 domyślnie `xhigh`, bez `input_fidelity`. |
+| 2 | ⏳ następna | |
+| 3–6 | — | |
+
 ## 5. Co dostajemy po każdej fazie
 
 | Po fazie | Widoczny efekt |

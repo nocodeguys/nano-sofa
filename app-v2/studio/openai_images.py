@@ -25,6 +25,7 @@ import httpx
 from PIL import Image
 
 from app.core.cost_tracker import new_generation_id
+from app.core.model_registry import registry
 from app.core.generator import (
     GenerationRequest,
     GenerationResult,
@@ -51,35 +52,30 @@ from studio.paths import logger
 # Verified live the same day: the 2.5 models REJECT `input_fidelity`
 # ("does not support the 'input_fidelity' parameter"), so it is only sent
 # for models flagged `input_fidelity: True`; a refusal is retried without it.
+# Token rates shared by the GPT Image 2 family — the fallback when a registry
+# entry carries none. Everything model-specific comes from app-v2/models.json.
 _GPT_IMAGE_2_RATES = {"input_text": 5e-6, "input_image": 8e-6, "output_image": 30e-6}
 _QUALITIES = ["low", "medium", "high", "xhigh", "max"]
 _RESOLUTIONS = ["1K", "2K"]
-OPENAI_MODELS = {
-    "gpt-image-2.5-flare": {
-        "label": "GPT Image 2.5 Flare · OpenAI",
-        "max_refs": 16,
-        "aspects": list(ALL_ASPECTS),
-        "resolutions": _RESOLUTIONS,
-        "qualities": _QUALITIES,
-        "default_quality": "high",
-        "price_hint": "≈$0.01–0.13/obraz przy 1K, wg jakości",
-        "rates": _GPT_IMAGE_2_RATES,
-        "input_fidelity": False,
-        "note_pl": "domyślny wybór: jakość GPT Image 2+, o połowę krótszy czas",
-    },
-    "gpt-image-2.5-sunburst": {
-        "label": "GPT Image 2.5 Sunburst · OpenAI",
-        "max_refs": 16,
-        "aspects": list(ALL_ASPECTS),
-        "resolutions": _RESOLUTIONS,
-        "qualities": _QUALITIES,
-        "default_quality": "high",
-        "price_hint": "≈$0.01–0.13/obraz przy 1K, wg jakości",
-        "rates": _GPT_IMAGE_2_RATES,
-        "input_fidelity": False,
-        "note_pl": "premium: ściślejsza kontrola edycji, produktowe kampanie",
-    },
-}
+
+
+def _engine_cfg(m) -> dict:
+    return {
+        "label": m.label,
+        "max_refs": m.max_refs,
+        "aspects": list(m.aspects) or list(ALL_ASPECTS),
+        "resolutions": list(m.resolutions),
+        "qualities": list(m.qualities) or list(_QUALITIES),
+        "default_quality": m.default_quality or "high",
+        "price_hint": m.pricing.get("price_hint", ""),
+        "rates": m.pricing.get("rates") or _GPT_IMAGE_2_RATES,
+        "input_fidelity": bool(m.input_fidelity),
+        "note_pl": m.note_pl,
+    }
+
+
+# id → engine config view of the registry (OpenAI-direct models only).
+OPENAI_MODELS = {m.id: _engine_cfg(m) for m in registry.by_engine("openai")}
 
 _API_BASE = "https://api.openai.com/v1/images"
 _TIMEOUT_S = 600
@@ -164,7 +160,9 @@ def generate_openai(
     quality_used = _resolve_quality(model, quality)
     headers = {"Authorization": f"Bearer {api_key}"}
 
-    send_fidelity = bool(cfg.get("input_fidelity", True))
+    # `input_fidelity` exists only on gpt-image-1 / 1.5; 2 and 2.5 reject it
+    # (400 invalid_input_fidelity_model), so an unknown model never sends it.
+    send_fidelity = bool(cfg.get("input_fidelity", False))
 
     def _call(size_value: str):
         try:
