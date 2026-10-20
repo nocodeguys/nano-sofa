@@ -1,0 +1,47 @@
+# golden prompt — case: sofa-catalog-close_up-gemini
+# engine: gemini | model: gemini-3.1-flash-image | max_refs: 14
+# kind=sofa mode=catalog shot=close_up shot_type=close_up catalog_profile=ivory
+# colour=#C3BEB6 material_id=boucle aspect=4:3 res=1K
+# stats: chars=7901 camera_offset_pct=42 preserve_offset_pct=95 scene_offset_pct=50 negative_offset_pct=98
+
+REFERENCES (4):
+  1. base_product             <base-image>
+  2. scene                    cyclorama_architectural.png
+  3. material_macro           boucle.png
+  4. color_patch              color-patch:#C3BEB6
+
+SYSTEM INSTRUCTION:
+You are a product photography assistant. Your only job is to produce clean e-commerce imagery of the exact product shown in the reference photo. Preserve camera angle, frame geometry, cushion count, stitching pattern, leg count, leg positions, seat depth, arm height, and all visible joinery exactly. Never add throw pillows, decorative objects, or accessories that are not in the reference. Never change proportions to look more editorial. Never hallucinate text, brand names, or price labels.
+
+PROMPT (7901 chars):
+Edit the sofa in the first reference image to produce a product photography variant with the following specifications.
+This is a sofa, not any other furniture type. Render anatomy and proportions consistent with a sofa.
+
+UPHOLSTERY: neutral greige grey-beige, like light natural stone (hex #C3BEB6) bouclé fabric.
+Texture detail: Authentic heavy upholstery bouclé made from clearly visible looped yarns. The surface is built from irregular open and closed yarn loops in mixed small-to-medium sizes, with uneven clusters, occasional larger curls, and tiny darker cavities between the loops. The loop scale remains readable at normal furniture-photography distance instead of collapsing into uniform grain. Soft wool-and-cotton character, dense and substantial, tactile three-dimensional relief, diffuse matte highlights, and subtle warm tonal variation between individual yarns. The distribution is organic and non-repeating, never a perfectly even pebble texture.
+
+LEGS: Preserve the existing leg style exactly. The sofa has exactly 4 legs — do not add, remove, or merge any legs.
+
+MATERIAL TEXTURE AUTHORITY (slot 3): Slot 3 is a close-up photograph of the real target fabric. Copy ONLY its microscopic yarn construction: strand, nub or loop shape as actually present, real-world scale, density, depth, gaps between yarns, pile direction and surface relief. Do not invent loops or force a matte finish when the reference shows a different construction or optical response. Apply that authentic surface to every upholstered part of the sofa in slot 1. Preserve its true physical scale: fine textiles must merge into dense tactile microdetail at normal product-photography distance, never enlarged into a coarse repeating motif. 'Merge' describes perceived scale only: do not blur, denoise or smooth away the crisp high-frequency separation, fibre edges and micro-shadows. 
+
+CRITICAL ROLE SEPARATION: Slot 1 is the PRODUCT GEOMETRY authority. Slot 3 is the MATERIAL MICROSTRUCTURE authority only. IGNORE the photographed colour, folds, scale, lighting, shadows, crop, and perspective of slot 3. The upholstery colour must remain exactly the selected colour: neutral greige grey-beige, like light natural stone (hex #C3BEB6). Do not copy the fold visible in the swatch onto the furniture.
+
+MATERIAL DOMAIN MASK — HARD REQUIREMENT: apply slot 3's microstructure ONLY inside the upholstered product surfaces from slot 1. Never apply it to bedding, mattress, pillows, floor, wall, cyclorama, background, shadow, or empty pixels. The cyclorama must be uniformly smooth matte paint: absolutely no enlarged loops, weave, fabric relief, textile pattern, projected texture, or fabric-shaped shadow outside the product. Keep all reference roles independent; do not blend visual properties across their domains.
+
+COLOUR AUTHORITY (slot 4): Slot 4 is a flat, evenly lit patch of the exact target upholstery colour #C3BEB6. It is the single authority for the hue, saturation and lightness of the upholstery. Under the scene's neutral key light the upholstery's mid-tones must match this patch; highlights may be lighter and shadows darker, but the hue and the overall depth of the colour must not shift. Slot 4 carries no texture, geometry or lighting — copy nothing else from it, and never apply it to the backdrop, bedding or floor.
+
+CAMERA: front 34 left view, approximately 35 degrees from the left. Focal length equivalent 85 mm, f/8.0 aperture. Framing: close-up shot of one full-height corner of the sofa, showing the armrest, the backrest, and the seat at that corner; only that section of the product is visible in the frame; the rest of the product is intentionally cropped at the frame edge; product anatomy is still recognizable but the framing is tight on the chosen region; eye-level camera height, standing adult viewpoint.
+All leg contact shadows must be consistent with the shadow direction described in the SCENE section.
+
+SCENE (packshot): a seamless architectural-studio backdrop in warm soft ivory, base tone RGB(247,245,241) hex #F7F5F1 — a restrained neutral ivory that reads as warm and architectural without a yellow or orange cast. There is NO visible horizon line and NO visible floor-to-wall seam; the surface behaves like a perfect floating cyclorama with the product appearing to rest on a continuous ivory plane. CRITICAL LIGHTING DETAIL: controlled, even studio lighting created by one large diffused key source positioned well OUTSIDE the image bounds, above and to camera-left. The lighting source and all photographic equipment must remain completely off-camera: no reflectors, stands, booms, flags or studio apparatus visible anywhere in the image. This produces a gentle directional wash: the floor area in front of and around the product is fractionally brighter (about RGB 250,249,246) than the upper portion of the backdrop, which softens by only 2–3 RGB values toward the top edge. Preserve midtone and highlight separation on every pale textile; the bedding must never clip into a featureless white mass. SHADOW SPEC: one faint, compact contact shadow anchors the product directly at its floor contact. It is a pale neutral warm-grey at only 8–12 percent opacity, feathering slightly right and disappearing within 10–15 centimeters. No broad ellipse, no dark cast shadow and no second shadow. TEXTURE: the entire backdrop is completely smooth and matte — zero film grain, zero specular reflections, zero environmental detail, zero texture noise, no paper fibers, no wall imperfections. It must never inherit or display upholstery supplied in a material reference: no bouclé loops, weave, yarns, textile relief, enlarged fabric pattern, projected material texture or fabric-shaped shadows anywhere on the backdrop or floor. Absolutely no props, no furniture, no plants, no architectural elements, no signage. Lighting: midday neutral daylight, approximately 5500 K, overhead light with short even shadows. Lens: 85 mm short telephoto, mild background compression, flattering product photography standard. Soft diffuse shadow beneath the product, no strong directional cast, soft-box lighting quality. No environment objects, no room context — product only on the backdrop.
+
+BACKDROP / CYCLORAMA REFERENCE: An additional reference image is attached (slot 2) that shows the canonical cyclorama look for this shoot. Match its backdrop tone, restrained luminance field, neutral white balance, and floor-to-wall seamless blend exactly. The reference is an EMPTY studio plate, so create only the small contact shadow specified above; do not invent a broad cast shadow. Use ONLY the backdrop characteristics from this reference — do not copy the product, the camera angle, the framing, or any geometry from it. The sofa's pose and angle come from the base image (slot 1). The cyclorama is a separate physical surface from the product: it must remain perfectly smooth and must not inherit, project, magnify, echo, or cast a silhouette of any fabric texture supplied in another reference slot.
+
+SOURCE BACKGROUND DISCARD — HARD REQUIREMENT: Treat every pixel outside the product silhouette in slot 1 as transparent and unusable. Completely discard slot 1's background, floor, cast shadow, halo, lighting gradient, compression noise, stains and edge glow. Never average, blend or reconcile slot 1's background with slot 2. Every output pixel outside the product and its small new contact shadow must come only from the clean empty studio plate in slot 2.
+
+PRESERVE — do NOT change any of the following: frame silhouette, stitching.
+The sofa has exactly 4 legs. Leg count is 4 — do not add, remove, or merge legs.
+
+OUTPUT STYLE: e-commerce hero photography, photorealistic, neutral color grading
+
+NEGATIVE (must not appear in output): teddy or sherpa fleece; terry-towel pile; chenille; velvet; uniform pebbled foam; stucco or plaster texture; matted synthetic fur; flat printed grain.
