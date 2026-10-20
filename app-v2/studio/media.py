@@ -43,7 +43,17 @@ async def _save_upload(upload: UploadFile, suffix: str = "") -> Path:
 # Envs that emit a transparent-background render (alpha). JPEG can't hold alpha,
 # so a JPG request for these is downgraded to WebP (which keeps alpha + stays
 # small). Source of truth: the transparent cyclorama profile in _ENV_TO_SCENE.
-_TRANSPARENT_ENVS = {"cyclorama_transparent", "transparent"}
+def _transparent_ids() -> set[str]:
+    from studio.catalog import BACKDROPS
+    out: set[str] = set()
+    for b in BACKDROPS.values():
+        if b.get("transparent"):
+            out.add(b["id"])
+            out.update(b.get("aliases", []) or [])
+    return out
+
+
+_TRANSPARENT_ENVS = _transparent_ids()
 
 _MEDIA_TYPES = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg",

@@ -65,27 +65,32 @@ const CAMERAS = [
   { id: "top",    name: "Z góry 45°",     prop: "schemat / aranżacja",     style: "studio" },
 ];
 
-const ENVIRONMENTS = [
-  // Locked cyclorama profiles — guarantee identical backdrop look across renders.
-  { id: "cyclorama_warm",    name: "Cyklorama ciepła",   prop: "warm catalog white #F4F0E5", grad: "linear-gradient(180deg,#F4F0E5,#E4DBC6)",      acc: "#E8DEC9" },
-  { id: "cyclorama_neutral", name: "Cyklorama neutralna",prop: "pure photo white #FAFAFA",    grad: "linear-gradient(180deg,#FAFAFA,#E8E8E8)",      acc: "#F0F0F0" },
-  { id: "cyclorama_grey",    name: "Cyklorama szara",    prop: "packshot grey #DCDCDC",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
-  { id: "cyclorama_architectural", name: "Architektoniczna ivory", prop: "high-key ivory #F7F3EA, cień w prawo", grad: "linear-gradient(180deg,#F1ECDE 0%,#F7F3EA 60%,#FCF9F2 100%)", acc: "#EFE9DA" },
-  { id: "cyclorama_softlight",     name: "Softlight minimal",      prop: "off-white #FAF8F6, płaskie tło, zero plam",     grad: "linear-gradient(180deg,#FAF8F6,#FAF8F6)",                     acc: "#F2EFEB" },
-  { id: "cyclorama_paperwhite",    name: "Paperwhite bright",      prop: "jasne off-white #FCFAF7, lifted high-key",      grad: "linear-gradient(180deg,#FCFAF7,#FCFAF7)",                     acc: "#F5F2ED" },
-  // Legacy ids — kept for back-compat; both resolve to cyclorama_warm/grey server-side.
-  { id: "studio_white",  name: "Białe studio (legacy)",   prop: "→ cyklorama ciepła",      grad: "linear-gradient(180deg,#F4F0E5,#DCD3BD)",      acc: "#E8DEC9" },
-  { id: "studio_grey",   name: "Studio szare (legacy)",   prop: "→ cyklorama szara",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
-  { id: "scandi",        name: "Salon skandynawski",  prop: "drewno, biel, rośliny",  grad: "linear-gradient(180deg,#EFE8D6,#C9B796)",      acc: "#B89F7A" },
-  { id: "loft",          name: "Loft industrial",     prop: "cegła, beton, metal",    grad: "linear-gradient(180deg,#C9B79C,#7C6B57)",      acc: "#8E7B62" },
-  { id: "japandi",       name: "Japandi",             prop: "ciepła minimalistyka",   grad: "linear-gradient(180deg,#E9DDC4,#B59A74)",      acc: "#A88560" },
-  { id: "boho",          name: "Boho ciepłe",         prop: "tekstylia, ratan",       grad: "linear-gradient(180deg,#E5C6A0,#A8754C)",      acc: "#C39065" },
-  { id: "dark_moody",    name: "Mroczne wnętrze",     prop: "ciemne ściany, lampy",   grad: "linear-gradient(180deg,#3D3A33,#191815)",      acc: "#5A4F3F" },
-  { id: "garden",        name: "Taras / ogród",       prop: "zieleń, światło dzienne",grad: "linear-gradient(180deg,#C8D4B6,#7E8E6A)",      acc: "#9CAC83" },
-  { id: "showroom",      name: "Showroom marki",      prop: "lekka aranżacja prod.",  grad: "linear-gradient(180deg,#EAE2CE,#B7AE92)",      acc: "#D2C5A3" },
-  { id: "transparent",   name: "Bez tła (PNG)",       prop: "alfa, do composu",       grad: "repeating-conic-gradient(#E8E3D5 0% 25%,#F4F0E5 0% 50%) 0/16px 16px", acc: "#FBFAF6", checker: true },
-  { id: "custom",        name: "Własne zdjęcie tła",  prop: "wgraj swoje wnętrze",    grad: "repeating-linear-gradient(135deg,#EDE9DF 0 8px,#F4F1EA 8px 16px)", acc: "#D2CCBC", custom: true },
-];
+// Backgrounds come from catalog.json (phase 3): `backdrops` are studio looks
+// (locked ones carry the catalog treatment), `scenes` are lifestyle
+// interiors, and "custom" is the user's own photo. The server resolves the
+// same ids; old env ids (cyclorama_*, studio_*) map through `aliases`.
+const BACKDROPS = (_cat.backdrops || []).map(b => ({
+  id: b.id, kind: "backdrop", name: b.name_pl, hex: b.hex || "", preview: b.preview || "",
+  note: b.note_pl || "", locked: !!b.locks, normalize: !!b.normalize,
+  transparent: !!b.transparent, plate: b.plate || null, aliases: b.aliases || [],
+}));
+const SCENES = (_cat.scenes || []).map(sc => ({
+  id: sc.id, kind: "scene", name: sc.name_pl, prop: sc.prop_pl || "", preview: sc.preview || "",
+  acc: sc.acc || "", aliases: [],
+}));
+const CUSTOM_BACKGROUND = {
+  id: "custom", kind: "custom", name: "Własne zdjęcie tła", prop: "wgraj swoje wnętrze",
+  preview: "repeating-linear-gradient(135deg,#EDE9DF 0 8px,#F4F1EA 8px 16px)", aliases: [],
+};
+const BACKGROUNDS = [...BACKDROPS, ...SCENES, CUSTOM_BACKGROUND];
+// Old preset / env ids → current id ("" when unknown).
+const canonicalBackgroundId = (id) => {
+  if (!id) return "";
+  const hit = BACKGROUNDS.find(b => b.id === id || (b.aliases || []).includes(id));
+  return hit ? hit.id : "";
+};
+// Back-compat name for the editorial page's SETTING picker.
+const ENVIRONMENTS = BACKGROUNDS;
 
 const LEGS = [
   { id: "keep",    name: "zachowaj obecne" },
@@ -332,7 +337,8 @@ const BED_ACCENTS = [
 export { Ic };
 export const NS_DATA = { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById,
                          SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
-                         STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
+                         STEPS, ENVIRONMENTS, BACKDROPS, SCENES, BACKGROUNDS, canonicalBackgroundId,
+                         LENSES, TIMES_OF_DAY, SHADOWS,
                          SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
                          CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
                          CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,

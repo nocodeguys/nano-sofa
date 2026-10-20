@@ -31,7 +31,7 @@ const { ENVIRONMENTS, TIMES_OF_DAY, LENSES, CAMERA_HEIGHTS, COLORS, COLOR_GROUPS
 
 // Lifestyle + cyclorama scenes minus legacy aliases and "custom" (needs an
 // upload slot the editorial page doesn't have).
-const SCENES = ENVIRONMENTS.filter(e => !e.id.startsWith("studio_") && e.id !== "custom");
+const SCENES = ENVIRONMENTS.filter(e => e.kind !== "custom");
 const ASPECTS = ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"];
 const MAX_REFS = 3; // moodboard fallback when the model entry carries no moodboard_max
 

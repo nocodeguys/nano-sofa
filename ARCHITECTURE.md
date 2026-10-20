@@ -112,7 +112,7 @@ and Experiments treat every engine alike:
 | Model registry: ids, engine, caps, resolutions, aspects, prices, deprecation, ETA seeds, defaults per surface | `app-v2/models.json` via `app/core/model_registry.py` | Since 2026-10-20 the ONLY place a model id or price may appear (`tests/test_model_registry.py` greps the tree). Server, cost tracker, engines and the UI (`/api/config`) all read it. |
 | Prompt contract (preserve lists, system instruction, output vocab) | `prompts/schemas/sofa.json` | No longer carries models. Takes effect on server restart. |
 | Leg reference library | `legs/manifest.json` + renders | See `legs/ADDING-A-LEG.md`. |
-| Materials & colors | **currently duplicated in 5 places** — see invariant below | Being consolidated server-side, served via `/api/config`. |
+| Materials, colours, **backdrops and scenes** | `app-v2/catalog.json` | Since 2026-10-20 (phase 3) a backdrop entry carries everything about one studio look: hex, the prompt paragraph, the curated plate, the look locks (= catalog treatment) and the normalize tones. Server (`studio/catalog.py`, `mappings`, `normalize`), browser (`/catalog.js`) and tests read the same entry. |
 | Model research notes | `docs/research/nano-banana-state.md`, `docs/research/gpt-image-state.md` | Refreshed by the `nano-banana-researcher` / `gpt-image-researcher` agents. |
 | Evaluation harness | `scripts/eval_cases.py`, `tests/golden/`, `scripts/eval_matrix.py`, `scripts/eval_report.py` | See `docs/EVAL.md`. Any prompt change must update the goldens in the same PR. |
 
@@ -157,6 +157,15 @@ and Experiments treat every engine alike:
 10. **Wording changes are measured, not argued.** Change `app/core/prompt/`,
     update `tests/golden/`, run `scripts/eval_matrix.py` on the same model
     as the last baseline, link the compare in the PR (`docs/EVAL.md`).
+11. **Exactly three background inputs** (phase 3): a backdrop id, a scene id,
+    or `custom` with the user's photo — one form field, `background`, one
+    picker (section 01). `catalog`, `catalog_profile` and `env` are accepted
+    as aliases for old presets and map onto it. A scene upload is accepted
+    only for `custom` or with `scene_from_render=1` (a previous render reused
+    as the room, which the prompt then names truthfully). A locked backdrop
+    replaces any caller scene with its own plate and strips moodboards. The
+    old "tryb" select, tweaks panel, anchor picker and alpha checkbox are gone
+    because none of them reached the prompt (`tests/test_background.py`).
 
 ## Deploy loop
 

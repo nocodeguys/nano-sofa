@@ -304,8 +304,11 @@ def test_variant_scene_that_contains_the_product_is_never_called_empty(
 ):
     from dataclasses import replace
 
+    # An UNLOCKED studio backdrop: a locked one swaps any caller scene for
+    # its curated plate, so the "previous render as backdrop" case cannot
+    # arise there.
     req = _request(
-        server, base_image, env="cyclorama_neutral", env_mode="",
+        server, base_image, env="grey", env_mode="",
         scene_image_path=base_image,
     )
     honest = replace(req, scene_contains_product=True)

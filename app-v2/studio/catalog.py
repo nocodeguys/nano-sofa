@@ -108,6 +108,74 @@ _MATERIAL_NEGATIVES_EN = {
 }
 
 
+# --------------------------------------------------------------------------
+# Backgrounds (phase 3, 2026-10-20). ONE concept: a `backdrop` is a studio
+# look (hex, prompt paragraph, optional curated plate, optional look locks,
+# optional normalize tones); a `scene` is a lifestyle interior; "custom" is
+# the user's own photo. Old env ids resolve through `aliases`.
+# --------------------------------------------------------------------------
+CUSTOM_BACKGROUND_ID = "custom"
+CUSTOM_BACKGROUND_PROMPT = "the custom interior shown in the user's uploaded background reference image"
+
+
+def _background_views(catalog: dict) -> tuple[dict, dict, dict]:
+    backdrops = {b["id"]: b for b in catalog.get("backdrops", [])}
+    scenes = {s["id"]: s for s in catalog.get("scenes", [])}
+    aliases: dict[str, str] = {}
+    for b in backdrops.values():
+        for alias in b.get("aliases", []) or []:
+            aliases[alias] = b["id"]
+    return backdrops, scenes, aliases
+
+
+BACKDROPS, SCENES, _BACKGROUND_ALIASES = _background_views(CATALOG)
+DEFAULT_BACKDROP_ID = "ivory"
+
+
+def canonical_background_id(value: str | None) -> str:
+    """Old env ids (cyclorama_architectural, studio_white …) and profile ids
+    all map onto one id. Unknown → "" (callers fall back to the default)."""
+    key = (value or "").strip().lower()
+    if not key:
+        return ""
+    if key in BACKDROPS or key in SCENES or key == CUSTOM_BACKGROUND_ID:
+        return key
+    return _BACKGROUND_ALIASES.get(key, "")
+
+
+def resolve_background(value: str | None) -> tuple[str, dict | None]:
+    """→ ("backdrop", entry) | ("scene", entry) | ("custom", None); unknown
+    or empty ids land on the default backdrop."""
+    key = canonical_background_id(value) or DEFAULT_BACKDROP_ID
+    if key == CUSTOM_BACKGROUND_ID:
+        return "custom", None
+    if key in BACKDROPS:
+        return "backdrop", BACKDROPS[key]
+    if key in SCENES:
+        return "scene", SCENES[key]
+    return "backdrop", BACKDROPS[DEFAULT_BACKDROP_ID]
+
+
+def background_treatment(value: str | None) -> dict:
+    """What a background id means for a render, in one place: the canonical
+    id, its kind, whether the look is locked (catalog treatment: lens/light
+    locks, framing contract, curated plate), which normalize profile runs
+    afterwards, and whether the output is transparent."""
+    kind, entry = resolve_background(value)
+    if kind == "backdrop":
+        return {
+            "id": entry["id"], "kind": kind,
+            "locked": bool(entry.get("locks")),
+            "normalize_profile": entry["id"] if entry.get("normalize") else None,
+            "transparent": bool(entry.get("transparent")),
+            "plate": entry.get("plate") or None,
+        }
+    return {
+        "id": CUSTOM_BACKGROUND_ID if kind == "custom" else entry["id"], "kind": kind,
+        "locked": False, "normalize_profile": None, "transparent": False, "plate": None,
+    }
+
+
 def reload_catalog(catalog: dict | None = None) -> dict:
     """Atomically refresh all in-memory catalogue views in place.
 
@@ -139,6 +207,10 @@ def reload_catalog(catalog: dict | None = None) -> dict:
     _MATERIAL_TEXTURE_EN.update(material_textures)
     _MATERIAL_NEGATIVES_EN.clear()
     _MATERIAL_NEGATIVES_EN.update(material_negatives)
+    backdrops, scenes, aliases = _background_views(fresh)
+    BACKDROPS.clear(); BACKDROPS.update(backdrops)
+    SCENES.clear(); SCENES.update(scenes)
+    _BACKGROUND_ALIASES.clear(); _BACKGROUND_ALIASES.update(aliases)
     return CATALOG
 
 

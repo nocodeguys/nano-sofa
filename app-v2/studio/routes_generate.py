@@ -15,17 +15,17 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.generator import generate, load_freeform_reference_plan
 from app.core.model_registry import registry
+from studio.catalog import background_treatment
 from studio.errors import _item_error, _result_error, _validation_error
 from studio.mappings import _compose_bedding_description
 from studio.media import (
-    _TRANSPARENT_ENVS,
     _derived_url,
     _parse_quality,
     _prune_storage,
     _resolve_anchor_path,
     _save_upload,
 )
-from studio.normalize import normalize_packshot, resolve_profile
+from studio.normalize import normalize_packshot
 from studio.external_engine import ExternalEngineError
 from studio.openai_images import OPENAI_MODELS, generate_openai, generate_product_openai
 from studio.openrouter import OPENROUTER_MODELS, generate_openrouter
@@ -138,6 +138,12 @@ async def api_generate(
     catalog: str = Form(""),
     catalog_profile: str = Form(""),
     anchor_ref: str = Form(""),
+    # Phase 3: ONE background id (backdrop / scene / "custom"). `env`,
+    # `catalog` + `catalog_profile` above are the older spellings.
+    background: str = Form(""),
+    # The uploaded scene_image is a previous render of this product (the
+    # "use the last render's background" toggle), not an empty plate.
+    scene_from_render: str = Form(""),
     bedding: str = Form(""),
     bedding_custom: str = Form(""),
     throw: str = Form(""),
@@ -176,13 +182,19 @@ async def api_generate(
         except Exception as exc:
             logger.warning("Reference #%d unreadable, ignoring: %s", idx, exc)
 
-    catalog_mode = _truthy(catalog)
+    treat = background_treatment(background or (catalog_profile if _truthy(catalog) else env))
+    catalog_mode = treat["locked"]
     refs_locked = _truthy(refs_lock)
+    from_render = _truthy(scene_from_render)
 
-    # The catalog profile is the sole authority for backdrop and lighting.
-    # Ignore section-07 uploads and section-09 moodboards here, before they can
-    # turn into stronger image instructions than the catalog prompt.  A catalog
-    # anchor selected below is the one deliberate exception.
+    # A scene upload is meaningful in exactly two cases: the user's own photo
+    # (background "custom") or a previous render reused as the backdrop.
+    # Anything else (a stale upload next to a studio backdrop) is dropped.
+    if treat["kind"] != "custom" and not from_render:
+        scene_upload_path = None
+    # A locked backdrop is the sole authority for backdrop and lighting: no
+    # scene upload and no moodboards may compete with it. A catalog anchor
+    # selected below is the one deliberate exception.
     if catalog_mode:
         scene_upload_path = None
         extra_ref_paths = []
@@ -231,9 +243,14 @@ async def api_generate(
         bedding_description=bedding_desc,
         catalog=catalog_mode,
         catalog_profile=catalog_profile,
+        background=treat["id"],
     )
+    if from_render and req.scene_reference_image is not None and not catalog_mode:
+        # Say what the image is: a product render, not an empty plate.
+        req = dataclass_replace(req, scene_contains_product=True)
 
-    logger.info("Generating: %s / %s / %s", req.upholstery_color, req.upholstery_material, req.camera_angle)
+    logger.info("Generating: %s / %s / %s / bg=%s", req.upholstery_color, req.upholstery_material,
+                req.camera_angle, treat["id"])
     # Off-load the blocking Gemini call (network I/O + up to ~14s of retry
     # backoff) to a thread so the event loop stays responsive — /healthz, the
     # static assets, and other users' renders no longer freeze behind this one.
@@ -247,9 +264,9 @@ async def api_generate(
     # derived from it, so the delivered JPG, the history thumbnail and any later
     # anchor all carry the normalized geometry and backdrop.
     normalized = False
-    if catalog_mode:
+    if treat["normalize_profile"]:
         _, normalized = await asyncio.to_thread(
-            normalize_packshot, result.output_path, catalog_profile
+            normalize_packshot, result.output_path, treat["normalize_profile"]
         )
 
     # Derive the user-facing download file (default JPG) off the lossless PNG
@@ -258,7 +275,7 @@ async def api_generate(
     # transparent regardless of which env the caller asked for.
     image_url, fmt_used, downgraded = await _derived_url(
         result.output_path, output_format, _parse_quality(output_quality),
-        (not catalog_mode) and env in _TRANSPARENT_ENVS,
+        treat["transparent"],
     )
     await asyncio.to_thread(_prune_storage)
 
@@ -273,7 +290,8 @@ async def api_generate(
         "resolution": result.resolution,
         "elapsed_ms": result.elapsed_ms,
         "catalog": catalog_mode,
-        "catalog_profile": resolve_profile(catalog_profile).name if catalog_mode else None,
+        "catalog_profile": treat["id"] if catalog_mode else None,
+        "background": treat["id"],
         "normalized": normalized,
     }
 
@@ -328,6 +346,8 @@ async def api_generate_set(
     # built with the same locked profile and normalized onto it afterwards.
     catalog: str = Form(""),
     catalog_profile: str = Form(""),
+    background: str = Form(""),
+    scene_from_render: str = Form(""),
     base_image: Optional[UploadFile] = File(None),
     scene_image: Optional[UploadFile] = File(None),
 ):
@@ -351,7 +371,9 @@ async def api_generate_set(
     if base_image is None:
         return _validation_error("Brak zdjęcia bazowego.", "MISSING_BASE_IMAGE")
 
-    catalog_mode = _truthy(catalog)
+    treat = background_treatment(background or (catalog_profile if _truthy(catalog) else env))
+    catalog_mode = treat["locked"]
+    from_render = _truthy(scene_from_render)
 
     color_ids = [c.strip() for c in colors_csv.split(",") if c.strip()]
     if len(color_ids) < 2:
@@ -368,9 +390,11 @@ async def api_generate_set(
     except Exception as exc:
         return _validation_error(f"Nie udało się odczytać obrazu: {exc}", "BAD_INPUT_IMAGE")
 
-    # Optional user-supplied scene reference (independent of the auto-anchor flow).
+    # Optional user-supplied scene reference (independent of the auto-anchor
+    # flow): the user's own photo for background "custom", or a previous
+    # render reused as the backdrop. Dropped next to a studio backdrop.
     scene_path: Optional[Path] = None
-    if scene_image is not None:
+    if scene_image is not None and (treat["kind"] == "custom" or from_render) and not catalog_mode:
         try:
             scene_path = await _save_upload(scene_image, suffix="_scene")
         except Exception as exc:
@@ -427,7 +451,10 @@ async def api_generate_set(
         bedding_description=bedding_desc,
         catalog=catalog_mode,
         catalog_profile=catalog_profile,
+        background=treat["id"],
     )
+    if from_render and anchor_req.scene_reference_image is not None and not catalog_mode:
+        anchor_req = dataclass_replace(anchor_req, scene_contains_product=True)
 
     anchor_result = await asyncio.to_thread(_render_product, anchor_req, openai_key, quality)
 
@@ -438,12 +465,12 @@ async def api_generate_set(
     # their scene reference, so if the anchor is normalized first the whole
     # set inherits the profile geometry from the model rather than only from
     # their own post-pass — the two then agree instead of fighting.
-    if catalog_mode:
+    if treat["normalize_profile"]:
         await asyncio.to_thread(
-            normalize_packshot, anchor_result.output_path, catalog_profile
+            normalize_packshot, anchor_result.output_path, treat["normalize_profile"]
         )
 
-    transparent_env = (not catalog_mode) and env in _TRANSPARENT_ENVS
+    transparent_env = treat["transparent"]
     qual = _parse_quality(output_quality)
     anchor_url, _afmt, _adn = await _derived_url(
         anchor_result.output_path, output_format, qual, transparent_env
@@ -483,6 +510,7 @@ async def api_generate_set(
             bedding_description=bedding_desc,
             catalog=catalog_mode,
             catalog_profile=catalog_profile,
+            background=treat["id"],
         )
         # The anchor render is a product photo in the PREVIOUS colour, not an
         # empty studio plate. In catalog mode the builder already swapped it
@@ -513,8 +541,8 @@ async def api_generate_set(
         if not r.success or r.output_path is None:
             variants_payload.append(_item_error({"color": cid, "material": mid}, r))
             continue
-        if catalog_mode:
-            await asyncio.to_thread(normalize_packshot, r.output_path, catalog_profile)
+        if treat["normalize_profile"]:
+            await asyncio.to_thread(normalize_packshot, r.output_path, treat["normalize_profile"])
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, transparent_env)
         variants_payload.append({
             "color": cid,
@@ -536,7 +564,8 @@ async def api_generate_set(
         "total_cost": total_cost,
         "model": model,
         "catalog": catalog_mode,
-        "catalog_profile": resolve_profile(catalog_profile).name if catalog_mode else None,
+        "catalog_profile": treat["id"] if catalog_mode else None,
+        "background": treat["id"],
     }
 
 

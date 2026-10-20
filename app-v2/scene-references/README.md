@@ -1,40 +1,43 @@
-# Scene reference images
+# Scene reference plates
 
-This directory holds curated reference images that lock the *look* of a backdrop
-or lifestyle environment at pixel level. The text-only env profile (defined in
-`server.py:_CYCLORAMA_PROFILES`) gets you 80–90% of the way; a reference image
-pins the remaining 10–20%.
+Curated **empty studio plates** that lock a backdrop's look at pixel level.
+The written backdrop paragraph (`backdrops[].prompt_en` in
+`app-v2/catalog.json`) gets the model most of the way; the plate pins the
+remaining tone, gradient and floor-to-wall blend.
 
-## How it's wired
+## How it is wired (phase 3, 2026-10-20)
 
-`server.py` looks for a file at `app-v2/scene-references/<env_id>.jpg` (or
-`.png`, `.jpeg`) whenever a render is dispatched in **packshot mode**. If found,
-it's attached as `scene_reference_image` on the anchor `GenerationRequest` and
-the generator emits a `BACKDROP / CYCLORAMA REFERENCE` paragraph instructing the
-model to copy backdrop characteristics (tone, top-light gradient, shadow
-quality, floor blend) from the reference.
+A backdrop entry in `catalog.json` names its plate:
 
-Variants 2..N in a Fotosesja batch don't re-attach the reference — they use the
-anchor render itself as a swatch reference, so the cyclorama look propagates
-through the anchor automatically.
+```json
+{ "id": "ivory", "plate": "cyclorama_architectural.png", "locks": { … }, "normalize": { … } }
+```
 
-If a file isn't present for the active env_id, the prompt falls back to the
-text-only profile cleanly (no error, just looser scene lock).
+`studio/request_builder._scene_reference_path` attaches that file as the
+scene reference whenever the chosen background is a **locked** backdrop
+(one with a `locks` block). The prompt then carries the `BACKDROP /
+CYCLORAMA REFERENCE` paragraph telling the model to take only the backdrop
+characteristics from it. Detail / macro shots never get the plate
+(`plan_reference_slots` drops it — a whole studio at hero distance pulls a
+macro back to a hero).
 
-## Expected filenames
+Backdrops without a plate (paperwhite, neutral, the unlocked warm / grey /
+softlight) render from the paragraph alone. Variants 2..N of a set do not
+re-attach the plate; the normalized anchor render carries the look.
 
-| env_id                  | filename to save                |
-| ----------------------- | ------------------------------- |
-| `cyclorama_warm`        | `cyclorama_warm.jpg`            |
-| `cyclorama_neutral`     | `cyclorama_neutral.jpg`         |
-| `cyclorama_grey`        | `cyclorama_grey.jpg`            |
-| `cyclorama_transparent` | (no reference — alpha output)   |
+## Files
 
-## What makes a good reference
+| backdrop id | plate                            |
+| ----------- | -------------------------------- |
+| `ivory`     | `cyclorama_architectural.png`    |
+| `atelier`   | `cyclorama_atelier_gradient.png` |
+| `softblush` | `cyclorama_softblush.png`        |
 
-- A single product photographed against the target cyclorama — the *backdrop*
-  is what we want the model to copy, not the product.
-- Visible top-down lighting gradient on the backdrop (subtle but present).
-- Anchored contact shadow (no directional throw).
-- No props, no horizon line, no other furniture.
-- 1024–2048px on the long edge is plenty.
+To add one: drop the file here and set `plate` on the backdrop entry.
+
+## What makes a good plate
+
+- An **empty** studio against the target cyclorama — no product, no props.
+- A visible top-down lighting gradient on the backdrop (subtle but present).
+- No horizon line, no other furniture.
+- 1024–2048 px on the long edge is plenty.

@@ -16,6 +16,8 @@ is loopback-only, which is the source-mode developer setup.
 
 from __future__ import annotations
 
+import copy
+
 import asyncio
 import hmac
 import io
@@ -773,6 +775,10 @@ async def save_admin_catalog(request: Request):
             if not isinstance(raw_catalog, str):
                 raise ValueError("Brakuje danych katalogu.")
             catalog = validate_catalog(json.loads(raw_catalog))
+            # The admin panel edits materials / colours / collections only;
+            # the background blocks (phase 3) ride along unchanged.
+            for block in ("backdrops", "scenes"):
+                catalog.setdefault(block, copy.deepcopy(CATALOG.get(block, [])))
             material_ids = {m["id"] for m in catalog["materials"]}
 
             reference_ids = [str(v) for v in form.getlist("reference_ids")]

@@ -18,6 +18,7 @@ from app.core.generator import (
     slot_numbers,
 )
 from app.core.model_registry import registry
+from studio.catalog import DEFAULT_BACKDROP_ID, canonical_background_id, resolve_background
 from studio.catalog import (
     _COLOR_META,
     _COLOR_PL_TO_EN,
@@ -67,14 +68,13 @@ def _hex_from_custom(color_custom: str) -> str:
 
 
 def _scene_reference_path(env_id: str) -> Optional[Path]:
-    """Return the curated reference image path for an env id, if one exists."""
-    if not env_id:
+    """The curated empty-studio plate of a backdrop (catalog.json `plate`),
+    if the backdrop has one and the file exists."""
+    kind, entry = resolve_background(env_id) if env_id else ("", None)
+    if kind != "backdrop" or not entry or not entry.get("plate"):
         return None
-    for ext in (".jpg", ".jpeg", ".png"):
-        candidate = _SCENE_REFS_DIR / f"{env_id}{ext}"
-        if candidate.is_file():
-            return candidate
-    return None
+    candidate = _SCENE_REFS_DIR / entry["plate"]
+    return candidate if candidate.is_file() else None
 
 
 def _material_reference_path(material_id: str) -> Optional[Path]:
@@ -153,41 +153,51 @@ def _build_generation_request(
     detail_region: str = "",
     catalog: bool = False,
     catalog_profile: str = "",
+    background: str = "",
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
+
+    `background` (phase 3) is the ONE background id: a backdrop (studio look
+    from catalog.json — locked ones get the catalog treatment), a scene
+    (lifestyle interior) or "custom" (the caller's own photo in
+    `scene_image_path`). `env`, `catalog` and `catalog_profile` are the
+    pre-phase-3 spellings and map onto it.
     Shared by /api/generate (single render) and /api/generate-set (color batch).
     Resolves legacy Polish strings via the alias tables so stale browser caches
     keep working.
     """
-    # ---- Catalog profile ---------------------------------------------- #
-    # One locked look for a whole product range: backdrop, lens, aperture,
-    # light and camera height stop being per-render variables. Yaw stays with
-    # the caller — which way a product faces is a real editorial choice, unlike
-    # the backdrop. A detail or close-up shot keeps its shot type: the locks
-    # exist to make hero packshots interchangeable, and forcing a macro crop
-    # back to a hero shot would just discard what the caller asked for.
-    if catalog:
-        locks = _catalog_profile_locks(catalog_profile)
+    # ---- Background ---------------------------------------------------- #
+    bg_id = canonical_background_id(background) or (
+        canonical_background_id(catalog_profile) if catalog else canonical_background_id(env)
+    ) or DEFAULT_BACKDROP_ID
+    bg_kind, bg_entry = resolve_background(bg_id)
+    env = bg_id                      # canonical id → _ENV_TO_SCENE
+    locked = bg_kind == "backdrop" and bool(bg_entry.get("locks"))
+    if bg_kind != "custom":
+        env_note = ""                # the note belongs to the user's own photo
+    if locked:
+        # One locked look for a whole product range: backdrop, lens,
+        # aperture, light and camera height stop being per-render variables.
+        # Yaw stays with the caller — which way a product faces is a real
+        # editorial choice, unlike the backdrop. A detail or close-up shot
+        # keeps its shot type: the locks exist to make hero packshots
+        # interchangeable, and forcing a macro crop back to a hero shot
+        # would just discard what the caller asked for.
+        locks = _catalog_profile_locks(bg_id)
         requested_shot = shot.strip() or _CAM_PRESET_TO_STRUCTURED.get(cam, ("hero",))[0]
         keeps_shot = requested_shot in ("detail_fabric", "detail_corner", "close_up")
-        env = locks["env"]
         shot = requested_shot if keeps_shot else locks["shot"]
         height = locks["height"]
         lens = locks["lens"]
         dof = locks["dof"]
         tod = locks["tod"]
         shadow = locks["shadow"]
-
-        # Catalog mode owns the scene completely.  A stale selection/upload
-        # from section 07 must never compete with the chosen catalog profile.
-        # If a curated empty-studio reference exists, attach that canonical
-        # field automatically; it is much more reliable than asking the model
-        # to recreate a calibrated backdrop from RGB prose alone.
-        scene_image_path = _scene_reference_path(env)
-        env_note = ""
-        env_mode = ""
+        # The locked backdrop owns the scene completely: the curated empty
+        # studio plate (when the backdrop has one) replaces any caller scene.
+        scene_image_path = _scene_reference_path(bg_id)
         preserve_camera_from_base = False
+    catalog = locked
 
     is_custom_color = color == "custom" and bool(color_custom.strip())
     color_meta = _COLOR_META.get(color, {})
