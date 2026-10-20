@@ -207,7 +207,7 @@ def render(case: Case, req: GenerationRequest, base_image: Optional[Path]) -> Re
     engine = registry.engine_of(req.model_id)
     if engine == "openai":
         max_refs = registry.max_refs(req.model_id, OPENAI_MODELS.get(req.model_id, {}).get("max_refs", 16))
-        system_instruction = ""           # generate_openai sends none
+        system_instruction = ""           # no system field; persona leads the prompt (below)
     else:
         max_refs = registry.max_refs(req.model_id, schema.max_refs_for_model(req.model_id))
         system_instruction = req.system_instruction or schema.system_instruction_default
@@ -224,6 +224,11 @@ def render(case: Case, req: GenerationRequest, base_image: Optional[Path]) -> Re
     loaded = _load_reference_plan(req, base_img, max_refs)
     slots = slot_numbers([slot for slot, _img in loaded])
     prompt = _build_prompt_text(req, slots)
+    if engine == "openai":
+        persona = (req.system_instruction or schema.system_instruction_default).strip()
+        if persona:
+            prompt = f"{persona}\n\n{prompt}"
+            system_instruction = "(no system field — the persona above is the first paragraph of the prompt)"
     refs = [(slot.role, _label(slot.source, base_image)) for slot, _img in loaded]
     plan = [(slot.role, slot.source, img) for slot, img in loaded]
     return Rendered(prompt, system_instruction, refs, max_refs, plan)

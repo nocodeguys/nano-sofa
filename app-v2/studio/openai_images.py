@@ -26,6 +26,7 @@ from PIL import Image
 
 from app.core.cost_tracker import new_generation_id
 from app.core.model_registry import registry
+from app.core.schema_loader import schema
 from app.core.generator import (
     GenerationRequest,
     GenerationResult,
@@ -293,6 +294,12 @@ def generate_product_openai(req: GenerationRequest, api_key: str) -> GenerationR
     loaded = _load_reference_plan(req, base_img, cfg["max_refs"])
     slots = slot_numbers([slot for slot, _image in loaded])
     prompt = _build_prompt_text(req, slots)
+    # The Images API has no system field: the same persona Gemini receives
+    # as system instruction leads the prompt here, so both engines read the
+    # same words in the same order.
+    persona = (req.system_instruction or schema.system_instruction_default).strip()
+    if persona:
+        prompt = f"{persona}\n\n{prompt}"
     references = [(slot.role, slot.source, image) for slot, image in loaded]
     png_meta = {
         "nano_sofa_color": req.upholstery_color or "",

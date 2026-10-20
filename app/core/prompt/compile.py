@@ -1,9 +1,10 @@
 """compile_prompt(spec) → str. The section ORDER lives here and nowhere else.
 
-Two orders today (phase 2a reproduces the old builders): the product
-prompt and the freeform/editorial prompt. Phase 2b replaces both with one
-order (task → keep-exactly → camera → backdrop/scene → material + colour →
-reference roles → output) and measures the effect with the eval matrix.
+Product order (phase 2b): what the product is and what must not change,
+then the camera, then the backdrop or scene, then the material and colour,
+then what every other attached image is for, then output. The framing
+instruction therefore sits in the first fifth of the prompt instead of past
+the middle, and nothing after it re-describes a viewpoint.
 """
 from __future__ import annotations
 
@@ -16,22 +17,22 @@ Section = Callable[[PromptSpec], list[str]]
 
 PRODUCT_ORDER: list[Section] = [
     S.task,
-    S.bed_frame_and_size,
-    S.upholstery,
-    S.bedding,
-    S.legs,
-    S.material_macro,
-    S.colour_authority,
-    S.material_angles,
-    S.material_behavior,
-    S.material_application,
-    S.view_consistency,
+    S.product_identity,
+    S.keep_exactly,
     S.reference_lock,
     S.camera,
     S.catalog_contract,
     S.shadow,
     S.scene,
-    S.preserve,
+    S.view_consistency,
+    S.upholstery,
+    S.bedding,
+    S.colour_authority,
+    S.material_macro,
+    S.material_angles,
+    S.material_behavior,
+    S.material_application,
+    S.moodboards,
     S.output_style,
     S.negatives,
     S.notes,

@@ -280,7 +280,7 @@ def test_product_pipeline_on_openai_sends_base_and_reference_plan(server, base_i
     assert {"material_macro", "color_patch", "material_left", "material_right",
             "material_behavior", "material_application"} <= set(roles)
     assert len(captured["files"]) == len(roles)
-    assert "slot 1" in data["prompt"] and "COLOUR AUTHORITY" in data["prompt"]
+    assert "image 1" in data["prompt"] and "COLOUR AUTHORITY" in data["prompt"]
     assert "BRIEF:" not in data["prompt"]
     assert trace["engine"] == "openai" and trace["variant"]["product_type"] == "bed"
     assert result.actual_cost == pytest.approx(900 * 5e-6 + 5000 * 8e-6 + 6000 * 30e-6)

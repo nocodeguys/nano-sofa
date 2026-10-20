@@ -107,6 +107,12 @@ class GenerationRequest:
     # Engine-specific quality tier (OpenAI Images API `quality`: low … max).
     # Ignored by the Gemini path.
     engine_quality: str = ""
+    # How many curated material views ride along. "full": macro + colour
+    # patch + oblique views + light-response + in-use photo. "minimal":
+    # macro + colour patch only. Detail / macro shots additionally drop the
+    # backdrop plate and the in-use photo whatever the profile — both show a
+    # whole product at hero distance and pull the render back to a hero.
+    reference_profile: str = "full"
 
     # Freeform (editorial) mode: when non-empty, this text IS the whole prompt
     # — the variant prompt assembly is skipped entirely, and the base product
@@ -523,6 +529,20 @@ def plan_reference_slots(
             wanted.append(ReferenceSlot(role, source))
     for offset, extra in enumerate(extras):
         wanted.append(ReferenceSlot(f"extra_reference_{next_extra_index + offset}", extra))
+
+    # Reference budget (phase 2b). A detail / macro crop never gets images
+    # that show a whole product or an empty studio at hero distance; the
+    # minimal profile keeps only the two references that pin texture and
+    # colour. Both decisions happen here so the prompt describes exactly
+    # what is attached.
+    tight = req.shot_type in ("detail_fabric", "detail_corner")
+    excluded: set[str] = set()
+    if tight:
+        excluded |= {"scene", "material_application"}
+    if (req.reference_profile or "full") == "minimal":
+        excluded |= {"material_left", "material_right", "material_behavior", "material_application"}
+    if excluded:
+        wanted = [slot for slot in wanted if slot.role not in excluded]
 
     kept = wanted[:max_refs]
     for dropped in wanted[max_refs:]:

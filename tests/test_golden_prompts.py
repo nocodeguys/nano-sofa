@@ -73,15 +73,17 @@ def test_no_orphan_goldens():
     assert not orphans, f"goldens without a case: {orphans}"
 
 
-def test_engines_get_identical_prompt_text(server, base_image):
-    """Documents today's contract: Gemini and OpenAI build the prompt from
-    the same function, so for the same request the text must match. The
-    system instruction is where they differ (OpenAI gets none) — that gap
-    is visible in the goldens, not hidden by this test."""
+def test_engines_read_the_same_words(server, base_image):
+    """Gemini gets the persona as system instruction and the prompt as the
+    user turn; OpenAI has no system field, so it gets the same persona as
+    the first paragraph of the same prompt. Either way the model reads the
+    same words in the same order."""
     for kind in eval_cases.PRODUCTS:
         for mode in eval_cases.MODES:
             g = eval_cases.CASE_BY_ID[f"{kind}-{mode}-hero-gemini"]
             o = eval_cases.CASE_BY_ID[f"{kind}-{mode}-hero-openai"]
             pg = eval_cases.render(g, eval_cases.build_request(g, base_image), base_image)
             po = eval_cases.render(o, eval_cases.build_request(o, base_image), base_image)
-            assert pg.prompt == po.prompt, f"{kind}/{mode}: engines diverge on prompt text"
+            assert pg.system_instruction.strip(), "Gemini persona missing"
+            assert po.prompt == f"{pg.system_instruction.strip()}\n\n{pg.prompt}", \
+                f"{kind}/{mode}: engines diverge on the words sent"

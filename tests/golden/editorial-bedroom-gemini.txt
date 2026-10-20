@@ -2,7 +2,7 @@
 # engine: gemini | model: gemini-nano-banana-2.1 | max_refs: 14
 # kind=- mode=editorial shot=- shot_type=hero catalog_profile=-
 # colour=#938A83 material_id=cremona aspect=4:3 res=1K
-# stats: chars=5940 camera_offset_pct=35 preserve_offset_pct=-1 scene_offset_pct=-1 negative_offset_pct=96
+# stats: chars=5927 camera_offset_pct=35 preserve_offset_pct=-1 scene_offset_pct=-1 negative_offset_pct=96
 
 REFERENCES (6):
   1. material_macro           cremona.jpg
@@ -13,15 +13,15 @@ REFERENCES (6):
   6. material_application     cremona-application.png
 
 SYSTEM INSTRUCTION:
-You are a product photography assistant. Your only job is to produce clean e-commerce imagery of the exact product shown in the reference photo. Preserve camera angle, frame geometry, cushion count, stitching pattern, leg count, leg positions, seat depth, arm height, and all visible joinery exactly. Never add throw pillows, decorative objects, or accessories that are not in the reference. Never change proportions to look more editorial. Never hallucinate text, brand names, or price labels.
+You are a product photography assistant producing clean e-commerce imagery of the exact product shown in image 1. Preserve its frame geometry, cushion count, stitching pattern, leg count and leg positions, seat depth, arm height and all visible joinery exactly. Camera angle, framing and crop follow the CAMERA paragraph of the prompt; when it says to keep image 1's camera, keep it exactly. Never add throw pillows, decorative objects or accessories that are neither in image 1 nor asked for in the prompt. Never change proportions to look more editorial. Never render text, brand names or price labels.
 
-PROMPT (5940 chars):
+PROMPT (5927 chars):
 TASK: Create a brand-new editorial photograph from scratch based on the brief below. There is no base product to preserve — full creative freedom within the art direction.
-Attached image 1 is a close-up photograph of the real target upholstery fabric. Copy ONLY its yarn construction, texture scale and surface relief onto every upholstered piece; ignore its photographed colour, crop, fold and lighting.
-Attached image 2 is a flat, evenly lit patch of the exact target upholstery colour #938A83. It is the single authority for the hue, saturation and lightness of the hero upholstery: under the scene's key light its mid-tones must match this patch. It carries no texture, geometry or lighting — copy nothing else from it. The fabric photographs show a different colour and contribute texture only.
-Attached images 3 and 4 show the same fabric from opposing oblique viewpoints: use them only for how its pile, nubs and sheen respond to light from the side; ignore their colour, crop and background.
-Attached image 5 shows the same fabric under grazing light across a curved, touched surface: copy only that optical behaviour — raised fibres facing the light brighten, fibres laid away darken, and these shifts follow real curves and folds, never a printed pattern.
-Attached image 6 shows a comparable fabric on a whole furniture piece at normal viewing distance: use it only to judge how fine the texture reads from the camera — never its geometry, room, colour or styling, and never let it override the physical sample photographs.
+Image 1 is a close-up photograph of the real target upholstery fabric. Copy ONLY its yarn construction, texture scale and surface relief onto every upholstered piece; take nothing else — not its photographed colour, crop, fold or lighting.
+Image 2 is a flat, evenly lit patch of the exact target upholstery colour #938A83. It is the single authority for the hue, saturation and lightness of the hero upholstery: under the scene's key light its mid-tones must match this patch. It carries no texture, geometry or lighting — take nothing else from it. The fabric photographs show a different colour and contribute texture only.
+Images 3 and 4 show the same fabric from opposing oblique viewpoints: use them only for how its pile, nubs and sheen respond to light from the side; take nothing else — not their colour, crop or background.
+Image 5 shows the same fabric under grazing light across a curved, touched surface: copy only that optical behaviour — raised fibres facing the light brighten, fibres laid away darken, and these shifts follow real curves and folds, never a printed pattern.
+Image 6 shows a comparable fabric on a whole furniture piece at normal viewing distance: use it only to judge how fine the texture reads from the camera — never its geometry, room, colour or styling, and never let it override the physical sample photographs.
 
 BRIEF: Przytulna sypialnia o świcie, łóżko tapicerowane przy oknie, poranna mgła za szybą.
 

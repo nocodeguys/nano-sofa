@@ -306,10 +306,11 @@ def _build_generation_request(
     leg_count = 0 if is_bed and legs == "keep" else 4
     leg_id = _LEG_TO_ID.get(legs)
 
+    # Only a real note reaches the prompt. The old "environment use: …"
+    # (a UI select the generator never read) and "seed hint: N" (no engine
+    # has a seed) were noise at the end of every prompt.
     notes_parts = []
     if env_note.strip(): notes_parts.append(f"environment note: {env_note.strip()}")
-    if env_mode.strip(): notes_parts.append(f"environment use: {env_mode.strip()}")
-    if seed.strip():     notes_parts.append(f"seed hint: {seed.strip()}")
 
     # Every curated view that exists on disk is DECLARED here. Which of them
     # actually get attached under the model's reference cap is decided in one

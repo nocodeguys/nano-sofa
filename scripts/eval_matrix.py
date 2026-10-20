@@ -114,6 +114,8 @@ def main() -> int:
     ap.add_argument("--editorial", action="store_true", help="include the editorial case")
     ap.add_argument("--include-ui-default", action="store_true")
     ap.add_argument("--sleep", type=float, default=2.0, help="seconds between calls")
+    ap.add_argument("--reference-profile", default="", choices=["", "full", "minimal"],
+                    help="override GenerationRequest.reference_profile for every case")
     args = ap.parse_args()
 
     from app.core.generator import generate
@@ -164,6 +166,8 @@ def main() -> int:
 
         req = eval_cases.build_request(case, base)
         req = dataclass_replace(req, model_id=args.model, api_key=key or req.api_key)
+        if args.reference_profile and not case.freeform:
+            req = dataclass_replace(req, reference_profile=args.reference_profile)
         rendered = eval_cases.render(case, req, base)
         stats = eval_cases.prompt_stats(rendered.prompt)
         entry = {
@@ -173,6 +177,7 @@ def main() -> int:
             "color_id": req.color_id,
             "backdrop_hex": _rgb_hex(PROFILES["ivory"].background) if case.mode == "catalog" else "",
             "references": [role for role, _label in rendered.references],
+            "reference_profile": getattr(req, "reference_profile", ""),
             "n_refs": len(rendered.references),
             "prompt_sha256": hashlib.sha256(rendered.prompt.encode()).hexdigest(),
             "prompt_stats": stats,

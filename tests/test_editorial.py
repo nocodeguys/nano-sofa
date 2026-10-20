@@ -223,12 +223,12 @@ def test_freeform_declares_material_set_and_colour_patch(server, base_image):
         "material_behavior", "material_application", "extra_reference_1",
     ]
     prompt = _build_prompt_text(req)
-    assert "Attached image 1 is a close-up photograph" in prompt
-    assert "Attached image 2 is a flat, evenly lit patch of the exact target upholstery colour #122D24" in prompt
-    assert "Attached images 3 and 4 show the same fabric from opposing oblique viewpoints" in prompt
-    assert "Attached image 5 shows the same fabric under grazing light" in prompt
-    assert "Attached image 6 shows a comparable fabric on a whole furniture piece" in prompt
-    assert "Use attached image 7 as loose mood" in prompt
+    assert "Image 1 is a close-up photograph" in prompt
+    assert "Image 2 is a flat, evenly lit patch of the exact target upholstery colour #122D24" in prompt
+    assert "Images 3 and 4 show the same fabric from opposing oblique viewpoints" in prompt
+    assert "Image 5 shows the same fabric under grazing light" in prompt
+    assert "Image 6 shows a comparable fabric on a whole furniture piece" in prompt
+    assert "Use image 7 as loose mood" in prompt
 
 
 def test_freeform_prompt_names_only_attached_references(server, base_image):
@@ -239,13 +239,13 @@ def test_freeform_prompt_names_only_attached_references(server, base_image):
                     extra_reference_paths=[base_image])
     assert _roles(req) == ["material_macro", "color_patch", "material_left"]
     prompt = _build_prompt_text(req)
-    assert "Attached image 3 shows the same fabric from an oblique viewpoint" in prompt
+    assert "Image 3 shows the same fabric from an oblique viewpoint" in prompt
     # The texture spec itself may mention grazing light — assert on the slot
     # sentences, which must be absent for the dropped references.
     assert "shows the same fabric under grazing light" not in prompt
     assert "shows a comparable fabric on a whole furniture piece" not in prompt
     assert "as loose mood and styling" not in prompt
-    assert "Attached image 4" not in prompt
+    assert "Image 4" not in prompt
 
 
 def test_freeform_external_cap_overrides_schema(server, base_image):
@@ -256,8 +256,8 @@ def test_freeform_external_cap_overrides_schema(server, base_image):
                     extra_reference_paths=[base_image, base_image],
                     max_refs=16)
     assert len(_roles(req, 16)) == 8
-    assert "Use attached images 7–8 as loose mood" in _build_prompt_text(req)
+    assert "Use images 7–8 as loose mood" in _build_prompt_text(req)
     # Without a fabric or colour, only the moodboards are attached.
     bare = _freeform(server, mat="", color="", extra_reference_paths=[base_image])
     assert _roles(bare) == ["extra_reference_1"]
-    assert "Use attached image 1 as loose mood" in _build_prompt_text(bare)
+    assert "Use image 1 as loose mood" in _build_prompt_text(bare)

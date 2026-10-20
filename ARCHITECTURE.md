@@ -142,6 +142,21 @@ and Experiments treat every engine alike:
 6. **`/docs` belongs to Swagger**; the user guide lives at `/help`.
 7. **Beds vs sofas share one pipeline**: `product_type` switches prompt
    blocks; platform/divan beds set `leg_count=0`.
+8. **The CAMERA paragraph owns the viewpoint** (2026-10-20, phase 2b). The
+   system instruction protects product identity only; it must never say
+   "preserve camera angle" — with that sentence the model ignored every
+   requested yaw (measured: `docs/eval/baseline-nb2-or.md`). Camera comes
+   in the first ~6 % of the prompt, before the backdrop and the material
+   paragraphs; nothing after it re-describes a viewpoint.
+9. **Every attached image is described, with a scope.** Each reference
+   paragraph names what to take and ends with what not to take ("take
+   nothing else"). A detail / macro shot never gets images that show a
+   whole product at hero distance (the cyclorama plate, the in-use photo):
+   `plan_reference_slots` drops them, so a macro cannot be pulled back to a
+   hero by its own references (measured: mask 0.31 → 0.74).
+10. **Wording changes are measured, not argued.** Change `app/core/prompt/`,
+    update `tests/golden/`, run `scripts/eval_matrix.py` on the same model
+    as the last baseline, link the compare in the PR (`docs/EVAL.md`).
 
 ## Deploy loop
 
