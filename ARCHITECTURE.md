@@ -54,7 +54,12 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
    model's `max_refs` cap and fixes the slot order; the prompt text and the
    trace number slots from the attached list, never from the declared
    fields, so a dropped reference can never mislabel the ones after it.
-   `generator.generate()` then assembles the prompt, flattens alpha,
+   The prompt text itself comes from `app/core/prompt/`: the request is
+   turned into a `PromptSpec` (`product_spec`), and `compile_prompt` emits
+   the paragraphs in the order fixed in `compile.py`, with the wording in
+   `sections.py`. Editorial fills the same spec via `freeform_spec`. Any
+   change to wording or order shows up in `tests/golden/` (see
+   `docs/EVAL.md`). `generator.generate()` then flattens alpha,
    calls Gemini with exponential backoff, classifies failures, saves the
    image, logs cost to SQLite (`app/state/costs.db`).
 4. Debugging wording: `NANO_SOFA_LOG_PROMPT=1` dumps the full prompt that

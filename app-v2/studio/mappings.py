@@ -6,6 +6,8 @@ no intra-package imports, so any module may import from here freely.
 
 from __future__ import annotations
 
+from app.core.prompt import compile_prompt, freeform_spec
+
 _SOFA_CONFIG = {
     "1": "armchair",
     "2": "2-seater",
@@ -744,134 +746,29 @@ def _build_freeform_prompt(
     color_hex: str = "",
 ) -> str:
     """
-    Compose the full editorial prompt: the user's brief leads, picker
-    fragments follow as art-direction constraints. Every picker is optional —
-    empty ids are simply skipped, so the minimal prompt is TASK + BRIEF +
-    OUTPUT STYLE.
+    Compose the full editorial prompt: picker ids are resolved to English
+    fragments here (the tables live in this module), the wording and order
+    live in app/core/prompt. Every picker is optional — empty ids are simply
+    skipped, so the minimal prompt is TASK + BRIEF + OUTPUT STYLE.
 
     `slots` maps reference roles to the 1-based positions that are ACTUALLY
     attached (generator.plan_freeform_reference_slots after the engine's
     cap), so the prompt never describes an image the model did not receive.
     """
-    lines: list[str] = [
-        "TASK: Create a brand-new editorial photograph from scratch based on "
-        "the brief below. There is no base product to preserve — full "
-        "creative freedom within the art direction."
-    ]
-    slots = dict(slots or {})
-    macro_slot = slots.get("material_macro")
-    if macro_slot:
-        lines.append(
-            f"Attached image {macro_slot} is a close-up photograph of the real "
-            "target upholstery fabric. Copy ONLY its yarn construction, texture "
-            "scale and surface relief onto every upholstered piece; ignore its "
-            "photographed colour, crop, fold and lighting."
-        )
-    patch_slot = slots.get("color_patch")
-    if patch_slot:
-        hex_label = (color_hex or "").strip().upper()
-        lines.append(
-            f"Attached image {patch_slot} is a flat, evenly lit patch of the exact "
-            f"target upholstery colour{(' ' + hex_label) if hex_label else ''}. It is "
-            "the single authority for the hue, saturation and lightness of the hero "
-            "upholstery: under the scene's key light its mid-tones must match this "
-            "patch. It carries no texture, geometry or lighting — copy nothing else "
-            "from it. The fabric photographs show a different colour and contribute "
-            "texture only."
-        )
-    angle_slots = [slots[role] for role in ("material_left", "material_right") if role in slots]
-    if angle_slots:
-        plural = len(angle_slots) > 1
-        label = " and ".join(str(slot) for slot in angle_slots)
-        viewpoint = "opposing oblique viewpoints" if plural else "an oblique viewpoint"
-        lines.append(
-            f"Attached image{'s' if plural else ''} {label} show{'' if plural else 's'} "
-            f"the same fabric from {viewpoint}: use "
-            f"{'them' if plural else 'it'} only for how its pile, nubs and sheen "
-            "respond to light from the side; ignore "
-            f"{'their' if plural else 'its'} colour, crop and background."
-        )
-    behavior_slot = slots.get("material_behavior")
-    if behavior_slot:
-        lines.append(
-            f"Attached image {behavior_slot} shows the same fabric under grazing light "
-            "across a curved, touched surface: copy only that optical behaviour — "
-            "raised fibres facing the light brighten, fibres laid away darken, and "
-            "these shifts follow real curves and folds, never a printed pattern."
-        )
-    application_slot = slots.get("material_application")
-    if application_slot:
-        lines.append(
-            f"Attached image {application_slot} shows a comparable fabric on a whole "
-            "furniture piece at normal viewing distance: use it only to judge how "
-            "fine the texture reads from the camera — never its geometry, room, "
-            "colour or styling, and never let it override the physical sample "
-            "photographs."
-        )
-    mood_slots = sorted(
-        number for role, number in slots.items() if role.startswith("extra_reference_")
+    spec = freeform_spec(
+        text=text,
+        art_direction=_EDITORIAL_STYLES.get(style, "") if style in _EDITORIAL_STYLES else "",
+        setting_text=_ENV_TO_SCENE[env][1] if (env and env in _ENV_TO_SCENE and env != "custom") else "",
+        light_text=_TOD_TO_PROMPT.get(tod, "") if tod in _TOD_TO_PROMPT else "",
+        lens_descriptor=_LENS_TO_PROMPT[lens]["descriptor"] if lens in _LENS_TO_PROMPT else "",
+        height_phrase=_HEIGHT_TO_PHRASE.get(height, "") if height in _HEIGHT_TO_PHRASE else "",
+        color_en=color_en,
+        mat_noun_en=mat_noun_en,
+        mat_texture_en=mat_texture_en,
+        mat_avoid_en=mat_avoid_en,
+        people_text=_PEOPLE_TO_PROMPT[people] if people in _PEOPLE_TO_PROMPT else "",
+        seed=seed,
+        slots=slots,
+        color_hex=color_hex,
     )
-    if mood_slots:
-        label = (
-            f"image {mood_slots[0]}" if len(mood_slots) == 1
-            else f"images {mood_slots[0]}–{mood_slots[-1]}"
-        )
-        lines.append(
-            f"Use attached {label} as loose mood and styling "
-            "inspiration only — do not copy them literally."
-        )
-    lines.append("")
-    lines.append(f"BRIEF: {text.strip()}")
-    lines.append("")
-
-    if style in _EDITORIAL_STYLES:
-        lines.append(f"ART DIRECTION: {_EDITORIAL_STYLES[style]}.")
-    if env and env in _ENV_TO_SCENE and env != "custom":
-        lines.append(f"SETTING: {_ENV_TO_SCENE[env][1]}.")
-    if tod in _TOD_TO_PROMPT:
-        lines.append(f"LIGHT: {_TOD_TO_PROMPT[tod]}.")
-    cam_bits = []
-    if lens in _LENS_TO_PROMPT:
-        cam_bits.append(_LENS_TO_PROMPT[lens]["descriptor"])
-    if height in _HEIGHT_TO_PHRASE:
-        cam_bits.append(_HEIGHT_TO_PHRASE[height])
-    if cam_bits:
-        lines.append("CAMERA: " + "; ".join(cam_bits) + ".")
-    if color_en:
-        lines.append(
-            f"COLOR DIRECTION (hard constraint): the hero furniture piece and "
-            f"the dominant tone of the frame are {color_en}; the supporting "
-            "palette stays harmonious and neutral around it."
-        )
-    if mat_noun_en:
-        # The full texture spec, not a one-line hint — with no base image to
-        # anchor the fabric, a soft hint gets overridden by the model's own
-        # styling (the same noun-vs-spec lesson as the variant pipeline).
-        lines.append(
-            f"TEXTILE DIRECTION (hard constraint): every upholstered "
-            f"furniture piece in the frame is upholstered in {mat_noun_en}. "
-            f"Fabric spec: {mat_texture_en}"
-        )
-        if mat_avoid_en:
-            lines.append(
-                "TEXTILE — must not appear: " + "; ".join(mat_avoid_en) + "."
-            )
-    if people in _PEOPLE_TO_PROMPT:
-        lines.append(f"PEOPLE: {_PEOPLE_TO_PROMPT[people]}")
-    if seed.strip():
-        lines.append(f"seed hint: {seed.strip()}")
-
-    lines.append("")
-    lines.append(
-        "OUTPUT STYLE: professional editorial furniture-brand photography, "
-        "photorealistic, coherent high-end art direction, natural color grading."
-    )
-    negative = (
-        "NEGATIVE (must not appear in output): any rendered text, typography, "
-        "logos, watermarks or UI elements — leave clean negative space where "
-        "a masthead or headline would be placed."
-    )
-    if people not in _PEOPLE_TO_PROMPT:
-        negative += " No people, no human figures, no faces, no body parts."
-    lines.append(negative)
-    return "\n".join(lines)
+    return compile_prompt(spec)

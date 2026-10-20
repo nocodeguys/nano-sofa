@@ -187,6 +187,7 @@ class Rendered:
     system_instruction: str
     references: list[tuple[str, str]]   # (role, source label)
     max_refs: int
+    plan: list[tuple[str, Any, Any]] = field(default_factory=list)   # (role, source, PIL image)
 
 
 def _label(source: Any, base_image: Optional[Path]) -> str:
@@ -199,18 +200,24 @@ def _label(source: Any, base_image: Optional[Path]) -> str:
 
 
 def render(case: Case, req: GenerationRequest, base_image: Optional[Path]) -> Rendered:
-    if case.engine == "openai":
-        max_refs = OPENAI_MODELS[case.model]["max_refs"]
+    """The cap and the system instruction follow `req.model_id` (which the
+    live runner may override), the engine follows the registry. OpenRouter
+    runs are treated like Gemini: same prompt, same system instruction
+    (prepended by the runner, since the Images API has no system field)."""
+    engine = registry.engine_of(req.model_id)
+    if engine == "openai":
+        max_refs = registry.max_refs(req.model_id, OPENAI_MODELS.get(req.model_id, {}).get("max_refs", 16))
         system_instruction = ""           # generate_openai sends none
     else:
-        max_refs = schema.max_refs_for_model(case.model)
+        max_refs = registry.max_refs(req.model_id, schema.max_refs_for_model(req.model_id))
         system_instruction = req.system_instruction or schema.system_instruction_default
 
     if case.freeform:
         loaded = load_freeform_reference_plan(req, max_refs)
         refs = [(slot.role, _label(slot.source, None)) for slot, _img in loaded]
         prompt = _build_prompt_text(req)   # freeform text is the prompt
-        return Rendered(prompt, system_instruction, refs, max_refs)
+        plan = [(slot.role, slot.source, img) for slot, img in loaded]
+        return Rendered(prompt, system_instruction, refs, max_refs, plan)
 
     base_img = _load_image(req.base_product_image)
     assert base_img is not None, "base image unreadable"
@@ -218,7 +225,8 @@ def render(case: Case, req: GenerationRequest, base_image: Optional[Path]) -> Re
     slots = slot_numbers([slot for slot, _img in loaded])
     prompt = _build_prompt_text(req, slots)
     refs = [(slot.role, _label(slot.source, base_image)) for slot, _img in loaded]
-    return Rendered(prompt, system_instruction, refs, max_refs)
+    plan = [(slot.role, slot.source, img) for slot, img in loaded]
+    return Rendered(prompt, system_instruction, refs, max_refs, plan)
 
 
 def prompt_stats(prompt: str) -> dict[str, Any]:

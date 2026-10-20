@@ -328,7 +328,8 @@ Serce refactoru. Wejście: oba researche, obecne buildery, goldeny z fazy 0.
 |---|---|---|
 | 0 | ✅ zrobiona | `b653ae5` — 28 goldenów, `eval_matrix.py`, `eval_report.py`, `docs/EVAL.md`. Baseline macierzy **nieprzebiegnięty** (brak klucza Gemini/OpenAI w `.env`). |
 | 1 | ✅ zrobiona | `app-v2/models.json` + `app/core/model_registry.py`; schemat, cost_tracker, silniki, `/api/config`, front czytają rejestr; test grepujący drzewo pilnuje, że żaden id nie wraca do kodu. Default: `gemini-nano-banana-2.1`; NB2 i 2.5 Flash oznaczone `deprecated`, nadal akceptowane; GPT 2.5 domyślnie `xhigh`, bez `input_fidelity`. |
-| 2 | ⏳ następna | |
+| 2a | ✅ zrobiona | `app/core/prompt/` (spec, sections, compile, from_request). Oba buildery (produktowy i freeform) wypełniają `PromptSpec` i przechodzą przez `compile_prompt`. Brzmienie **bez zmian**: `tests/test_prompt_compiler_parity.py` porównuje nowy kompilator z zamrożoną kopią starego kodu (`tests/legacy_prompt_builder.py`) na siatce 1 300+ requestów, goldeny nietknięte. `eval_matrix.py` umie jechać przez OpenRouter (klucz OR), baseline w `outputs/eval/baseline-nb2-or` na `google/gemini-3.1-flash-image` (NB 2.1 na OpenRouter zgłasza dziś quota po stronie Google AI Studio). |
+| 2b | ⏳ następna | zmiana kolejności i brzmienia w `compile.py` / `sections.py`; bramka: goldeny + macierz vs baseline na tym samym modelu |
 | 3–6 | — | |
 
 ## 5. Co dostajemy po każdej fazie

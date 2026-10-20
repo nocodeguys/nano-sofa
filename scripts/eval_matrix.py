@@ -13,6 +13,11 @@ Usage:
     # OpenAI direct (key from OPENAI_API_KEY or .env)
     .venv/bin/python scripts/eval_matrix.py --model gpt-image-2.5-flare --quality xhigh
 
+    # Any OpenRouter model (key from OPENROUTER_API_KEY or .env) — the same
+    # Google model through OpenRouter, or FLUX / Seedream / GPT Image 2:
+    .venv/bin/python scripts/eval_matrix.py --model google/gemini-nano-banana-2.1 --run baseline
+    .venv/bin/python scripts/eval_matrix.py --model openai/gpt-image-2 --quality high
+
     # Just print what would be sent
     .venv/bin/python scripts/eval_matrix.py --dry-run
 
@@ -78,9 +83,15 @@ def _key(name: str) -> str:
     return os.environ.get(name) or _dotenv().get(name, "")
 
 
+def _case_engine(engine: str) -> str:
+    """The matrix is defined for gemini / openai; OpenRouter runs reuse the
+    gemini cases (same prompt text, system instruction prepended)."""
+    return "openai" if engine == "openai" else "gemini"
+
+
 def _select_cases(args) -> list[eval_cases.Case]:
-    from studio.openai_images import OPENAI_MODELS
-    engine = "openai" if args.model in OPENAI_MODELS else "gemini"
+    from app.core.model_registry import registry
+    engine = _case_engine(registry.engine_of(args.model))
     cases = [c for c in eval_cases.CASES if c.engine == engine]
     if not args.include_ui_default:
         cases = [c for c in cases if "ui_default" not in c.id]
@@ -106,10 +117,15 @@ def main() -> int:
     args = ap.parse_args()
 
     from app.core.generator import generate
+    from app.core.model_registry import registry
     from studio.normalize import PROFILES, normalize_packshot
-    from studio.openai_images import OPENAI_MODELS, generate_product_openai
+    from studio.openai_images import generate_product_openai
+    from studio.openrouter import generate_openrouter
 
-    engine = "openai" if args.model in OPENAI_MODELS else "gemini"
+    if args.model not in registry:
+        print(f"unknown model {args.model!r}; known: {', '.join(sorted(registry.models))}", file=sys.stderr)
+        return 2
+    engine = registry.engine_of(args.model)
     cases = _select_cases(args)
     if not cases:
         print("no cases selected", file=sys.stderr)
@@ -121,12 +137,13 @@ def main() -> int:
             print(f"base image for {kind} not found: {path}", file=sys.stderr)
             return 2
 
+    key_name = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}.get(engine, "GEMINI_API_KEY")
     key = ""
     if not args.dry_run:
-        key = _key("OPENAI_API_KEY" if engine == "openai" else "GEMINI_API_KEY")
+        key = _key(key_name)
         if not key:
-            print(f"missing {'OPENAI_API_KEY' if engine == 'openai' else 'GEMINI_API_KEY'} "
-                  f"(env or .env) — use --dry-run to inspect without calling", file=sys.stderr)
+            print(f"missing {key_name} (env or .env) — use --dry-run to inspect without calling",
+                  file=sys.stderr)
             return 2
 
     run = args.run or f"{time.strftime('%Y%m%d-%H%M%S')}-{args.model.replace('/', '_')}"
@@ -147,7 +164,7 @@ def main() -> int:
 
         req = eval_cases.build_request(case, base)
         req = dataclass_replace(req, model_id=args.model, api_key=key or req.api_key)
-        rendered = eval_cases.render(dataclass_replace(case, engine=engine), req, base)
+        rendered = eval_cases.render(case, req, base)
         stats = eval_cases.prompt_stats(rendered.prompt)
         entry = {
             "id": case.id, "kind": case.kind, "mode": case.mode, "shot": case.shot,
@@ -177,21 +194,41 @@ def main() -> int:
                 result = generate_product_openai(
                     dataclass_replace(req, engine_quality=args.quality), key
                 )
+                ok, out_path = result.success and result.output_path is not None, result.output_path
+                cost, elapsed = float(result.actual_cost or 0.0), result.elapsed_ms
+                err = "" if ok else f"{result.error_code}: {result.error_detail or result.error_message}"
+            elif engine == "openrouter":
+                # The Images API has no system field: the Gemini system
+                # instruction rides as the first paragraph of the prompt, so
+                # the model sees the same words the direct path sends.
+                prompt = (rendered.system_instruction.strip() + "\n\n" + rendered.prompt
+                          if rendered.system_instruction.strip() else rendered.prompt)
+                out = generate_openrouter(
+                    api_key=key, model=args.model, prompt=prompt, aspect=req.aspect_ratio,
+                    references=rendered.plan, quality=args.quality,
+                    png_meta={"nano_sofa_color_hex": req.upholstery_hex or "",
+                              "nano_sofa_material_id": req.material_id or ""},
+                    prompt_summary=f"eval {case.id}", trace_request=req,
+                )
+                ok, out_path, cost, elapsed, err = True, out["output_path"], float(out["cost"] or 0), out["elapsed_ms"], ""
             else:
                 result = generate(req)
+                ok, out_path = result.success and result.output_path is not None, result.output_path
+                cost, elapsed = float(result.actual_cost or 0.0), result.elapsed_ms
+                err = "" if ok else f"{result.error_code}: {result.error_detail or result.error_message}"
         except Exception as exc:  # noqa: BLE001 — record and move on
             entry["error"] = f"{type(exc).__name__}: {exc}"
             manifest["cases"].append(entry)
             print(f"    ERROR {entry['error']}")
             continue
-        entry["elapsed_ms"] = result.elapsed_ms or int((time.monotonic() - t0) * 1000)
-        entry["cost"] = float(result.actual_cost or 0.0)
+        entry["elapsed_ms"] = elapsed or int((time.monotonic() - t0) * 1000)
+        entry["cost"] = cost
         total_cost += entry["cost"]
-        if not result.success or result.output_path is None:
-            entry["error"] = f"{result.error_code}: {result.error_detail or result.error_message}"
+        if not ok:
+            entry["error"] = err
             print(f"    FAILED {entry['error']}")
         else:
-            src = Path(result.output_path)
+            src = Path(out_path)
             if case.mode == "catalog":
                 try:
                     normalize_packshot(src, "ivory")

@@ -17,10 +17,54 @@
     "lab": "gpt-image-2.5-flare"
   },
   "eta_seed": {
-    "flash": { "1K": [8, 16], "2K": [13, 26], "4K": [20, 38] },
-    "pro":   { "1K": [18, 34], "2K": [26, 50], "4K": [40, 72] },
-    "gpt":   { "1K": [25, 50], "2K": [45, 90] },
-    "other": { "1K": [12, 24], "2K": [20, 40] }
+    "flash": {
+      "1K": [
+        8,
+        16
+      ],
+      "2K": [
+        13,
+        26
+      ],
+      "4K": [
+        20,
+        38
+      ]
+    },
+    "pro": {
+      "1K": [
+        18,
+        34
+      ],
+      "2K": [
+        26,
+        50
+      ],
+      "4K": [
+        40,
+        72
+      ]
+    },
+    "gpt": {
+      "1K": [
+        25,
+        50
+      ],
+      "2K": [
+        45,
+        90
+      ]
+    },
+    "other": {
+      "1K": [
+        12,
+        24
+      ],
+      "2K": [
+        20,
+        40
+      ]
+    }
   },
   "models": [
     {
@@ -31,16 +75,50 @@
       "short": "NB 2.1",
       "tier": "flash",
       "status": "active",
-      "surfaces": ["studio", "editorial"],
+      "surfaces": [
+        "studio",
+        "editorial"
+      ],
       "max_refs": 14,
-      "resolutions": ["1K", "2K", "4K"],
+      "resolutions": [
+        "1K",
+        "2K",
+        "4K"
+      ],
       "supports_resolution_param": true,
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "4:5", "9:16", "16:9", "21:9"],
-      "thinking": { "on_by_default": true, "can_disable": false, "levels": ["minimal", "medium", "high"], "default": "medium" },
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "4:5",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "thinking": {
+        "on_by_default": true,
+        "can_disable": false,
+        "levels": [
+          "minimal",
+          "medium",
+          "high"
+        ],
+        "default": "medium"
+      },
       "pricing": {
-        "output_image": { "1K": 0.0336, "2K": 0.0504, "4K": 0.113 },
-        "output_image_batch": { "1K": 0.0168, "2K": 0.0252, "4K": 0.0565 },
-        "text_input_per_1m": 0.50,
+        "output_image": {
+          "1K": 0.0336,
+          "2K": 0.0504,
+          "4K": 0.113
+        },
+        "output_image_batch": {
+          "1K": 0.0168,
+          "2K": 0.0252,
+          "4K": 0.0565
+        },
+        "text_input_per_1m": 0.5,
         "input_image_tokens": 258,
         "thinking_per_1m": 3.0
       },
@@ -55,16 +133,49 @@
       "short": "Pro",
       "tier": "pro",
       "status": "active",
-      "surfaces": ["studio", "editorial"],
+      "surfaces": [
+        "studio",
+        "editorial"
+      ],
       "max_refs": 14,
-      "resolutions": ["1K", "2K", "4K"],
+      "resolutions": [
+        "1K",
+        "2K",
+        "4K"
+      ],
       "supports_resolution_param": true,
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "4:5", "9:16", "16:9", "21:9"],
-      "thinking": { "on_by_default": true, "can_disable": false, "levels": ["medium", "high"], "default": "medium" },
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "4:5",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "thinking": {
+        "on_by_default": true,
+        "can_disable": false,
+        "levels": [
+          "medium",
+          "high"
+        ],
+        "default": "medium"
+      },
       "pricing": {
-        "output_image": { "1K": 0.134, "2K": 0.134, "4K": 0.240 },
-        "output_image_batch": { "1K": 0.067, "2K": 0.067, "4K": 0.120 },
-        "text_input_per_1m": 2.00,
+        "output_image": {
+          "1K": 0.134,
+          "2K": 0.134,
+          "4K": 0.24
+        },
+        "output_image_batch": {
+          "1K": 0.067,
+          "2K": 0.067,
+          "4K": 0.12
+        },
+        "text_input_per_1m": 2.0,
         "input_image_tokens": 560,
         "thinking_per_1m": 12.0
       },
@@ -79,20 +190,57 @@
       "short": "NB 2",
       "tier": "flash",
       "status": "deprecated",
-      "surfaces": ["studio", "editorial"],
+      "surfaces": [
+        "studio",
+        "editorial"
+      ],
       "max_refs": 14,
-      "resolutions": ["1K", "2K", "4K"],
+      "resolutions": [
+        "1K",
+        "2K",
+        "4K"
+      ],
       "supports_resolution_param": true,
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "4:5", "9:16", "16:9", "21:9"],
-      "thinking": { "on_by_default": true, "can_disable": false, "levels": ["minimal", "high"], "default": "minimal" },
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "4:5",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "thinking": {
+        "on_by_default": true,
+        "can_disable": false,
+        "levels": [
+          "minimal",
+          "high"
+        ],
+        "default": "minimal"
+      },
       "pricing": {
-        "output_image": { "1K": 0.067, "2K": 0.101, "4K": 0.151 },
-        "output_image_batch": { "1K": 0.034, "2K": 0.050, "4K": 0.076 },
-        "text_input_per_1m": 0.50,
+        "output_image": {
+          "1K": 0.067,
+          "2K": 0.101,
+          "4K": 0.151
+        },
+        "output_image_batch": {
+          "1K": 0.034,
+          "2K": 0.05,
+          "4K": 0.076
+        },
+        "text_input_per_1m": 0.5,
         "input_image_tokens": 258,
         "thinking_per_1m": 3.0
       },
-      "deprecation": { "deprecated_on": "2026-10-06", "shutdown": null, "replacement": "gemini-nano-banana-2.1" },
+      "deprecation": {
+        "deprecated_on": "2026-10-06",
+        "shutdown": null,
+        "replacement": "gemini-nano-banana-2.1"
+      },
       "note_pl": "wycofany przez Google 2026-10-06; zostaje dla starych presetów i porównań"
     },
     {
@@ -103,23 +251,54 @@
       "short": "NB 2.5",
       "tier": "flash",
       "status": "deprecated",
-      "surfaces": ["studio", "editorial"],
+      "surfaces": [
+        "studio",
+        "editorial"
+      ],
       "max_refs": 3,
-      "resolutions": ["1K"],
+      "resolutions": [
+        "1K"
+      ],
       "supports_resolution_param": false,
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "4:5", "9:16", "16:9", "21:9"],
-      "thinking": { "on_by_default": false, "can_disable": true, "levels": [], "default": "" },
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "4:5",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "thinking": {
+        "on_by_default": false,
+        "can_disable": true,
+        "levels": [],
+        "default": ""
+      },
       "pricing": {
-        "output_image": { "1K": 0.039, "2K": 0.039, "4K": 0.039 },
-        "output_image_batch": { "1K": 0.0195, "2K": 0.0195, "4K": 0.0195 },
-        "text_input_per_1m": 0.30,
+        "output_image": {
+          "1K": 0.039,
+          "2K": 0.039,
+          "4K": 0.039
+        },
+        "output_image_batch": {
+          "1K": 0.0195,
+          "2K": 0.0195,
+          "4K": 0.0195
+        },
+        "text_input_per_1m": 0.3,
         "input_image_tokens": 258,
         "thinking_per_1m": 0.0
       },
-      "deprecation": { "deprecated_on": "2026-10-02", "shutdown": "2027-03-15", "replacement": "gemini-nano-banana-2.1" },
+      "deprecation": {
+        "deprecated_on": "2026-10-02",
+        "shutdown": "2027-03-15",
+        "replacement": "gemini-nano-banana-2.1"
+      },
       "note_pl": "tylko 1K i 3 referencje; źródła Google podają sprzeczne daty wyłączenia (2026-10-02 / 2027-03-15)"
     },
-
     {
       "id": "gpt-image-2.5-flare",
       "engine": "openai",
@@ -128,18 +307,46 @@
       "short": "Flare",
       "tier": "gpt",
       "status": "active",
-      "surfaces": ["lab", "editorial"],
+      "surfaces": [
+        "lab",
+        "editorial"
+      ],
       "max_refs": 16,
-      "resolutions": ["1K", "2K"],
+      "resolutions": [
+        "1K",
+        "2K"
+      ],
       "supports_resolution_param": true,
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "qualities": ["low", "medium", "high", "xhigh", "max"],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "default_quality": "xhigh",
       "input_fidelity": false,
       "snapshot": "gpt-image-2.5-flare-2026-09-08",
       "pricing": {
-        "rates": { "input_text": 5e-6, "input_image": 8e-6, "output_image": 30e-6 },
-        "output_image": { "1K": 0.08, "2K": 0.15 },
+        "rates": {
+          "input_text": 5e-06,
+          "input_image": 8e-06,
+          "output_image": 3e-05
+        },
+        "output_image": {
+          "1K": 0.08,
+          "2K": 0.15
+        },
         "price_hint": "≈$0.04 (high) · $0.08 (xhigh) · $0.20 (max) za 1K; z tokenów po renderze"
       },
       "deprecation": null,
@@ -153,24 +360,148 @@
       "short": "Sunburst",
       "tier": "gpt",
       "status": "active",
-      "surfaces": ["lab", "editorial"],
+      "surfaces": [
+        "lab",
+        "editorial"
+      ],
       "max_refs": 16,
-      "resolutions": ["1K", "2K"],
+      "resolutions": [
+        "1K",
+        "2K"
+      ],
       "supports_resolution_param": true,
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "qualities": ["low", "medium", "high", "xhigh", "max"],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "default_quality": "xhigh",
       "input_fidelity": false,
       "snapshot": "gpt-image-2.5-sunburst-2026-09-08",
       "pricing": {
-        "rates": { "input_text": 5e-6, "input_image": 8e-6, "output_image": 30e-6 },
-        "output_image": { "1K": 0.08, "2K": 0.15 },
+        "rates": {
+          "input_text": 5e-06,
+          "input_image": 8e-06,
+          "output_image": 3e-05
+        },
+        "output_image": {
+          "1K": 0.08,
+          "2K": 0.15
+        },
         "price_hint": "≈$0.04 (high) · $0.08 (xhigh) · $0.20 (max) za 1K; 1.4–1.8× wolniejszy niż Flare"
       },
       "deprecation": null,
       "note_pl": "premium: ściślejsza kontrola edycji, finalne ujęcia kampanii"
     },
-
+    {
+      "id": "google/gemini-nano-banana-2.1",
+      "engine": "openrouter",
+      "provider": "openrouter",
+      "label": "Nano Banana 2.1 · OpenRouter",
+      "short": "NB 2.1 (OR)",
+      "tier": "flash",
+      "status": "active",
+      "surfaces": [
+        "editorial"
+      ],
+      "max_refs": 14,
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "$0.034/obraz (1K), przelot Google"
+      },
+      "deprecation": null,
+      "note_pl": "ten sam model Google przez OpenRouter: klucz OR, billing all-or-nothing; używany przez scripts/eval_matrix.py"
+    },
+    {
+      "id": "google/gemini-3-pro-image",
+      "engine": "openrouter",
+      "provider": "openrouter",
+      "label": "Nano Banana Pro · OpenRouter",
+      "short": "Pro (OR)",
+      "tier": "pro",
+      "status": "active",
+      "surfaces": [
+        "editorial"
+      ],
+      "max_refs": 14,
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "$0.134/obraz (1K–2K), przelot Google"
+      },
+      "deprecation": null,
+      "note_pl": "ten sam model Google przez OpenRouter"
+    },
+    {
+      "id": "google/gemini-3.1-flash-image",
+      "engine": "openrouter",
+      "provider": "openrouter",
+      "label": "Nano Banana 2 · OpenRouter (wycofywany)",
+      "short": "NB 2 (OR)",
+      "tier": "flash",
+      "status": "deprecated",
+      "surfaces": [
+        "editorial"
+      ],
+      "max_refs": 14,
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "$0.067/obraz (1K), przelot Google"
+      },
+      "deprecation": {
+        "deprecated_on": "2026-10-06",
+        "shutdown": null,
+        "replacement": "google/gemini-nano-banana-2.1"
+      },
+      "note_pl": "ma zapasową trasę Vertex — działa, gdy AI Studio zgłasza quota; używany przez eval_matrix jako stały model odniesienia"
+    },
     {
       "id": "openai/gpt-image-2",
       "engine": "openrouter",
@@ -179,13 +510,32 @@
       "short": "GPT-2",
       "tier": "gpt",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 16,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "qualities": ["low", "medium", "high"],
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high"
+      ],
       "default_quality": "high",
-      "pricing": { "price_hint": "≈$0.01–0.13/obraz wg jakości" },
+      "pricing": {
+        "price_hint": "≈$0.01–0.13/obraz wg jakości"
+      },
       "deprecation": null
     },
     {
@@ -196,14 +546,32 @@
       "short": "GPT-1",
       "tier": "gpt",
       "status": "deprecated",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 16,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "2:3", "3:2"],
-      "qualities": ["low", "medium", "high"],
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "2:3",
+        "3:2"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high"
+      ],
       "default_quality": "medium",
-      "pricing": { "price_hint": "≈$0.01–0.17/obraz wg jakości" },
-      "deprecation": { "deprecated_on": "2026-09-01", "shutdown": "2026-10-23", "replacement": "openai/gpt-image-2" }
+      "pricing": {
+        "price_hint": "≈$0.01–0.17/obraz wg jakości"
+      },
+      "deprecation": {
+        "deprecated_on": "2026-09-01",
+        "shutdown": "2026-10-23",
+        "replacement": "openai/gpt-image-2"
+      }
     },
     {
       "id": "openai/gpt-image-1-mini",
@@ -213,14 +581,32 @@
       "short": "GPT-1 mini",
       "tier": "gpt",
       "status": "deprecated",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 16,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "2:3", "3:2"],
-      "qualities": ["low", "medium", "high"],
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "2:3",
+        "3:2"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high"
+      ],
       "default_quality": "medium",
-      "pricing": { "price_hint": "≈$0.002–0.04/obraz wg jakości" },
-      "deprecation": { "deprecated_on": "2026-09-01", "shutdown": "2026-12-01", "replacement": "openai/gpt-image-2" }
+      "pricing": {
+        "price_hint": "≈$0.002–0.04/obraz wg jakości"
+      },
+      "deprecation": {
+        "deprecated_on": "2026-09-01",
+        "shutdown": "2026-12-01",
+        "replacement": "openai/gpt-image-2"
+      }
     },
     {
       "id": "black-forest-labs/flux.2-pro",
@@ -230,11 +616,26 @@
       "short": "FLUX.2",
       "tier": "other",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 8,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "pricing": { "price_hint": "~$0.06/obraz" },
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "~$0.06/obraz"
+      },
       "deprecation": null
     },
     {
@@ -245,11 +646,26 @@
       "short": "Seedream 4.5",
       "tier": "other",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 14,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "pricing": { "price_hint": "$0.04/obraz" },
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "$0.04/obraz"
+      },
       "deprecation": null
     },
     {
@@ -260,11 +676,26 @@
       "short": "Seedream 5 Pro",
       "tier": "other",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 14,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "pricing": { "price_hint": "$0.045/obraz" },
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "$0.045/obraz"
+      },
       "deprecation": null
     },
     {
@@ -275,11 +706,26 @@
       "short": "Seedream 5 Lite",
       "tier": "other",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 14,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"],
-      "pricing": { "price_hint": "$0.035/obraz" },
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "pricing": {
+        "price_hint": "$0.035/obraz"
+      },
       "deprecation": null
     },
     {
@@ -290,11 +736,24 @@
       "short": "Krea L",
       "tier": "other",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 1,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
-      "pricing": { "price_hint": "cena wg OpenRouter" },
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9"
+      ],
+      "pricing": {
+        "price_hint": "cena wg OpenRouter"
+      },
       "deprecation": null
     },
     {
@@ -305,11 +764,24 @@
       "short": "Krea M",
       "tier": "other",
       "status": "active",
-      "surfaces": ["editorial"],
+      "surfaces": [
+        "editorial"
+      ],
       "max_refs": 1,
-      "resolutions": ["auto"],
-      "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
-      "pricing": { "price_hint": "cena wg OpenRouter" },
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9"
+      ],
+      "pricing": {
+        "price_hint": "cena wg OpenRouter"
+      },
       "deprecation": null
     }
   ]
