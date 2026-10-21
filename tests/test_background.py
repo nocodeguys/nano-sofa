@@ -186,7 +186,7 @@ def capture_render(server, monkeypatch, base_image):
 
     seen = {}
 
-    def fake_render(req, openai_key="", quality=""):
+    def fake_render(req, openai_key="", quality="", openrouter_key=""):
         seen["req"] = req
         out = Path(base_image).parent / "render.png"
         Image.new("RGB", (64, 48), (200, 190, 180)).save(out)

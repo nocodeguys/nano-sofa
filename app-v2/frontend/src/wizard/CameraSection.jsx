@@ -21,10 +21,10 @@ export const CAM_PRESET_DEFAULTS = {
 
 /* 08 — camera and framing. Always fully available; a locked backdrop only
    greys out the light selects (the server locks tod / shadow). */
-export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPreset }) {
+export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPreset, baseCamLocked }) {
   return (
 <Section num="08" title="Kamera i kadrowanie" summary={(() => {
-  if (st.preserveBaseCamera) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
+  if (baseCamLocked) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
   const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
   let regionTable = null;
   if (st.shot === "detail_fabric") regionTable = DETAIL_REGIONS_FABRIC;
@@ -50,14 +50,14 @@ export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPrese
   <label style={{
     display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
     padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
-    background: st.preserveBaseCamera ? "rgba(95,122,86,.06)" : "var(--bg-1)",
+    background: baseCamLocked ? "rgba(95,122,86,.06)" : "var(--bg-1)",
     cursor: st.uploaded ? "pointer" : "not-allowed",
     opacity: st.uploaded ? 1 : 0.55,
     fontSize:12.5, lineHeight:1.45,
   }}>
     <input
       type="checkbox"
-      checked={st.uploaded && !!st.preserveBaseCamera}
+      checked={baseCamLocked}
       disabled={!st.uploaded}
       onChange={e => set({ preserveBaseCamera: e.target.checked })}
       style={{marginTop:2, flexShrink:0}} />
@@ -73,7 +73,7 @@ export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPrese
       sensible starting point that they can then tweak. Mirrors
       _CAM_PRESET_TO_STRUCTURED in server.py. */}
   <div className="field-lbl">szybki preset</div>
-  <div className="cam-grid" style={st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : undefined}>
+  <div className="cam-grid" style={baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : undefined}>
     {CAMERAS.map(c => (
       <div key={c.id} className={"cam " + (matchedPreset === c.id ? "sel" : "")} onClick={() => {
         set({ cam: c.id, ...(CAM_PRESET_DEFAULTS[c.id] || {}) });
@@ -97,7 +97,7 @@ export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPrese
   <div className="field-lbl" style={{marginTop:16}}>typ kadru</div>
   <div className="cam-grid" style={{
     gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))",
-    ...(st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : {}),
+    ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
   }}>
     {SHOT_TYPES.map(s => (
       <div key={s.id} className={"cam " + (st.shot === s.id ? "sel" : "")} onClick={() => {
@@ -167,7 +167,7 @@ export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPrese
       height are dimmed for detail shots because the macro crop fills
       the frame regardless of where the camera is yawed. */}
   <div className="tri-row" style={{marginTop:12,
-    ...(st.preserveBaseCamera ? {opacity:0.4, pointerEvents:"none"} : {}),
+    ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
   }}>
     <div style={(st.shot === "detail_fabric" || st.shot === "detail_corner") ? {opacity:0.45, pointerEvents:"none"} : undefined}>
       <div className="field-lbl">kąt (yaw)</div>

@@ -506,24 +506,81 @@ def material_macro(s: PromptSpec) -> Lines:
     noun = s.product.noun
     swatch_slot = s.slots["material_macro"]
     if s.swatch_texture_only:
+        # Construction-specific wording: the default describes short-pile
+        # Cremona and pushed bouclé into fine uniform grain; corduroy's wales
+        # must stay legible instead of merging (main, 2026-09/10).
+        if s.restrained:
+            construction = (
+                f"Copy ONLY its yarn construction: the shape, size mix and "
+                f"irregular clustering of the loops, their depth, and the gaps "
+                f"between them. Apply that authentic surface to every upholstered "
+                f"part of the {noun} in image 1 at the sample's true "
+                f"physical scale. SCALE AND CONTRAST LIMIT — HARD REQUIREMENT: do "
+                f"not enlarge, sharpen or exaggerate the loops beyond what the "
+                f"sample photographs show. At normal product-photography distance "
+                f"the bouclé reads as a fine, dense, soft nubbly surface with "
+                f"gentle, low-contrast relief; the gaps between loops are only "
+                f"slightly darker than the loop tops, never grey or black. Do not "
+                f"add crisp edges, glints or extra micro-shadows to make the "
+                f"texture more visible. "
+            )
+            ignored = "colour, folds, zoom, lighting, shadows, crop, and perspective"
+        elif s.material.looped:
+            construction = (
+                f"Copy ONLY its yarn construction: the shape, size mix and "
+                f"irregular clustering of the loops, their depth, and the dark "
+                f"gaps between them. Apply that authentic surface to every "
+                f"upholstered part of the {noun} in image 1. Preserve its "
+                f"true physical scale: this is a coarse looped textile, so "
+                f"individual loops and loop clusters stay legible at normal "
+                f"product-photography distance as distinct three-dimensional "
+                f"bumps, each with its own soft highlight and shadowed gap. Never "
+                f"shrink them into fine sand-like grain, felt or a uniform pebbled "
+                f"surface, never enlarge them into an oversized repeating motif, "
+                f"and do not blur, denoise or smooth the loops away. "
+            )
+            ignored = "colour, folds, zoom, lighting, shadows, crop, and perspective"
+        elif s.material.ribbed:
+            construction = (
+                f"Copy ONLY its rib construction: the width of each raised "
+                f"wale, the narrow recessed channel between wales, the soft "
+                f"plush pile on the rib tops and its gentle tonal relief. Apply "
+                f"that authentic surface to every upholstered part of the "
+                f"{noun} in image 1 at the sample's true physical scale: "
+                f"the ribs are a few millimetres wide, so at normal "
+                f"product-photography distance they stay clearly legible as "
+                f"fine parallel stripes on every panel — never merged into "
+                f"plain velvet, never shrunk into pin-cord, never enlarged into "
+                f"jumbo cord. Ribs run straight and parallel within each panel, "
+                f"follow the panel's curvature, and change direction only at "
+                f"seams and panel joins, following the construction of the "
+                f"{noun} in image 1. Keep the stripe contrast as low as "
+                f"in the sample: channels are only slightly darker than the rib "
+                f"tops, never black lines. "
+            )
+            ignored = "colour, folds, zoom, lighting, shadows, crop, rib orientation, and perspective"
+        else:
+            construction = (
+                f"Copy ONLY its microscopic yarn construction: strand, "
+                f"nub or loop shape as actually present, real-world scale, density, "
+                f"depth, gaps between yarns, pile direction and surface relief. "
+                f"Do not invent loops or force a matte finish when the reference "
+                f"shows a different construction or optical response. Apply that authentic surface "
+                f"to every upholstered part of the {noun} in image 1. "
+                f"Preserve its true physical scale: fine textiles must merge into "
+                f"dense tactile microdetail at normal product-photography distance, "
+                f"never enlarged into a coarse repeating motif. 'Merge' describes "
+                f"perceived scale only: do not blur, denoise or smooth away the crisp "
+                f"high-frequency separation, fibre edges and micro-shadows. "
+            )
+            ignored = "colour, folds, scale, lighting, shadows, crop, and perspective"
         return [
             f"\nMATERIAL TEXTURE AUTHORITY (image {swatch_slot}): image "
             f"{swatch_slot} is a close-up photograph of the real target "
-            f"fabric. Copy ONLY its microscopic yarn construction: strand, "
-            f"nub or loop shape as actually present, real-world scale, density, "
-            f"depth, gaps between yarns, pile direction and surface relief. "
-            f"Do not invent loops or force a matte finish when the reference "
-            f"shows a different construction or optical response. Apply that authentic surface "
-            f"to every upholstered part of the {noun} in image 1. "
-            f"Preserve its true physical scale: fine textiles must merge into "
-            f"dense tactile microdetail at normal product-photography distance, "
-            f"never enlarged into a coarse repeating motif. 'Merge' describes "
-            f"perceived scale only: do not blur, denoise or smooth away the crisp "
-            f"high-frequency separation, fibre edges and micro-shadows. "
+            f"fabric. {construction}"
             f"\n\nCRITICAL ROLE SEPARATION: image 1 is the PRODUCT GEOMETRY "
             f"authority. Image {swatch_slot} is the MATERIAL MICROSTRUCTURE "
-            f"authority only. IGNORE the photographed colour, folds, scale, "
-            f"lighting, shadows, crop, and perspective of image {swatch_slot}. "
+            f"authority only. IGNORE the photographed {ignored} of image {swatch_slot}. "
             f"The upholstery colour must remain exactly the selected colour: "
             f"{s.colour.text}. Do not copy the fold visible in the "
             f"swatch onto the furniture.\n\nMATERIAL DOMAIN MASK — HARD "
@@ -564,14 +621,33 @@ def material_angles(s: PromptSpec) -> Lines:
         "infer the stable three-dimensional yarn relief separately from "
         "angle-dependent brightness."
     )
+    if s.material.looped:
+        optics = (
+            "Preserve the same individual loops and loop clusters in both bright "
+            "and shaded orientations; do not average the two views into a smooth "
+            "or fine-grained surface. The looped surface is matte: loop tops catch "
+            "soft diffuse highlights, the gaps between loops stay visibly darker, "
+            "and the relief reads the same from either side, with no pile sheen, "
+            "no pearly glints and no directional nap."
+        )
+        if s.restrained:
+            optics += (
+                " Keep the relief exactly as soft and low-contrast as these "
+                "photographs and the loops exactly as small; never coarser or crisper."
+            )
+    else:
+        optics = (
+            "Preserve the "
+            "same fine nub and slub geometry in both bright and shaded orientations; "
+            "do not average the two views into a smooth surface. Reproduce the short "
+            "pile's reversible directional sheen: tiny fibres and raised yarn faces "
+            "catch pearly grazing highlights while recessed crossings retain narrow "
+            "micro-shadows."
+        )
     return [
         f"\nFABRIC MULTI-ANGLE OPTICAL AUTHORITY ({noun.lower()} {slots_label}): "
-        f"{noun} {slots_label} {viewpoint_clause} Preserve the "
-        f"same fine nub and slub geometry in both bright and shaded orientations; "
-        f"do not average the two views into a smooth surface. Reproduce the short "
-        f"pile's reversible directional sheen: tiny fibres and raised yarn faces "
-        f"catch pearly grazing highlights while recessed crossings retain narrow "
-        f"micro-shadows. This evidence describes material optics only. Take nothing "
+        f"{noun} {slots_label} {viewpoint_clause} {optics} "
+        f"This evidence describes material optics only. Take nothing "
         f"else: not the photographed colour, white background, crop, depth of field, "
         f"camera angle or light direction. Keep the selected "
         f"upholstery colour and image 1 geometry authoritative."
@@ -582,6 +658,21 @@ def material_behavior(s: PromptSpec) -> Lines:
     if "material_behavior" not in s.slots:
         return []
     behavior_slot = s.slots["material_behavior"]
+    if s.material.looped:
+        return [
+            f"\nFABRIC LIGHT-RESPONSE AUTHORITY (image {behavior_slot}): image "
+            f"{behavior_slot} shows the same target fabric bent over a fold or "
+            f"curved edge. Copy ONLY how the looped surface behaves there: on convex "
+            f"edges the loops open slightly and their tops catch the light, in concave "
+            f"bends and seams they press into denser, darker clusters, and the "
+            f"fabric's thickness rounds every edge softly. Loop size stays the same "
+            f"on flat panels, curves and edges, never stretched, shrunk or smoothed. "
+            f"It is a thick, springy textile upholstered taut over foam: it bends in "
+            f"broad soft radii and never forms thin sharp creases, crumples, ripples "
+            f"or gathered wrinkles on flat panels. Take nothing else from image "
+            f"{behavior_slot}: not its photographed colour, crop, fold, camera angle "
+            f"or depth of field. Keep the selected upholstery colour authoritative."
+        ]
     return [
         f"\nFABRIC LIGHT-RESPONSE AUTHORITY (image {behavior_slot}): image "
         f"{behavior_slot} shows the same target fabric under grazing light "
@@ -609,6 +700,36 @@ def material_application(s: PromptSpec) -> Lines:
     if "material_application" not in s.slots:
         return []
     application_slot = s.slots["material_application"]
+    if s.material.looped:
+        hero_distance = (
+            f"At hero distance the upholstery reads exactly as fine and soft as the "
+            f"bouclé in image {application_slot} and the samples: a dense, gentle, "
+            f"low-contrast nubbly surface, never coarser, larger or more contrasty, "
+            f"and never smooth felt, suede or plaster."
+            if s.restrained else
+            "At hero distance the upholstery must still read as distinctly nubbly "
+            "bouclé: loop clusters remain visible as a lively three-dimensional relief "
+            "across every panel and never dissolve into fine grain, felt, suede or a "
+            "smooth plaster look."
+        )
+        return [
+            f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "
+            f"sample photographs in the preceding fabric images are the absolute "
+            f"authority for loop construction, loop size, irregularity and matte "
+            f"light response. Image {application_slot} is secondary context only and "
+            f"can never override or reinterpret those samples."
+            f"\n\nFABRIC IN-USE SCALE CHECK (image {application_slot}): "
+            f"image {application_slot} shows a comparable bouclé applied across "
+            f"upholstered furniture at normal viewing distance. Use ONLY how large and "
+            f"how legible the loops remain at that distance — never the reference "
+            f"piece's geometry, dimensions, seams, channeling, storage mechanism, room, "
+            f"camera, framing, colour or styling. If image {application_slot} shows several "
+            f"pieces or materials, read only the looped bouclé surfaces and ignore any "
+            f"smooth, suede, velvet or woven ones. {hero_distance} Do not copy any "
+            f"visual feature from image {application_slot} when it conflicts with the "
+            f"physical sample images. Image 1 remains the absolute product-geometry "
+            f"authority."
+        ]
     return [
         f"\nMATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT: The physical "
         f"sample photographs in the preceding fabric images are the absolute "

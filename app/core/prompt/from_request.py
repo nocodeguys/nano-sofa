@@ -25,8 +25,10 @@ def product_spec(req: Any, slots: dict[str, int]) -> PromptSpec:
     """`req` is a generator.GenerationRequest (typed as Any to keep this
     package free of the engine module)."""
     noun = "bed" if req.product_type == "bed" else "sofa"
+    model_id = getattr(req, "model_id", "") or ""
     return PromptSpec(
         mode="product",
+        engine="gpt" if "gpt-image" in model_id else "gemini",
         slots=dict(slots),
         product=ProductSpec(
             noun=noun,
@@ -43,6 +45,7 @@ def product_spec(req: Any, slots: dict[str, int]) -> PromptSpec:
             noun=req.upholstery_material or "",
             spec=req.texture_notes or "",
             avoid=list(req.negative_list),
+            structure=getattr(req, "material_structure", "") or "",
         ),
         colour=ColourSpec(text=req.upholstery_color or "", hex=req.upholstery_hex or ""),
         camera=CameraSpec(

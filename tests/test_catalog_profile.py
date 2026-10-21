@@ -128,12 +128,13 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     """Product, studio, and real fabric have separate visual authorities."""
     req = _request(server, base_image, catalog=True, mat="boucle")
 
-    assert Path(req.swatch_reference_image).name == "boucle.png"
+    assert Path(req.swatch_reference_image).name == "boucle.jpg"
     assert req.use_swatch_for_fabric
     assert req.swatch_texture_only
-    assert req.material_left_reference_image is None
-    assert req.material_right_reference_image is None
-    assert req.material_behavior_reference_image is None
+    # Real-sample photos of the physical bouclé (2026-09); no in-use photo yet.
+    assert Path(req.material_left_reference_image).name == "boucle-left.jpg"
+    assert Path(req.material_right_reference_image).name == "boucle-right.jpg"
+    assert Path(req.material_behavior_reference_image).name == "boucle-behavior.jpg"
     assert req.material_application_reference_image is None
     # 2.5-flash caps at 3 refs: base + cyclorama + macro. The colour patch
     # does not fit and must not be named in the prompt.
@@ -212,6 +213,47 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert "Image 1 remains the absolute product-geometry authority" in text
 
 
+def test_boucle_reference_set_uses_looped_wording_not_cremona_pile(
+    server, base_image, tmp_path, monkeypatch
+):
+    """The default slot wording describes short-pile Cremona (fine nubs, pearly
+    sheen, 'calm, finely tactile at distance'); on bouclé it produced fine
+    uniform grain. A full bouclé set must get the loop-specific wording."""
+    import studio.request_builder as request_builder
+
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    for name in ("boucle", "boucle-left", "boucle-right", "boucle-behavior", "boucle-application"):
+        Image.new("RGB", (64, 64), (230, 225, 215)).save(refs / f"{name}.jpg")
+    monkeypatch.setattr(request_builder, "_MATERIAL_REFS_DIR", refs)
+
+    req = _request(
+        server, base_image, catalog=True, mat="boucle",
+        model="gemini-3.1-flash-image", res="2K",
+    )
+    assert req.material_structure == "looped"
+    text = _build_prompt_text(req)
+
+    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 5 and 6)" in text
+    assert "FABRIC LIGHT-RESPONSE AUTHORITY (image 7)" in text
+    assert "FABRIC IN-USE SCALE CHECK (image 8)" in text
+    assert "coarse looped textile" in text
+    assert "Preserve the same individual loops and loop clusters" in text
+    assert "never forms thin sharp creases" in text
+    assert "read only the looped bouclé surfaces" in text
+    assert "never dissolve into fine grain" in text
+    # None of the Cremona pile wording may reach a bouclé prompt.
+    for cremona_phrase in (
+        "fine textiles must merge into dense tactile microdetail",
+        "fine nub and slub geometry",
+        "pearly grazing highlights",
+        "soft pearly highlights",
+        "calm, continuous, finely tactile surface",
+        "delicate fuzzy rim",
+    ):
+        assert cremona_phrase not in text, cremona_phrase
+
+
 def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
     server, base_image
 ):
@@ -229,7 +271,7 @@ def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
 def test_material_without_canonical_swatch_gets_the_colour_patch_instead(
     server, base_image
 ):
-    req = _request(server, base_image, catalog=True, mat="basketweave")
+    req = _request(server, base_image, catalog=True, mat="linen")
     assert req.swatch_reference_image is None
     roles = [slot.role for slot in plan_reference_slots(req)]
     assert roles == ["base_product", "scene", "color_patch"]
@@ -663,3 +705,99 @@ def test_normalization_never_raises_on_a_bad_file(tmp_path):
     p = tmp_path / "broken.png"
     p.write_bytes(b"not an image")
     assert normalize_packshot(p) == (p, False)
+
+
+def test_gpt_models_get_the_restrained_boucle_dialect(server, base_image, tmp_path, monkeypatch):
+    """GPT Image exaggerates the Gemini loop wording (bigger, crisper loops):
+    GPT ids — direct and via OpenRouter — get the scale/contrast limit, Gemini
+    keeps its wording."""
+    import studio.request_builder as request_builder
+
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    for name in ("boucle", "boucle-left", "boucle-right", "boucle-behavior", "boucle-application"):
+        Image.new("RGB", (64, 64), (230, 225, 215)).save(refs / f"{name}.jpg")
+    monkeypatch.setattr(request_builder, "_MATERIAL_REFS_DIR", refs)
+
+    def prompt_for(model):
+        req = _request(server, base_image, catalog=True, mat="boucle", model=model, res="2K")
+        return _build_prompt_text(req, slot_numbers(plan_reference_slots(req, 16)))
+
+    gemini = prompt_for("gemini-3.1-flash-image")
+    assert "SCALE AND CONTRAST LIMIT" not in gemini
+    assert "stay legible at normal product-photography distance" in gemini
+    for model in ("gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"):
+        gpt = prompt_for(model)
+        assert "SCALE AND CONTRAST LIMIT — HARD REQUIREMENT" in gpt
+        assert "the loops exactly as small" in gpt
+        assert "never coarser, larger or more contrasty" in gpt
+        assert "stay legible at normal product-photography distance" not in gpt
+
+
+# --------------------------------------------------------------------------- #
+# TRE-92 — beds in the Cremona / Barrel / Lincoln D collections
+# --------------------------------------------------------------------------- #
+
+def test_tre92_collections_carry_full_verified_palettes(server):
+    """Every code of the three collections is selectable, carries its own
+    verified hex, implies the collection's material and is labelled with
+    the collection name + code (stamped into the render as fabric_code)."""
+    from studio.catalog import CATALOG, flatten_colors
+
+    expected = {"cremona": ("cremona", 21), "barrel": ("basketweave", 20),
+                "lincoln-d": ("corduroy", 26)}
+    by_id = {c["id"]: c for c in CATALOG["collections"]}
+    flat = {c["id"]: c for c in flatten_colors(CATALOG)}
+    for cid, (material, count) in expected.items():
+        codes = by_id[cid]["codes"]
+        assert by_id[cid]["material"] == material
+        assert len(codes) == count, cid
+        for entry in codes:
+            color = flat[f"{cid}-{entry['code']}"]
+            assert color["hex_verified"] is True
+            assert color["material"] == material
+            assert color["fabric_code"] == f"{by_id[cid]['name_pl']} {entry['code']}"
+            assert entry["hex"] in color["prompt_en"]
+
+
+def test_lincoln_d_bed_uses_ribbed_wording_and_its_swatch(server, base_image):
+    req = _request(
+        server, base_image, catalog=True, color="lincoln-d-17", mat="",
+        model="gemini-3.1-flash-image", res="2K", product_name="  Aria   160 ",
+    )
+    assert req.product_type == "bed"
+    assert req.material_id == "corduroy"
+    assert req.material_structure == "ribbed"
+    assert req.fabric_code == "Lincoln D 17"
+    assert req.product_name == "Aria 160"
+    assert req.upholstery_hex == "#9C8D7A"
+    assert req.swatch_reference_image.endswith("corduroy.jpg")
+    text = _build_prompt_text(req)
+    assert "Copy ONLY its rib construction" in text
+    assert "never merged into plain velvet, never shrunk into pin-cord" in text
+    assert "fine textiles must merge into dense tactile microdetail" not in text
+    assert "6–7 mm" in text
+    assert "fine-wale" not in text.lower()
+
+
+def test_barrel_bed_gets_its_woven_swatch_with_default_wording(server, base_image):
+    req = _request(
+        server, base_image, catalog=True, color="barrel-48", mat="",
+        model="gemini-3.1-flash-image", res="2K",
+    )
+    assert req.material_id == "basketweave"
+    assert req.material_structure == ""
+    assert req.fabric_code == "Barrel 48"
+    assert req.swatch_reference_image.endswith("basketweave.jpg")
+    roles = [slot.role for slot in plan_reference_slots(req)]
+    assert "material_macro" in roles and "color_patch" in roles
+
+
+def test_product_name_is_stamped_into_png_metadata(server, base_image):
+    from app.core.generator import _png_text_metadata
+
+    req = _request(server, base_image, color="cremona-59", mat="", product_name="Aria 160")
+    meta = _png_text_metadata(req, "gid", 1)
+    assert meta["nano_sofa_product"] == "Aria 160"
+    assert meta["nano_sofa_fabric_code"] == "Cremona 59"
+    assert meta["nano_sofa_color_hex"] == "#5B2736"

@@ -58,6 +58,12 @@ def lab_page():
     return page_response("lab.html")
 
 
+@router.get("/meli")
+def meli_page():
+    """Lab: wood-colour recolor of solid-wood beds on OpenRouter models."""
+    return page_response("meli.html")
+
+
 @router.get("/experiments")
 def experiments_page():
     return page_response("experiments.html")
@@ -249,6 +255,7 @@ def api_history(limit: int = 60):
             "color_id": meta.get("nano_sofa_color_id") or None,
             "material_id": meta.get("nano_sofa_material_id") or None,
             "fabric_code": meta.get("nano_sofa_fabric_code") or None,
+            "product_name": meta.get("nano_sofa_product") or None,
             "color_hex": meta.get("nano_sofa_color_hex") or None,
             "model": meta.get("nano_sofa_model") or rec.get("model_id"),
             "resolution": meta.get("nano_sofa_resolution") or rec.get("resolution"),
@@ -334,6 +341,7 @@ def api_experiments(limit: int = 120):
             "material_id": variant.get("material_id") or None,
             "color_id": variant.get("color_id") or None,
             "fabric_code": variant.get("fabric_code") or None,
+            "product_name": variant.get("product_name") or None,
             "color_hex": variant.get("color_hex") or None,
             "prompt_summary": rec.get("prompt_summary"),
             "image_url": (

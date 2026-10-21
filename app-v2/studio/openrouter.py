@@ -32,6 +32,7 @@ from studio.external_engine import (
     persist_external_render,
     reference_data_url,
 )
+from studio.openai_images import generate_product_external
 from studio.paths import logger
 
 # Editorial-only alternative models. Quirks (verified live against
@@ -61,6 +62,12 @@ def _engine_cfg(m) -> dict:
     if m.qualities:
         cfg["qualities"] = list(m.qualities)
         cfg["default_quality"] = m.default_quality or m.qualities[-1]
+    if m.resolutions and tuple(m.resolutions) != ("auto",):
+        cfg["resolutions"] = list(m.resolutions)
+    if m.product:
+        cfg["product"] = True
+    if m.note_pl:
+        cfg["note_pl"] = m.note_pl
     return cfg
 
 
@@ -88,6 +95,16 @@ def _clamp_aspect(model: str, aspect: str) -> str:
     fallback = candidate if candidate in allowed else allowed[0]
     logger.warning("Aspect %s unsupported by %s — clamped to %s", aspect, model, fallback)
     return fallback
+
+
+def _resolve_resolution(model: str, resolution: str) -> str:
+    """The `resolution` value to send, or "" for models without the parameter
+    (GPT Image via OpenRouter has no size parameter — provider default)."""
+    resolutions = OPENROUTER_MODELS.get(model, {}).get("resolutions") or []
+    if not resolutions:
+        return ""
+    res = (resolution or "").split(" ")[0].strip().upper()
+    return res if res in resolutions else resolutions[0]
 
 
 def _resolve_quality(model: str, quality: str) -> str:
@@ -129,6 +146,7 @@ def generate_openrouter(
     aspect: str,
     references: Optional[list[ReferenceItem]] = None,
     quality: str = "",
+    resolution: str = "",
     png_meta: Optional[dict[str, str]] = None,
     prompt_summary: str = "",
     trace_request: Any = None,
@@ -148,12 +166,18 @@ def generate_openrouter(
     quality_used = _resolve_quality(model, quality)
     if quality_used:
         payload["quality"] = quality_used
+    resolution_used = _resolve_resolution(model, resolution)
+    if resolution_used:
+        payload["resolution"] = resolution_used
     if refs:
         payload["input_references"] = [
             {"type": "image_url", "image_url": {"url": reference_data_url(source, image)}}
             for _role, source, image in refs
         ]
 
+    logger.info("OpenRouter request: %s aspect=%s quality=%s res=%s refs=%d prompt=%d chars",
+                model, payload["aspect_ratio"], quality_used or "-", resolution_used or "-",
+                len(refs), len(prompt))
     try:
         r = httpx.post(
             _API_URL, json=payload, timeout=_TIMEOUT_S,
@@ -164,6 +188,7 @@ def generate_openrouter(
                               "NETWORK_TIMEOUT", str(exc)[:300], True) from exc
 
     if r.status_code >= 400:
+        logger.warning("OpenRouter %s failed: HTTP %s %s", model, r.status_code, r.text[:600])
         raise _classify(r.status_code, r.text[:300])
 
     try:
@@ -185,7 +210,7 @@ def generate_openrouter(
         references=refs,
         cost=cost,
         elapsed_ms=elapsed_ms,
-        resolution="auto",
+        resolution=resolution_used or "auto",
         prompt=prompt,
         prompt_summary=prompt_summary,
         png_meta={**(png_meta or {}), **({"nano_sofa_quality": quality_used} if quality_used else {})},
@@ -200,6 +225,25 @@ def generate_openrouter(
         "cost": cost,
         "elapsed_ms": elapsed_ms,
         "model_id": model,
-        "resolution": "auto",
+        "resolution": resolution_used or "auto",
         "quality": quality_used,
     }
+
+
+# Models the Lab product wizard may run through OpenRouter (registry `product`).
+PRODUCT_MODELS = {slug: cfg for slug, cfg in OPENROUTER_MODELS.items() if cfg.get("product")}
+
+
+def generate_product_openrouter(req: Any, api_key: str) -> Any:
+    """The Lab product pipeline on OpenRouter — the same reference plan and
+    prompt as the OpenAI-direct path (openai_images.generate_product_external),
+    billed to the user's OpenRouter key."""
+    cfg = OPENROUTER_MODELS.get(req.model_id, {"max_refs": 16})
+    return generate_product_external(
+        req, engine="openrouter", max_refs=cfg["max_refs"],
+        render=lambda **kw: generate_openrouter(
+            api_key=api_key, model=req.model_id, aspect=req.aspect_ratio,
+            quality=req.engine_quality, resolution=req.resolution,
+            trace_request=req, **kw,
+        ),
+    )

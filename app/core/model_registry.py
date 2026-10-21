@@ -21,7 +21,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = _REPO_ROOT / "app-v2" / "models.json"
 
 ENGINES = ("gemini", "openai", "openrouter")
-SURFACES = ("studio", "lab", "editorial")
+SURFACES = ("studio", "lab", "editorial", "meli")
 RESOLUTION_ORDER = ["1K", "2K", "4K"]
 
 
@@ -42,6 +42,7 @@ class Model:
     qualities: tuple[str, ...] = ()
     default_quality: str = ""
     input_fidelity: bool = False
+    product: bool = False            # OpenRouter: may run the Lab product wizard
     thinking: dict[str, Any] = field(default_factory=dict)
     pricing: dict[str, Any] = field(default_factory=dict)
     deprecation: Optional[dict[str, Any]] = None
@@ -80,6 +81,7 @@ class Model:
             "engine": self.engine,
             "provider": self.provider,
             "deprecated": self.deprecated,
+            "product": self.product,
             "max_refs": self.max_refs,
             "moodboard_max": 3 if self.engine == "gemini" else max(1, min(6, self.max_refs)),
             "max_resolution": self.max_resolution,
@@ -113,6 +115,7 @@ class ModelRegistry:
                 qualities=tuple(entry.get("qualities") or ()),
                 default_quality=entry.get("default_quality", ""),
                 input_fidelity=bool(entry.get("input_fidelity", False)),
+                product=bool(entry.get("product", False)),
                 thinking=dict(entry.get("thinking") or {}),
                 pricing=dict(entry.get("pricing") or {}),
                 deprecation=entry.get("deprecation"),
@@ -146,6 +149,10 @@ class ModelRegistry:
         answers with a proper model-not-found)."""
         m = self.get(model_id)
         return m.engine if m else "gemini"
+
+    def product_models(self, engine: str) -> dict[str, Model]:
+        """External models allowed in the Lab product wizard."""
+        return {m.id: m for m in self.models.values() if m.engine == engine and m.product}
 
     def by_engine(self, engine: str, *, include_deprecated: bool = True) -> list[Model]:
         return [m for m in self.models.values()

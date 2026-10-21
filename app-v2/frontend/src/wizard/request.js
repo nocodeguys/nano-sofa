@@ -106,14 +106,16 @@ export function referenceBudget(st, ctx) {
 /**
  * The request for the current state.
  *
- * ctx: { mode, isLab, apiKey, oaKey, quality, effectiveLegs, customColorText,
+ * ctx: { mode, isLab, apiKey, labKeyField ("openai_key" | "openrouter_key"), labKey, quality,
+ *        effectiveLegs, customColorText, baseCamLocked,
  *        bgObj, bgLocked, prevRender (File | "pending" | null),
  *        variantColors, variantMaterials, catalogRefs, colorObj, matObj,
  *        sizeObj, modelObj, matchedPreset, bedLegsHidden }
  */
 export function buildRequest(st, ctx) {
   const {
-    mode = "generate", isLab = false, apiKey = "", oaKey = "", quality = "",
+    mode = "generate", isLab = false, apiKey = "", labKeyField = "openai_key", labKey = "", quality = "",
+    baseCamLocked = false,
     effectiveLegs, customColorText = "", bgObj, bgLocked = false, prevRender = null,
     variantColors = [], variantMaterials = [], colorObj, matObj, sizeObj,
     matchedPreset = null, bedLegsHidden = false,
@@ -128,8 +130,10 @@ export function buildRequest(st, ctx) {
   };
 
   push("api_key", (apiKey || "").trim());
-  if (isLab) { push("openai_key", (oaKey || "").trim()); if (quality) push("quality", quality); }
+  // The Lab posts the key of the selected model's provider.
+  if (isLab) { push(labKeyField, (labKey || "").trim()); if (quality) push("quality", quality); }
   push("kind", st.kind);
+  push("product_name", (st.product || "").trim());   // identity only, never the prompt
 
   if (mode === "set") {
     push("colors_csv", variantColors.join(","));
@@ -168,7 +172,7 @@ export function buildRequest(st, ctx) {
     const picked = st.refs.filter(r => r && r.file instanceof File);
     for (const r of picked) pushFile("references", r.file);
     if (picked.length && st.refsLock) push("refs_lock", "1");
-    if (st.preserveBaseCamera) push("preserve_base", "1");
+    if (baseCamLocked) push("preserve_base", "1");
   }
 
   const endpoint = mode === "set" ? "/api/generate-set"

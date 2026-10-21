@@ -16,9 +16,10 @@ const LAB_PAGES = [
   { id: "lab", href: "/lab", label: "Generator OpenAI", hint: "kreator produktowy na GPT Image 2.5" },
   { id: "experiments", href: "/experiments", label: "Porównywarka", hint: "porównanie generacji A/B, trace, koszty" },
   { id: "editorial", href: "/editorial", label: "Editorial", hint: "kadr od zera, Gemini / OpenRouter / OpenAI" },
+  { id: "meli", href: "/meli", label: "Meli", hint: "zmiana koloru drewna łóżek, modele OpenRouter" },
 ];
 const LAB_IDS = new Set(LAB_PAGES.map(p => p.id));
-const SUFFIX = { video: "wideo", editorial: "lab · editorial", lab: "lab · OpenAI", experiments: "lab · porównywarka", admin: "katalog" };
+const SUFFIX = { video: "wideo", editorial: "lab · editorial", meli: "lab · meli", lab: "lab · GPT Image", experiments: "lab · porównywarka", admin: "katalog" };
 
 // Page intro shared by every tab: a small mono eyebrow and one short,
 // friendly paragraph — no display headings, one typographic voice.
@@ -50,7 +51,7 @@ export function NanoTopbar({ active, apiKey = "", setApiKey, showKeyEdit, setSho
       <nav className="topbar-tabs">
         <a href="/" className={active === "photos" ? "on" : ""}>Zdjęcia</a>
         <a href="/video" className={active === "video" ? "on" : ""}>Wideo</a>
-        <a href="/lab" className={inLab ? "on" : ""} title="eksperymenty: generator OpenAI, porównywarka, editorial">Lab</a>
+        <a href="/lab" className={inLab ? "on" : ""} title="eksperymenty: generator OpenAI, porównywarka, editorial, meli">Lab</a>
         <a href="/admin" className={active === "admin" ? "on" : ""}>Katalog</a>
       </nav>
 

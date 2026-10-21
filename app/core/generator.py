@@ -103,7 +103,15 @@ class GenerationRequest:
     # to a catalog entry after the prompt wording has been edited.
     color_id: str = ""
     material_id: str = ""
+    # Fabric construction family: "looped" (bouclé) and "ribbed" (corduroy)
+    # switch the material paragraphs to construction-specific wording; "" =
+    # the default short-pile wording (app/core/prompt/sections.py).
+    material_structure: str = ""
     fabric_code: str = ""
+    # Catalogue name of the product in the base photo (e.g. "Aria 160") —
+    # identity only, never part of the prompt. Stamped into PNG tEXt, trace
+    # and history so a render is traceable to product model + fabric code.
+    product_name: str = ""
     # Exact target colour as #RRGGBB. When set, a flat colour patch is
     # attached as its own reference slot (COLOUR AUTHORITY) and deep shades
     # get a dedicated exposure clause — text alone drifts on dark colours.
@@ -483,6 +491,14 @@ _DARK_LUMINANCE = 0.06
 _hex_to_rgb = hex_to_rgb
 
 
+def prompt_engine(model_id: str) -> str:
+    """Which prompt dialect a model gets: "gpt" for the GPT Image family (OpenAI
+    direct ids and OpenRouter "openai/gpt-image-*" slugs), else "gemini".
+    GPT Image follows texture wording literally and exaggerates it (bigger,
+    crisper, higher-contrast loops); Gemini leans on the reference photos."""
+    return "gpt" if "gpt-image" in (model_id or "") else "gemini"
+
+
 def _color_patch_image(hex_value: str) -> Optional[Image.Image]:
     rgb = _hex_to_rgb(hex_value)
     if rgb is None:
@@ -715,6 +731,7 @@ def _png_text_metadata(req: GenerationRequest, generation_id: str, ts: int) -> d
         "nano_sofa_color_id": req.color_id or "",
         "nano_sofa_material_id": req.material_id or "",
         "nano_sofa_fabric_code": req.fabric_code or "",
+        "nano_sofa_product": req.product_name or "",
         "nano_sofa_color_hex": req.upholstery_hex or "",
         "nano_sofa_leg_id": req.leg_id or "",
         "nano_sofa_camera_angle": req.camera_angle or "",

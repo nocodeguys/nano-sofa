@@ -356,3 +356,13 @@ Serce refactoru. Wejście: oba researche, obecne buildery, goldeny z fazy 0.
 - `gemini-nano-banana-2.1` jest nowy (stabilny od 2026-10-06); macierz z
   fazy 0 trzeba przebiec na nim **i** na obecnym defaulcie, żeby oddzielić
   efekt modelu od efektu refactoru.
+
+## 7. Scalenie z main (2026-10-21)
+
+W czasie refactoru main poszedł o 9 commitów do przodu (NB 2.1 dodany ręcznie, Lab na OpenRouterze, nowy zestaw referencji bouclé i brzmienie „looped”/„ribbed”, kolekcje Cremona / Barrel / Lincoln D, Meli, `product_name`, naprawa Close-up). Scalone tak, że każda rzecz z main żyje w jednym miejscu wg zasad powyżej:
+
+- modele z main (OpenRouter NB 2.1 z `resolution`, GPT Image 2.5 przez OpenRouter, flaga `product`) → `models.json`; ceny NB 2.1 wzięte z main (zweryfikowane 2026-10-12);
+- brzmienie looped / ribbed / „restrained” dla GPT → `app/core/prompt/sections.py` (numeracja „image N”), `PromptSpec.engine` + `material.structure`;
+- `product_name`, `openrouter_key`, `generate_product_openrouter` → trasy i builder; Meli bierze domyślny model z rejestru;
+- goldeny zregenerowane (bouclé ma teraz 4 zdjęcia referencyjne; `boucle.png` → `boucle.jpg`).
+

@@ -9,12 +9,15 @@
     "        on OpenAI), editorial (freeform). A deprecated model stays accepted by the API",
     "        for old presets but is listed with deprecated=true and never as a default.",
     "Sources: docs/research/nano-banana-state.md and docs/research/gpt-image-state.md",
-    "        (2026-10-20). Prices USD per image unless stated."
+    "        (2026-10-20). Prices USD per image unless stated.",
+    "product: true on an OpenRouter model = it may run the Lab product wizard (base photo + full reference plan) — surfaces then include \"lab\". FLUX / Seedream stay editorial-only: the bake-off showed they do not preserve product geometry.",
+    "surface \"meli\": the /meli wood-recolor lab lists every OpenRouter model; its default is defaults.meli."
   ],
   "defaults": {
     "studio": "gemini-nano-banana-2.1",
     "editorial": "gemini-nano-banana-2.1",
-    "lab": "gpt-image-2.5-flare"
+    "lab": "gpt-image-2.5-flare",
+    "meli": "google/gemini-nano-banana-2.1"
   },
   "eta_seed": {
     "flash": {
@@ -116,11 +119,11 @@
         "output_image_batch": {
           "1K": 0.0168,
           "2K": 0.0252,
-          "4K": 0.0565
+          "4K": 0.0567
         },
-        "text_input_per_1m": 0.5,
+        "text_input_per_1m": 1.5,
         "input_image_tokens": 258,
-        "thinking_per_1m": 3.0
+        "thinking_per_1m": 7.5
       },
       "deprecation": null,
       "note_pl": "stabilny od 2026-10-06; najlepszy balans jakości, spójności i ceny; 14 referencji"
@@ -414,11 +417,15 @@
       "tier": "flash",
       "status": "active",
       "surfaces": [
-        "editorial"
+        "editorial",
+        "lab",
+        "meli"
       ],
       "max_refs": 14,
       "resolutions": [
-        "auto"
+        "1K",
+        "2K",
+        "4K"
       ],
       "aspects": [
         "1:1",
@@ -434,7 +441,9 @@
         "price_hint": "$0.034/obraz (1K), przelot Google"
       },
       "deprecation": null,
-      "note_pl": "ten sam model Google przez OpenRouter: klucz OR, billing all-or-nothing; używany przez scripts/eval_matrix.py"
+      "note_pl": "ten sam model Google przez OpenRouter: klucz OR, pełny plan referencji, 1K/2K/4K; verified 2026-10-12",
+      "supports_resolution_param": true,
+      "product": true
     },
     {
       "id": "google/gemini-3-pro-image",
@@ -503,6 +512,88 @@
       "note_pl": "ma zapasową trasę Vertex — działa, gdy AI Studio zgłasza quota; używany przez eval_matrix jako stały model odniesienia"
     },
     {
+      "id": "openai/gpt-image-2.5-flare",
+      "engine": "openrouter",
+      "provider": "openrouter",
+      "label": "GPT Image 2.5 Flare · OpenRouter",
+      "short": "Flare (OR)",
+      "tier": "gpt",
+      "status": "active",
+      "surfaces": [
+        "editorial",
+        "lab"
+      ],
+      "product": true,
+      "max_refs": 16,
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default_quality": "xhigh",
+      "pricing": {
+        "price_hint": "≈$0.04 (high) · $0.08 (xhigh) · $0.20 (max) za obraz; z tokenów po renderze"
+      },
+      "deprecation": null,
+      "note_pl": "ten sam model co Flare przez OpenAI, płatny kluczem OpenRouter; bez wyboru rozdzielczości"
+    },
+    {
+      "id": "openai/gpt-image-2.5-sunburst",
+      "engine": "openrouter",
+      "provider": "openrouter",
+      "label": "GPT Image 2.5 Sunburst · OpenRouter",
+      "short": "Sunburst (OR)",
+      "tier": "gpt",
+      "status": "active",
+      "surfaces": [
+        "editorial",
+        "lab"
+      ],
+      "product": true,
+      "max_refs": 16,
+      "resolutions": [
+        "auto"
+      ],
+      "aspects": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "2:3",
+        "3:2",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "qualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default_quality": "xhigh",
+      "pricing": {
+        "price_hint": "≈$0.04 (high) · $0.08 (xhigh) · $0.20 (max) za obraz; z tokenów po renderze"
+      },
+      "deprecation": null,
+      "note_pl": "ten sam model co Sunburst przez OpenAI, płatny kluczem OpenRouter; bez wyboru rozdzielczości"
+    },
+    {
       "id": "openai/gpt-image-2",
       "engine": "openrouter",
       "provider": "openrouter",
@@ -511,7 +602,8 @@
       "tier": "gpt",
       "status": "active",
       "surfaces": [
-        "editorial"
+        "editorial",
+        "lab"
       ],
       "max_refs": 16,
       "resolutions": [
@@ -536,7 +628,8 @@
       "pricing": {
         "price_hint": "≈$0.01–0.13/obraz wg jakości"
       },
-      "deprecation": null
+      "deprecation": null,
+      "product": true
     },
     {
       "id": "openai/gpt-image-1",

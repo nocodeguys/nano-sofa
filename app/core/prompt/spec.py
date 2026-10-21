@@ -75,6 +75,15 @@ class MaterialSpec:
     noun: str = ""                         # English material noun
     spec: str = ""                         # texture spec (+ user notes)
     avoid: list[str] = field(default_factory=list)
+    structure: str = ""                    # "" | "looped" | "ribbed"
+
+    @property
+    def looped(self) -> bool:
+        return self.structure == "looped"
+
+    @property
+    def ribbed(self) -> bool:
+        return self.structure == "ribbed"
 
 
 @dataclass
@@ -142,6 +151,7 @@ class EditorialSpec:
 @dataclass
 class PromptSpec:
     mode: str = "product"                  # "product" | "freeform"
+    engine: str = "gemini"                 # "gemini" | "gpt" — prompt dialect
     slots: dict[str, int] = field(default_factory=dict)   # role → 1-based attached slot
     product: ProductSpec = field(default_factory=ProductSpec)
     material: MaterialSpec = field(default_factory=MaterialSpec)
@@ -165,6 +175,13 @@ class PromptSpec:
             and self.camera.preserve_from_base
             and (self.scene.mode == "packshot" or self.scene.keep_source_scene)
         )
+
+    @property
+    def restrained(self) -> bool:
+        """GPT Image renders looped fabrics 2–3× too large and ~40 % too
+        contrasty with the Gemini wording (A/B 2026-09-29): it gets a
+        restraint dialect that ties scale and contrast to the samples."""
+        return self.material.looped and self.engine == "gpt"
 
     @property
     def reference_locked(self) -> bool:

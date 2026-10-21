@@ -85,5 +85,15 @@ def test_engines_read_the_same_words(server, base_image):
             pg = eval_cases.render(g, eval_cases.build_request(g, base_image), base_image)
             po = eval_cases.render(o, eval_cases.build_request(o, base_image), base_image)
             assert pg.system_instruction.strip(), "Gemini persona missing"
-            assert po.prompt == f"{pg.system_instruction.strip()}\n\n{pg.prompt}", \
-                f"{kind}/{mode}: engines diverge on the words sent"
+            expected = f"{pg.system_instruction.strip()}\n\n{pg.prompt}"
+            mat = eval_cases.PRODUCTS[kind][0]
+            if mat == "boucle":
+                # The one deliberate dialect difference: GPT Image exaggerates
+                # looped fabrics, so it gets the restrained bouclé wording
+                # (A/B 2026-09-29). Everything outside those paragraphs matches.
+                assert "SCALE AND CONTRAST LIMIT" in po.prompt
+                assert "SCALE AND CONTRAST LIMIT" not in pg.prompt
+                assert po.prompt.split("\nMATERIAL TEXTURE AUTHORITY")[0] == \
+                    expected.split("\nMATERIAL TEXTURE AUTHORITY")[0]
+            else:
+                assert po.prompt == expected, f"{kind}/{mode}: engines diverge on the words sent"

@@ -132,17 +132,40 @@ def test_config_lists_lab_models(client):
     cfg = client.get("/api/config").json()
     lab = cfg.get("lab_models") or []
     ids = {m["id"]: m for m in lab}
-    assert set(ids) == {"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"}
+    assert set(ids) == {
+        "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
+        "openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2",
+        "google/gemini-nano-banana-2.1",
+    }
     assert cfg["lab_default_model"] == "gpt-image-2.5-flare"
-    for m in lab:
-        assert m["provider"] == "openai"
+    # Nano Banana 2.1 via OpenRouter: Google's caps, 1K–4K, no quality tiers.
+    nb = ids.pop("google/gemini-nano-banana-2.1")
+    assert nb["provider"] == "openrouter"
+    assert nb["max_refs"] == 14 and nb["resolutions"] == ["1K", "2K", "4K"]
+    assert nb["qualities"] == [] and len(nb["aspects"]) == 8
+    for m in ids.values():
         assert m["max_refs"] == 16 and m["moodboard_max"] == 6
-        assert m["resolutions"] == ["1K", "2K"]
-        assert {"xhigh", "max"} <= set(m["qualities"])
-        # On 2.5 `high` is the old `medium` budget; the working default is xhigh.
-        assert m["default_quality"] == "xhigh"
         assert len(m["aspects"]) == 8
         assert m["deprecated"] is False
+        if m["provider"] == "openai":
+            assert m["resolutions"] == ["1K", "2K"]
+            assert {"xhigh", "max"} <= set(m["qualities"])
+            # On 2.5 `high` is the old `medium` budget; the working default is xhigh.
+            assert m["default_quality"] == "xhigh"
+        else:
+            # OpenRouter has no size parameter — provider default size.
+            assert m["provider"] == "openrouter" and m["resolutions"] == ["auto"]
+    assert {"xhigh", "max"} <= set(ids["openai/gpt-image-2.5-sunburst"]["qualities"])
+    assert ids["openai/gpt-image-2.5-sunburst"]["default_quality"] == "xhigh"
+    assert ids["openai/gpt-image-2"]["default_quality"] == "high"
+
+
+def test_openrouter_resolution_only_for_models_that_take_it(server):
+    from studio.openrouter import _resolve_resolution
+    assert _resolve_resolution("google/gemini-nano-banana-2.1", "2K") == "2K"
+    assert _resolve_resolution("google/gemini-nano-banana-2.1", "4K (4096)") == "4K"
+    assert _resolve_resolution("google/gemini-nano-banana-2.1", "auto") == "1K"
+    assert _resolve_resolution("openai/gpt-image-2", "2K") == ""
 
 
 def test_config_flags_deprecated_models_and_never_defaults_to_them(client):

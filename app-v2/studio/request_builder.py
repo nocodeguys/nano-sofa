@@ -18,7 +18,9 @@ from app.core.generator import (
     slot_numbers,
 )
 from app.core.model_registry import registry
-from studio.catalog import DEFAULT_BACKDROP_ID, canonical_background_id, resolve_background
+from studio.catalog import (
+    DEFAULT_BACKDROP_ID, canonical_background_id, material_structure, resolve_background,
+)
 from studio.catalog import (
     _COLOR_META,
     _COLOR_PL_TO_EN,
@@ -154,6 +156,7 @@ def _build_generation_request(
     catalog: bool = False,
     catalog_profile: str = "",
     background: str = "",
+    product_name: str = "",
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
@@ -372,7 +375,9 @@ def _build_generation_request(
         upholstery_hex=upholstery_hex,
         color_id=color_id,
         material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
+        material_structure=material_structure(mat),
         fabric_code=color_meta.get("fabric_code", ""),
+        product_name=" ".join((product_name or "").split())[:80],
         texture_notes=texture_spec,
         leg_id=leg_id,
         camera_angle=camera_angle,
@@ -403,7 +408,7 @@ def _build_generation_request(
 def _recolor_request(
     *, api_key, kind, color, color_custom, mat, mat_notes, size, legs, cam, lens,
     tod, shadow, shot, yaw, height, dof, detail_region, model, aspect, res, seed,
-    bedding_desc, source_path,
+    bedding_desc, source_path, product_name="",
 ):
     """One in-place recolor of `source_path`: keep its EXACT angle + background,
     change ONLY the upholstery colour/material. Drives the generator's
@@ -411,7 +416,7 @@ def _recolor_request(
     SCENE backdrop block is suppressed so the source's own background is preserved.
     This is the consistency fix for the old flow's colour-miss + background-drift."""
     return _build_generation_request(
-        api_key=api_key, kind=kind,
+        api_key=api_key, kind=kind, product_name=product_name,
         color=color, color_custom=color_custom,
         mat=mat, mat_notes=mat_notes,
         size=size, legs=legs, cam=cam,

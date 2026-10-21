@@ -62,6 +62,13 @@ function errorFromException(e) {
 }
 
 // A local validation error raised before any request is sent.
+// Download-name segment: "Aria 160", "Lincoln D 17" → "aria-160", "lincoln-d-17".
+function fileSlug(...parts) {
+  return parts.filter(Boolean).join("-").toLowerCase().replace(/ł/g, "l")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 function mkErr(message, code = "VALIDATION") {
   return { message, code, retryable: false };
 }
@@ -162,6 +169,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key";
 const OPENAI_KEY_STORAGE = "nano-sofa-v2-openai-key"; // Lab tab (GPT Image 2.5 direct), shared with /editorial
+const OPENROUTER_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // Lab tab via OpenRouter, shared with /editorial
 // lab.html mounts this same bundle with <body data-mode="lab">.
 const PAGE_MODE = (typeof document !== "undefined" && document.body && document.body.dataset && document.body.dataset.mode) || "photos";
 const PRESETS_STORAGE = "nano-sofa-v2-presets";
@@ -233,6 +241,12 @@ function App({ t, mode = "photos" }) {
   useEffect(() => {
     try { localStorage.setItem(OPENAI_KEY_STORAGE, oaKey); } catch {}
   }, [oaKey]);
+  const [orKey, setOrKey] = useState(() => {
+    try { return localStorage.getItem(OPENROUTER_KEY_STORAGE) || ""; } catch { return ""; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(OPENROUTER_KEY_STORAGE, orKey); } catch {}
+  }, [orKey]);
   const [quality, setQuality] = useState("");   // Images API quality tier (Lab models)
   const [apiKey, setApiKey] = useState(() => {
     try { return localStorage.getItem(API_KEY_STORAGE) || ""; } catch { return ""; }
@@ -244,11 +258,6 @@ function App({ t, mode = "photos" }) {
   const [showKeyEdit, setShowKeyEdit] = useState(() => {
     try { return !(localStorage.getItem(isLab ? OPENAI_KEY_STORAGE : API_KEY_STORAGE) || ""); } catch { return true; }
   });
-  // The key the active engine needs — Gemini in the studio, OpenAI in the Lab.
-  const activeKey = isLab ? oaKey : apiKey;
-  const setActiveKey = isLab ? setOaKey : setApiKey;
-  const keyHint = isLab ? "Wklej klucz OpenAI u góry sceny." : "Wklej klucz Gemini API u góry sceny.";
-  const keyCode = isLab ? "MISSING_OPENAI_KEY" : "MISSING_API_KEY";
 
   // Server-driven config: models + per-model constraints (max_refs,
   // resolutions, pricing, eta seeds) from app-v2/models.json via /api/config.
@@ -297,6 +306,9 @@ function App({ t, mode = "photos" }) {
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
     kind: "bed",
+    // Catalogue name of the product in the base photo (TRE-92). Identity only:
+    // stamped into the render's metadata and download name, never the prompt.
+    product: "",
     color: "greige", colorCustom: "", colorCustomHex: "",
     mat: "boucle", matNotes: "",
     size: "160",
@@ -458,6 +470,7 @@ function App({ t, mode = "photos" }) {
       const slim = gallery.slice(0, 60).map(g => ({
         url: g.url, generation_id: g.generation_id || null,
         color: g.color || null, color_id: g.color_id || null, fabric_code: g.fabric_code || null,
+        product_name: g.product_name || null,
         material: g.material || null, catalog_profile: g.catalog_profile || null,
         tag: g.tag || null, cost: g.cost ?? null, ts: g.ts || null,
       }));
@@ -503,6 +516,10 @@ function App({ t, mode = "photos" }) {
   // Beds skip legs unless the user opts in; sofas always send their leg choice.
   const bedLegsHidden = st.kind === "bed" && !st.bedLegs;
   const effectiveLegs = bedLegsHidden ? "keep" : st.legs;
+  // "Keep base camera" only applies while a base photo is loaded. A preset saved
+  // with it on (or a removed base) must not leave the camera grids locked
+  // behind a checkbox that is itself disabled and shown unchecked.
+  const baseCamLocked = st.uploaded && !!st.preserveBaseCamera;
   const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
   // The Szybki preset tile stays highlighted only while the seeded structured
   // fields still match — clicking "Detal makro" then changing the shot type
@@ -556,6 +573,14 @@ function App({ t, mode = "photos" }) {
     () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
     [serverConfig, st.model],
   );
+  // The key the active engine needs — Gemini in the studio; in the Lab the
+  // selected model's provider: OpenAI direct or OpenRouter ("openai/…" slugs).
+  const labViaOpenRouter = isLab && (modelObj?.provider === "openrouter" || st.model.includes("/"));
+  const keyName = !isLab ? "Gemini" : labViaOpenRouter ? "OpenRouter" : "OpenAI";
+  const activeKey = !isLab ? apiKey : labViaOpenRouter ? orKey : oaKey;
+  const setActiveKey = !isLab ? setApiKey : labViaOpenRouter ? setOrKey : setOaKey;
+  const keyHint = `Wklej klucz ${keyName}${isLab ? "" : " API"} u góry sceny.`;
+  const keyCode = !isLab ? "MISSING_API_KEY" : labViaOpenRouter ? "MISSING_OPENROUTER_KEY" : "MISSING_OPENAI_KEY";
   // Display name for any model id (history rows, chips) — from the registry,
   // never derived from the id string.
   const modelShort = (id) => (serverConfig.models.find(m => m.id === id) || {}).short || id || "—";
@@ -630,13 +655,14 @@ function App({ t, mode = "photos" }) {
   // the preview is derived from the very entries that go on the wire.
   const requestCtx = {
     isLab, apiKey, oaKey, quality, effectiveLegs, customColorText: customColorText(),
+    labKeyField: labViaOpenRouter ? "openrouter_key" : "openai_key", labKey: activeKey, baseCamLocked,
     bgObj, bgLocked, prevRender: (!bgLocked && lockBackground && gallery[0]?.url) ? "pending" : null,
     variantColors, variantMaterials, catalogRefs, colorObj, matObj, sizeObj, modelObj,
     matchedPreset, bedLegsHidden,
   };
   const built = useMemo(() => buildRequest(st, { ...requestCtx, mode: "generate" }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [st, isLab, apiKey, oaKey, quality, effectiveLegs, bgObj, bgLocked, lockBackground, gallery,
+    [st, isLab, apiKey, oaKey, orKey, quality, effectiveLegs, baseCamLocked, bgObj, bgLocked, lockBackground, gallery,
      variantColors, variantMaterials, catalogRefs, colorObj, matObj, sizeObj, modelObj, matchedPreset, bedLegsHidden]);
   const jsonPayload = built.preview;
   const budget = built.budget;
@@ -676,6 +702,7 @@ function App({ t, mode = "photos" }) {
             color: st.color === "custom" ? (st.colorCustomHex || null) : (colorObj?.hex || null),
             color_id: st.color === "custom" ? "custom" : (colorObj?.id || null),
             fabric_code: colorObj?.fabricCode || null,
+            product_name: st.product.trim() || null,
             material: matObj?.id || null,
             catalog_profile: data.catalog_profile || null,
             tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
@@ -976,6 +1003,7 @@ function App({ t, mode = "photos" }) {
           .map(v => ({ url: v.image_url, generation_id: v.generation_id,
                        color: COLORS.find(c => c.id === v.color)?.hex || null,
                        material: v.material || null,
+                       product_name: st.product.trim() || null,
                        catalog_profile: data.catalog_profile || null,
                        tag: "set", cost: v.cost, ts: Date.now() }));
         if (fresh.length) setGallery(g => [...fresh, ...g]);
@@ -990,7 +1018,7 @@ function App({ t, mode = "photos" }) {
   return (
     <div className="app-frame">
       <NanoTopbar active={isLab ? "lab" : "photos"} apiKey={activeKey} setApiKey={setActiveKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit}
-        keyName={isLab ? "OpenAI" : "Gemini"} keyPlaceholder={isLab ? "sk-… wklej klucz OpenAI" : "AIza… wklej klucz Gemini"} />
+        keyName={keyName} keyPlaceholder={!isLab ? "AIza… wklej klucz Gemini" : labViaOpenRouter ? "sk-or-… wklej klucz OpenRouter" : "sk-… wklej klucz OpenAI"} />
 
       {catalogStale && (
         <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 16px",
@@ -1115,7 +1143,8 @@ function App({ t, mode = "photos" }) {
             if (activeImg) {
               const tag = activeImg.tag || ("v" + (activeGallery + 1));
               const sceneId = activeImg.background || activeImg.catalog_profile || bgObj?.id;
-              const slug = [activeImg.color_id || colorObj?.id, activeImg.material || matObj?.id, sceneId].filter(Boolean).join("-");
+              const slug = fileSlug(activeImg.product_name, activeImg.fabric_code || activeImg.color_id || colorObj?.id,
+                activeImg.material || matObj?.id, sceneId);
               ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
               downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
             }
@@ -1378,7 +1407,7 @@ function App({ t, mode = "photos" }) {
                           </div>
                         );
                       }
-                      const slug = [v.color, vMatId, bgObj?.id].filter(Boolean).join("-");
+                      const slug = fileSlug(st.product, cObj?.fabricCode || v.color, vMatId, bgObj?.id);
                       const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
                       const dlName = `nano-sofa-${i === 0 ? "anchor" : "v" + (i + 1)}-${slug}.${ext}`;
                       return (
@@ -1700,7 +1729,7 @@ function App({ t, mode = "photos" }) {
                                 </div>
                               );
                             }
-                            const slug = [v.color, v.material].filter(Boolean).join("-");
+                            const slug = fileSlug(st.product, cObj?.fabricCode || v.color, v.material);
                             const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
                             const dlName = `nano-sofa-${slug}.${ext}`;
                             return (
@@ -1773,9 +1802,9 @@ function App({ t, mode = "photos" }) {
       <section className="form-pane">
         {isLab ? (
           <PageIntro eyebrow={<>Lab · generator OpenAI · eksperyment · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
-            Ten sam przebieg co w Zdjęciach: sesja, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API,
-            a zdjęcie bazowe, komplet referencji tkaniny i plamka koloru idą jako obrazy edycji. Warianty i fotosesja
-            też przechodzą przez OpenAI; wyniki lądują w Porównywarce obok Gemini.
+            Ten sam przebieg co w Zdjęciach: tło, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API
+            albo przez OpenRouter (wybór w ustawieniach technicznych), a zdjęcie bazowe, komplet referencji tkaniny
+            i plamka koloru idą jako obrazy edycji. Warianty i fotosesja też; wyniki lądują w Porównywarce obok Gemini.
           </PageIntro>
         ) : (
           <PageIntro eyebrow={<>Zdjęcia · brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
@@ -1803,9 +1832,13 @@ function App({ t, mode = "photos" }) {
           <div className="api-banner">
             <div className="api-banner-head">
               <div className="api-banner-eyebrow">krok zerowy</div>
-              <div className="api-banner-title serif">{isLab ? "Wklej swój klucz OpenAI API, żeby zacząć" : "Wklej swój klucz Gemini API, żeby zacząć"}</div>
+              <div className="api-banner-title serif">{`Wklej swój klucz ${keyName} API, żeby zacząć`}</div>
               <div className="api-banner-help">
-                {isLab ? (
+                {labViaOpenRouter ? (
+                  <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
+                  openrouter.ai przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
+                  <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer">openrouter.ai/settings/keys</a>.</>
+                ) : isLab ? (
                   <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
                   api.openai.com przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>.</>
@@ -1821,7 +1854,7 @@ function App({ t, mode = "photos" }) {
                 autoFocus
                 type="password"
                 className="input"
-                placeholder={isLab ? "sk-..." : "AIza..."}
+                placeholder={!isLab ? "AIza..." : labViaOpenRouter ? "sk-or-..." : "sk-..."}
                 onChange={e => setActiveKey(e.target.value)}
                 style={{flex:1, fontFamily:"Geist Mono", fontSize: 13}}
               />
@@ -1831,17 +1864,17 @@ function App({ t, mode = "photos" }) {
 
         {/* Technical output settings stay available, but no longer lead the workflow. */}
         <AdvancedSection title="Ustawienia techniczne"
-          summary={`${modelShort(st.model)}${isLab && quality ? " · " + quality : ""} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          summary={`${modelShort(st.model)}${labViaOpenRouter ? " · openrouter" : ""}${isLab && quality ? " · " + quality : ""} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help={isLab
-            ? "Model OpenAI, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
-            : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Pro wybierz dla najbardziej wymagającej zgodności marki."}>
+            ? "Model GPT Image, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Wersje „· OpenRouter” to te same modele płacone kluczem OpenRouter — GPT Image bez wyboru rozdzielczości (rozmiar domyślny dostawcy). Nano Banana 2.1 · OpenRouter to model Google'a z pełnym planem referencji i rozdzielczością 1K / 2K / 4K. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
+            : "Model, proporcje i rozdzielczość. Nano Banana 2.1 jest polecanym modelem do codziennej pracy (4K, 14 referencji); Pro wybierz dla najbardziej wymagającej zgodności marki. Modele oznaczone jako wycofywane zostają tylko dla starych presetów."}>
           <div className="out-grid">
             <div>
               <div className="field-lbl">model</div>
               <select className="select" value={st.model} onChange={e => set({ model: e.target.value })}>
                 {serverConfig.models.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.label} · do {m.max_resolution || "1K"} · {m.max_refs} ref.
+                    {m.label} · {m.max_resolution === "auto" ? "rozmiar domyślny" : `do ${m.max_resolution || "1K"}`} · {m.max_refs} ref.
                   </option>
                 ))}
               </select>
@@ -1944,6 +1977,15 @@ function App({ t, mode = "photos" }) {
             <div className={"opt " + (st.kind === "bed" ? "sel" : "")} onClick={() => set({ kind: "bed" })}>
               <span className="ic">{Ic.bed}</span>
               <div><div className="nm">łóżko</div><div className="ds">rama, materac, zagłówek</div></div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <div className="field-lbl">model produktu</div>
+            <input className="input" placeholder={st.kind === "bed" ? "np. Aria 160" : "np. Rima 1"}
+              value={st.product} maxLength={80} onChange={e => set({ product: e.target.value })} />
+            <div style={{fontSize: 11, color: "var(--ink-3)", marginTop: 4}}>
+              Zapisywany w metadanych i nazwie pobranego pliku razem z kodem tkaniny — nie wpływa na prompt.
             </div>
           </div>
 
@@ -2088,7 +2130,7 @@ function App({ t, mode = "photos" }) {
           </div>
         </Section>
 
-        <CameraSection st={st} set={set} bgLocked={bgLocked} lensObj={lensObj} camObj={camObj} matchedPreset={matchedPreset} />
+        <CameraSection st={st} set={set} bgLocked={bgLocked} lensObj={lensObj} camObj={camObj} matchedPreset={matchedPreset} baseCamLocked={baseCamLocked} />
 
         <ReferencesSection st={st} set={set} bgLocked={bgLocked} modelObj={modelObj}
           refFileRef={refFileRef} refSlotRef={refSlotRef} onPickRef={onPickRef} clearRef={clearRef}
