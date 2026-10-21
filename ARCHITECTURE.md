@@ -173,6 +173,12 @@ and Experiments treat every engine alike:
     CATALOG FRAMING CONTRACT exists for `hero` only; `close_up`,
     `detail_fabric` and `detail_corner` are `TIGHT_SHOTS`: no plate, no
     in-use photo, their own CAMERA / SCENE paragraphs, no normalization.
+13. **The JSON preview is the request** (phase 5). `wizard/request.js`
+    builds the multipart entries once; the JSON tab, the footer's reference
+    budget and the three POSTs (Generuj, Warianty, Seria) all read those
+    entries. `referenceBudget` mirrors `plan_reference_slots` so the UI can
+    say which images will be attached — the server stays the authority;
+    when the planner's rules change, change the mirror in the same PR.
 
 ## Deploy loop
 
@@ -192,6 +198,6 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 - [x] Single source of truth for materials/colors (`app-v2/catalog.json` + `/catalog.js`)
 - [x] Vite build: production React, ES modules, self-hosted fonts, hashed assets
 - [x] Split `server.py` into `studio/` modules (paths, catalog, mappings, request_builder, media, routes_*)
-- [ ] Split the frontend `App()` (~2300 lines) into components — now easy with ES modules, do it opportunistically as sections get touched
+- [x] Split the frontend `App()` into components — started 2026-10-21 (phase 5): `src/wizard/` holds Tło, Kamera, Referencje, Pościel and the Section wrappers; `wizard/request.js` is the one request builder (FormData, JSON preview and the reference budget come from the same entries). Colour / material / size / legs / base photo and the stage panes are still inline in `app-v2.jsx` (~2200 lines)
 - [x] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests gating CI
 - [ ] Decide fate of the WebGL 3D preview branch (`worktree-webgl-3d-preview`, 15 commits behind)
