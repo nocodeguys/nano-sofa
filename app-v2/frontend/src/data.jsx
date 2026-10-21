@@ -65,27 +65,35 @@ const CAMERAS = [
   { id: "top",    name: "Z góry 45°",     prop: "schemat / aranżacja",     style: "studio" },
 ];
 
-const ENVIRONMENTS = [
-  // Locked cyclorama profiles — guarantee identical backdrop look across renders.
-  { id: "cyclorama_warm",    name: "Cyklorama ciepła",   prop: "warm catalog white #F4F0E5", grad: "linear-gradient(180deg,#F4F0E5,#E4DBC6)",      acc: "#E8DEC9" },
-  { id: "cyclorama_neutral", name: "Cyklorama neutralna",prop: "pure photo white #FAFAFA",    grad: "linear-gradient(180deg,#FAFAFA,#E8E8E8)",      acc: "#F0F0F0" },
-  { id: "cyclorama_grey",    name: "Cyklorama szara",    prop: "packshot grey #DCDCDC",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
-  { id: "cyclorama_architectural", name: "Architektoniczna ivory", prop: "high-key ivory #F7F3EA, cień w prawo", grad: "linear-gradient(180deg,#F1ECDE 0%,#F7F3EA 60%,#FCF9F2 100%)", acc: "#EFE9DA" },
-  { id: "cyclorama_softlight",     name: "Softlight minimal",      prop: "off-white #FAF8F6, płaskie tło, zero plam",     grad: "linear-gradient(180deg,#FAF8F6,#FAF8F6)",                     acc: "#F2EFEB" },
-  { id: "cyclorama_paperwhite",    name: "Paperwhite bright",      prop: "jasne off-white #FCFAF7, lifted high-key",      grad: "linear-gradient(180deg,#FCFAF7,#FCFAF7)",                     acc: "#F5F2ED" },
-  // Legacy ids — kept for back-compat; both resolve to cyclorama_warm/grey server-side.
-  { id: "studio_white",  name: "Białe studio (legacy)",   prop: "→ cyklorama ciepła",      grad: "linear-gradient(180deg,#F4F0E5,#DCD3BD)",      acc: "#E8DEC9" },
-  { id: "studio_grey",   name: "Studio szare (legacy)",   prop: "→ cyklorama szara",       grad: "linear-gradient(180deg,#DEDED9,#9C9D97)",      acc: "#C2C3BD" },
-  { id: "scandi",        name: "Salon skandynawski",  prop: "drewno, biel, rośliny",  grad: "linear-gradient(180deg,#EFE8D6,#C9B796)",      acc: "#B89F7A" },
-  { id: "loft",          name: "Loft industrial",     prop: "cegła, beton, metal",    grad: "linear-gradient(180deg,#C9B79C,#7C6B57)",      acc: "#8E7B62" },
-  { id: "japandi",       name: "Japandi",             prop: "ciepła minimalistyka",   grad: "linear-gradient(180deg,#E9DDC4,#B59A74)",      acc: "#A88560" },
-  { id: "boho",          name: "Boho ciepłe",         prop: "tekstylia, ratan",       grad: "linear-gradient(180deg,#E5C6A0,#A8754C)",      acc: "#C39065" },
-  { id: "dark_moody",    name: "Mroczne wnętrze",     prop: "ciemne ściany, lampy",   grad: "linear-gradient(180deg,#3D3A33,#191815)",      acc: "#5A4F3F" },
-  { id: "garden",        name: "Taras / ogród",       prop: "zieleń, światło dzienne",grad: "linear-gradient(180deg,#C8D4B6,#7E8E6A)",      acc: "#9CAC83" },
-  { id: "showroom",      name: "Showroom marki",      prop: "lekka aranżacja prod.",  grad: "linear-gradient(180deg,#EAE2CE,#B7AE92)",      acc: "#D2C5A3" },
-  { id: "transparent",   name: "Bez tła (PNG)",       prop: "alfa, do composu",       grad: "repeating-conic-gradient(#E8E3D5 0% 25%,#F4F0E5 0% 50%) 0/16px 16px", acc: "#FBFAF6", checker: true },
-  { id: "custom",        name: "Własne zdjęcie tła",  prop: "wgraj swoje wnętrze",    grad: "repeating-linear-gradient(135deg,#EDE9DF 0 8px,#F4F1EA 8px 16px)", acc: "#D2CCBC", custom: true },
-];
+// Backgrounds come from catalog.json (phase 3): `backdrops` are studio looks
+// (locked ones carry the catalog treatment), `scenes` are lifestyle
+// interiors, and "custom" is the user's own photo. The server resolves the
+// same ids; old env ids (cyclorama_*, studio_*) map through `aliases`.
+const BACKDROPS = (_cat.backdrops || []).map(b => ({
+  id: b.id, kind: "backdrop", name: b.name_pl, hex: b.hex || "", preview: b.preview || "",
+  note: b.note_pl || "", locked: !!b.locks, normalize: !!b.normalize,
+  transparent: !!b.transparent, plate: b.plate || null, aliases: b.aliases || [],
+  // Seeded into the camera controls when a locked backdrop is picked; the
+  // user may change any of them afterwards (phase 4).
+  cameraDefaults: b.camera_defaults || null,
+}));
+const SCENES = (_cat.scenes || []).map(sc => ({
+  id: sc.id, kind: "scene", name: sc.name_pl, prop: sc.prop_pl || "", preview: sc.preview || "",
+  acc: sc.acc || "", aliases: [],
+}));
+const CUSTOM_BACKGROUND = {
+  id: "custom", kind: "custom", name: "Własne zdjęcie tła", prop: "wgraj swoje wnętrze",
+  preview: "repeating-linear-gradient(135deg,#EDE9DF 0 8px,#F4F1EA 8px 16px)", aliases: [],
+};
+const BACKGROUNDS = [...BACKDROPS, ...SCENES, CUSTOM_BACKGROUND];
+// Old preset / env ids → current id ("" when unknown).
+const canonicalBackgroundId = (id) => {
+  if (!id) return "";
+  const hit = BACKGROUNDS.find(b => b.id === id || (b.aliases || []).includes(id));
+  return hit ? hit.id : "";
+};
+// Back-compat name for the editorial page's SETTING picker.
+const ENVIRONMENTS = BACKGROUNDS;
 
 const LEGS = [
   { id: "keep",    name: "zachowaj obecne" },
@@ -276,63 +284,57 @@ const Ic = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Bed styling — controls what lies on the bed and how tidy it is.
 // Only rendered when product type === "bed" (sofas don't have bedding).
-// Each preset.prompt becomes a fragment of the BEDDING block sent to Gemini.
+// The English wording lives server-side (studio/mappings._BEDDING_TO_PROMPT …);
+// these tables are labels only.
 // ─────────────────────────────────────────────────────────────────────────────
 const BEDDING_PRESETS = [
-  { id: "none",         name: "Bez pościeli",        prop: "tylko materac, brak tekstyliów",
-    prompt: "no bedding at all — the bare mattress is visible, no sheets, no duvet, no pillows" },
-  { id: "linen_white",  name: "Len biały",           prop: "naturalne lniane prześcieradło + kołdra",
-    prompt: "crisp white pure-linen sheets and a matching white linen duvet, gentle natural creases, soft matte texture" },
-  { id: "linen_natural",name: "Len naturalny",       prop: "ciepły len ecru, surowy beż",
-    prompt: "natural undyed flax linen sheets and duvet in warm ecru / oatmeal tone, visible weave, soft wrinkles" },
-  { id: "linen_grey",   name: "Len szary",           prop: "stonowany len kamienno-szary",
-    prompt: "stone-grey washed linen sheets and duvet, gently rumpled, slightly cool undertone" },
-  { id: "linen_sage",   name: "Len szałwiowy",       prop: "len w kolorze sage / oliwka",
-    prompt: "muted sage-green washed linen sheets and duvet, soft and matte" },
-  { id: "cotton_white", name: "Bawełna percale",     prop: "biała bawełna percale, hotel-look",
-    prompt: "smooth white percale cotton sheets and duvet, crisp and lightly pressed, hotel-look finish" },
-  { id: "jersey_warm",  name: "Jersey kremowy",      prop: "miękki jersey w odcieniu kremu",
-    prompt: "soft cream cotton-jersey sheets and a matching jersey duvet, cozy and relaxed drape" },
-  { id: "custom",       name: "Własny opis",         prop: "wpisz swój opis pościeli",
-    prompt: "" },
+  { id: "none",         name: "Bez pościeli",        prop: "tylko materac, brak tekstyliów" },
+  { id: "linen_white",  name: "Len biały",           prop: "naturalne lniane prześcieradło + kołdra" },
+  { id: "linen_natural",name: "Len naturalny",       prop: "ciepły len ecru, surowy beż" },
+  { id: "linen_grey",   name: "Len szary",           prop: "stonowany len kamienno-szary" },
+  { id: "linen_sage",   name: "Len szałwiowy",       prop: "len w kolorze sage / oliwka" },
+  { id: "cotton_white", name: "Bawełna percale",     prop: "biała bawełna percale, hotel-look" },
+  { id: "jersey_warm",  name: "Jersey kremowy",      prop: "miękki jersey w odcieniu kremu" },
+  { id: "custom",       name: "Własny opis",         prop: "wpisz swój opis pościeli" },
 ];
 
 const THROW_PRESETS = [
-  { id: "none",         name: "Brak",                prompt: "" },
-  { id: "linen_foot",   name: "Lniana u stóp",       prompt: "a light-weight linen throw folded neatly at the foot of the bed" },
-  { id: "knit_chunky",  name: "Chunky knit",         prompt: "a chunky hand-knit wool throw casually draped across the lower third of the bed" },
-  { id: "wool_plaid",   name: "Wełniana krata",      prompt: "a folded wool plaid blanket placed across the foot of the bed" },
-  { id: "boucle",       name: "Bouclé miękki",       prompt: "a soft cream bouclé throw lightly tossed across one corner of the bed" },
-  { id: "quilt",        name: "Pikowana narzuta",    prompt: "a vintage-style quilted bedspread folded along the foot, lightly textured" },
+  { id: "none",         name: "Brak" },
+  { id: "linen_foot",   name: "Lniana u stóp" },
+  { id: "knit_chunky",  name: "Chunky knit" },
+  { id: "wool_plaid",   name: "Wełniana krata" },
+  { id: "boucle",       name: "Bouclé miękki" },
+  { id: "quilt",        name: "Pikowana narzuta" },
 ];
 
 const TIDY_LEVELS = [
-  { id: "unmade",      name: "Rozbebrana",          prompt: "the bed is unmade — sheets pulled aside, duvet partly thrown off, a clearly slept-in look. Casual and very lived-in, but still photogenic and not chaotic" },
-  { id: "lived_in",   name: "Naturalna",           prompt: "the bedding is naturally rumpled with soft organic creases and gentle wrinkles — a lived-in but pleasant look, not staged-stiff and not messy" },
-  { id: "neat",        name: "Równa",               prompt: "the bedding is smoothed and tidy with only subtle natural wrinkles, the duvet centered and even, pillows neatly arranged. Calm and orderly" },
-  { id: "hotel",       name: "Hotel-perfect",       prompt: "the bedding is crisp and hotel-perfect — taut sheets, perfectly squared duvet corners, pillows precisely stacked and fluffed, zero wrinkles, magazine-grade styling" },
-  { id: "five_star",   name: "5★ hotel — zero zagnieceń", prompt: "the bedding is rendered to ultra-luxury five-star hotel suite standard: ABSOLUTELY zero folds, zero creases, zero wrinkles, zero rumples anywhere on the sheets, duvet, or pillowcases. Every surface is ironed glass-smooth and pulled taut to the millimeter. Duvet corners are knife-sharp 90-degree right angles, perfectly squared and aligned to the mattress edges. The duvet itself lies flat and evenly tensioned across the entire bed with no air bubbles, no puckering, and no soft sag. Pillows are flawlessly fluffed, identical in height and shape, precisely stacked or aligned with mathematical symmetry. Sheet edges are crisp and perfectly parallel. Top-tier luxury presentation, like a Mandarin Oriental or Four Seasons master suite immediately after housekeeping turn-down. ANY visible fold, wrinkle, or asymmetry is a defect that ruins the render" },
+  { id: "unmade",      name: "Rozbebrana" },
+  { id: "lived_in",   name: "Naturalna" },
+  { id: "neat",        name: "Równa" },
+  { id: "hotel",       name: "Hotel-perfect" },
+  { id: "five_star",   name: "5★ hotel — zero zagnieceń" },
 ];
 
 const DENSITY_LEVELS = [
-  { id: "minimal",     name: "Minimalna",           prompt: "an extremely minimal scene — only the bed and its bedding are visible, absolutely no decorative props, no books, no trays, no plants, no extra objects in the frame" },
-  { id: "balanced",    name: "Zbalansowana",        prompt: "a balanced scene with the bedding and at most one or two small tasteful styling items if requested below; otherwise the frame stays clean" },
-  { id: "rich",        name: "Bogata aranżacja",    prompt: "a fully styled editorial-look scene with multiple tasteful styling items adding warmth and narrative — but never cluttered or busy" },
+  { id: "minimal",     name: "Minimalna" },
+  { id: "balanced",    name: "Zbalansowana" },
+  { id: "rich",        name: "Bogata aranżacja" },
 ];
 
 const BED_ACCENTS = [
-  { id: "extra_pillows", name: "Dodatkowe poduszki",    prompt: "an extra pair of decorative pillows neatly arranged against the headboard" },
-  { id: "book",          name: "Książka",               prompt: "a single hardback book resting on top of the duvet, casually placed" },
-  { id: "tray",          name: "Taca śniadaniowa",      prompt: "a small wooden breakfast tray with a coffee cup placed on the bed" },
-  { id: "robe",          name: "Szlafrok / koszula",    prompt: "a soft linen robe casually laid across the corner of the bed" },
-  { id: "plant",         name: "Roślinka obok",         prompt: "a small potted plant visible on a nightstand or just beside the bed" },
-  { id: "candle",        name: "Świeca",                prompt: "a single lit candle in a simple ceramic holder placed near the bed" },
+  { id: "extra_pillows", name: "Dodatkowe poduszki" },
+  { id: "book",          name: "Książka" },
+  { id: "tray",          name: "Taca śniadaniowa" },
+  { id: "robe",          name: "Szlafrok / koszula" },
+  { id: "plant",         name: "Roślinka obok" },
+  { id: "candle",        name: "Świeca" },
 ];
 
 export { Ic };
 export const NS_DATA = { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById,
                          SIZES_SOFA, SIZES_BED, CAMERAS, LEGS,
-                         STEPS, ENVIRONMENTS, LENSES, TIMES_OF_DAY, SHADOWS,
+                         STEPS, ENVIRONMENTS, BACKDROPS, SCENES, BACKGROUNDS, canonicalBackgroundId,
+                         LENSES, TIMES_OF_DAY, SHADOWS,
                          SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
                          CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
                          CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,

@@ -15,88 +15,42 @@ from pathlib import Path
 from typing import Optional
 
 # --------------------------------------------------------------------------- #
-# Pricing tables (official Gemini Developer API pricing, 2026-08-27)
+# Pricing tables — derived from app-v2/models.json (the registry). The dict
+# names are kept for the callers that import them; the numbers live in ONE
+# place now. Pricing per model entry: output_image{1K,2K,4K},
+# output_image_batch, text_input_per_1m, input_image_tokens, thinking_per_1m.
 # --------------------------------------------------------------------------- #
+from app.core.model_registry import registry as _registry  # noqa: E402
 
-# Standard (non-batch) output image prices per generated image
+_RESOLUTIONS = ("1K", "2K", "4K")
+
 OUTPUT_IMAGE_PRICE_STD: dict[str, dict[str, float]] = {
-    "gemini-2.5-flash-image": {
-        "1K": 0.039,
-        "2K": 0.039,   # Flash is capped at 1K; this entry is defensive
-        "4K": 0.039,
-    },
-    "gemini-3.1-flash-image": {
-        "1K": 0.067,
-        "2K": 0.101,
-        "4K": 0.151,
-    },
-    # Nano Banana 2.1 (GA 2026-10-06, pricing verified 2026-10-12)
-    "gemini-nano-banana-2.1": {
-        "1K": 0.0336,
-        "2K": 0.0504,
-        "4K": 0.113,
-    },
-    "gemini-3-pro-image": {
-        "1K": 0.134,
-        "2K": 0.134,   # Pro pricing covers 1K–2K at same rate
-        "4K": 0.240,
-    },
+    m.id: {r: m.price_per_image(r) for r in _RESOLUTIONS}
+    for m in _registry.by_engine("gemini")
 }
-
-# Batch (50% off) output image prices
 OUTPUT_IMAGE_PRICE_BATCH: dict[str, dict[str, float]] = {
-    "gemini-2.5-flash-image": {
-        "1K": 0.0195,
-        "2K": 0.0195,
-        "4K": 0.0195,
-    },
-    "gemini-3.1-flash-image": {
-        "1K": 0.034,
-        "2K": 0.050,
-        "4K": 0.076,
-    },
-    "gemini-nano-banana-2.1": {
-        "1K": 0.0168,
-        "2K": 0.0252,
-        "4K": 0.0567,
-    },
-    "gemini-3-pro-image": {
-        "1K": 0.067,
-        "2K": 0.067,
-        "4K": 0.120,
-    },
+    m.id: {r: m.price_per_image(r, batch=True) for r in _RESOLUTIONS}
+    for m in _registry.by_engine("gemini")
 }
-
-# Input image costs (per reference image)
-# gemini-2.5-flash-image: 258 tokens × $0.30/1M = $0.000077/img (post Nov-2025 reduction)
-# Preview models: assumed same tier text input rate
+# Per reference image: input_image_tokens × text-input rate.
 INPUT_IMAGE_TOKEN_COST: dict[str, float] = {
-    "gemini-2.5-flash-image": 0.000077,   # 258 tok × $0.30/1M
-    "gemini-3.1-flash-image": 0.000129,  # 258 tok × $0.50/1M
-    "gemini-nano-banana-2.1": 0.000387,  # 258 tok × $1.50/1M
-    "gemini-3-pro-image": 0.000516,      # 258 tok × $2.00/1M
+    m.id: round(
+        float(m.pricing.get("input_image_tokens", 258))
+        * float(m.pricing.get("text_input_per_1m", 0.30)) / 1_000_000, 7,
+    )
+    for m in _registry.by_engine("gemini")
 }
-
-# Thinking token cost (Pro only, per 1M tokens)
 THINKING_TOKEN_PRICE_PER_1M: dict[str, float] = {
-    "gemini-2.5-flash-image": 0.0,
-    "gemini-3.1-flash-image": 3.00,
-    "gemini-nano-banana-2.1": 7.50,
-    "gemini-3-pro-image": 12.00,
+    m.id: float(m.pricing.get("thinking_per_1m", 0.0)) for m in _registry.by_engine("gemini")
+}
+TEXT_INPUT_PRICE_PER_1M: dict[str, float] = {
+    m.id: float(m.pricing.get("text_input_per_1m", 0.30)) for m in _registry.by_engine("gemini")
 }
 
 # Estimated thinking tokens for a complex multi-reference sofa prompt
 # Simple: ~200 tok, complex multi-ref: ~600 tok
 THINKING_TOKEN_ESTIMATE_SIMPLE = 200
 THINKING_TOKEN_ESTIMATE_COMPLEX = 600
-
-# Text input prices per 1M tokens
-TEXT_INPUT_PRICE_PER_1M: dict[str, float] = {
-    "gemini-2.5-flash-image": 0.30,
-    "gemini-3.1-flash-image": 0.50,
-    "gemini-nano-banana-2.1": 1.50,
-    "gemini-3-pro-image": 2.00,
-}
 
 # Average sofa prompt token count (estimated from schema + system instruction)
 PROMPT_TOKEN_ESTIMATE = 800
@@ -163,11 +117,6 @@ class CostEstimate:
             lines.append("(Batch pricing applied — 50% discount)")
         return "\n".join(lines)
 
-    def format_summary(self) -> str:
-        if self.thinking_cost_high > 0:
-            return f"~${self.total_low:.4f} – ${self.total_high:.4f} / image"
-        return f"~${self.total_low:.4f} / image"
-
 
 @dataclass
 class GenerationRecord:
@@ -194,23 +143,13 @@ class GenerationRecord:
 # --------------------------------------------------------------------------- #
 # Duration / ETA estimation
 # --------------------------------------------------------------------------- #
-# Rough per-image wall-clock seeds (seconds) by tier × resolution: (p50, p90).
-# p50 = typical, p90 = the "taking longer than usual" threshold. These are
-# starting estimates only — measured_eta() refines them from real history once
-# enough successful renders accrue.
-_DURATION_SEED: dict[str, dict[str, tuple[float, float]]] = {
-    "flash": {"1K": (8.0, 16.0),  "2K": (13.0, 26.0), "4K": (20.0, 38.0)},
-    "pro":   {"1K": (18.0, 34.0), "2K": (26.0, 50.0), "4K": (40.0, 72.0)},
-}
-
-
+# Rough per-image wall-clock seeds (seconds) by tier × resolution: (p50, p90)
+# come from models.json `eta_seed`. p50 = typical, p90 = the "taking longer
+# than usual" threshold. Starting estimates only — measured_eta() refines
+# them from real history once enough successful renders accrue.
 def estimate_duration(model_id: str, resolution: str, num_ref_images: int = 0) -> dict:
     """Static ETA seed for a single render. Returns {p50_s, p90_s, source, n}."""
-    tier = "pro" if "pro" in (model_id or "") else "flash"
-    res = (resolution or "1K").upper()
-    if res not in ("1K", "2K", "4K"):
-        res = "1K"
-    p50, p90 = _DURATION_SEED[tier].get(res, _DURATION_SEED[tier]["1K"])
+    p50, p90 = _registry.eta_seed_for(model_id, resolution)
     p50 += 1.2 * max(0, num_ref_images)   # each extra reference adds a little
     p90 += 2.0 * max(0, num_ref_images)
     return {"p50_s": round(p50, 1), "p90_s": round(p90, 1), "source": "estimate", "n": 0}
@@ -275,20 +214,6 @@ def estimate_cost(
         is_batch=is_batch,
         has_thinking=has_thinking,
     )
-
-
-def estimate_batch_cost(
-    model_id: str,
-    resolution: str,
-    num_ref_images: int,
-    count: int,
-) -> tuple[CostEstimate, float, float]:
-    """
-    Returns (per_image_estimate, total_low, total_high) for a batch of `count`
-    images.
-    """
-    est = estimate_cost(model_id, resolution, num_ref_images, is_batch=False)
-    return est, est.total_low * count, est.total_high * count
 
 
 # --------------------------------------------------------------------------- #

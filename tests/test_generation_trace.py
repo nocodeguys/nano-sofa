@@ -30,6 +30,11 @@ def _trace(req):
         prompt="effective prompt",
         effective_system_instruction="system prompt",
         reference_images=refs,
+        reference_roles=[
+            ("base_product", req.base_product_image),
+            ("scene", req.scene_reference_image),
+            ("material_macro", req.swatch_reference_image),
+        ],
     )
 
 

@@ -10,7 +10,9 @@
     "`noun_en` outweighs `texture_en`. A bare stereotype noun ('chenille",
     "fabric') silently cancels a paragraph of texture spec. Keep the noun in",
     "agreement with the spec.",
-    "collections[]: fabric collections (Velutto, Cremona, Barrel, Lincoln D). Each code becomes a selectable colour id '<collection>-<code>' with its own EXACT hex and implies the collection's material. hex_verified:false marks a code seeded from its TreeTale group hex — replace with the real swatch value."
+    "collections[]: fabric collections (Velutto, Cremona, Barrel, Lincoln D). Each code becomes a selectable colour id '<collection>-<code>' with its own EXACT hex and implies the collection's material. hex_verified:false marks a code seeded from its TreeTale group hex — replace with the real swatch value.",
+    "scenes[]: lifestyle interiors (prompt_en is the SETTING sentence). 'custom' (the user's own photo) is not data — the server handles it.",
+    "backdrops[]: every studio backdrop (phase 3/4, 2026-10-20) — ONE entry per look: hex, the prompt paragraph (prompt_en), the curated plate (plate, in app-v2/scene-references/), the LIGHT locks (locks: tod/shadow — present = catalog treatment: locked light, curated plate, hero framing contract, normalization), the camera defaults a client seeds when the backdrop is picked and the server applies to empty fields (camera_defaults: shot/lens/dof/height — the caller may override any of them), the normalize tones (normalize — present = the packshot normalization pass runs on hero-type shots), the UI preview gradient and aliases (old env ids). Materials/colours admin save must keep this block."
   ],
   "materials": [
     {
@@ -935,6 +937,369 @@
       "fabric": true,
       "covers": "soft-11",
       "prompt_en": "solid deep black (hex #17161A)"
+    }
+  ],
+  "backdrops": [
+    {
+      "id": "ivory",
+      "name_pl": "Naturalna kość słoniowa",
+      "hex": "#F7F5F1",
+      "aliases": [
+        "cyclorama_architectural"
+      ],
+      "prompt_en": "a seamless architectural-studio backdrop in warm soft ivory, base tone RGB(247,245,241) hex #F7F5F1 — a restrained neutral ivory that reads as warm and architectural without a yellow or orange cast. There is NO visible horizon line and NO visible floor-to-wall seam; the surface behaves like a perfect floating cyclorama with the product appearing to rest on a continuous ivory plane. CRITICAL LIGHTING DETAIL: controlled, even studio lighting created by one large diffused key source positioned well OUTSIDE the image bounds, above and to camera-left. The lighting source and all photographic equipment must remain completely off-camera: no reflectors, stands, booms, flags or studio apparatus visible anywhere in the image. This produces a gentle directional wash: the floor area in front of and around the product is fractionally brighter (about RGB 250,249,246) than the upper portion of the backdrop, which softens by only 2–3 RGB values toward the top edge. Preserve midtone and highlight separation on every pale textile; the bedding must never clip into a featureless white mass. SHADOW SPEC: one faint, compact contact shadow anchors the product directly at its floor contact. It is a pale neutral warm-grey at only 8–12 percent opacity, feathering slightly right and disappearing within 10–15 centimeters. No broad ellipse, no dark cast shadow and no second shadow. TEXTURE: the entire backdrop is completely smooth and matte — zero film grain, zero specular reflections, zero environmental detail, zero texture noise, no paper fibers, no wall imperfections. It must never inherit or display upholstery supplied in a material reference: no bouclé loops, weave, yarns, textile relief, enlarged fabric pattern, projected material texture or fabric-shaped shadows anywhere on the backdrop or floor. Absolutely no props, no furniture, no plants, no architectural elements, no signage",
+      "plate": "cyclorama_architectural.png",
+      "locks": {
+        "tod": "noon_neutral",
+        "shadow": "soft_diffuse"
+      },
+      "normalize": {
+        "background": [
+          247,
+          245,
+          241
+        ],
+        "top_rgb": [
+          244,
+          242,
+          238
+        ],
+        "floor_rgb": [
+          250,
+          249,
+          246
+        ],
+        "calibrate_only": true,
+        "shadow_rgb": [
+          208,
+          205,
+          199
+        ],
+        "shadow_alpha": 38,
+        "shadow_width_frac": 0.82,
+        "shadow_height_frac": 0.028,
+        "shadow_offset_frac": 0.02
+      },
+      "preview": "linear-gradient(180deg, #F4F2EE 0%, #F7F5F1 60%, #FAF9F6 100%)",
+      "note_pl": "neutralne ivory bez żółtego zafarbu, kontrolowane światła i mały, bardzo delikatny cień kontaktowy",
+      "camera_defaults": {
+        "shot": "hero",
+        "lens": "85mm_product",
+        "dof": "deep",
+        "height": "eye"
+      }
+    },
+    {
+      "id": "atelier",
+      "name_pl": "Atelier — ciepły gradient",
+      "hex": "#A8A292",
+      "aliases": [
+        "cyclorama_atelier_gradient"
+      ],
+      "prompt_en": "a seamless, full-depth furniture-studio cyclorama with a pronounced two-axis directional light field, based on a real editorial product studio rather than a flat e-commerce backdrop. There is NO visible horizon line and NO floor-to-wall seam. COLOR AND LIGHT ARE LOCKED: the upper-left corner is muted warm olive-grey RGB(168,162,146) hex #A8A292; the upper-right opens to warm stone RGB(193,185,176) hex #C1B9B0; the lower-left is soft taupe RGB(195,189,180) hex #C3BDB4; and the lower-right is pale dusty blush RGB(238,231,231) hex #EEE7E7. Blend these four tones as one continuous diagonal studio-light wash: darker and more olive at upper-left, progressively brighter and more blush toward lower-right. This lateral depth is essential — do NOT flatten the backdrop to one average beige. LIGHTING: one very large diffused key from camera-right plus broad ambient fill; soft form modelling on the product at a controlled neutral exposure. Pale fabric and white bedding retain visible weave, folds and tonal separation. SHADOW: one faint, compact warm-grey contact shadow directly beneath the product, feathering slightly left and disappearing within 12 cm. SURFACE: matte, with extremely fine fixed photographic grain, never rough plaster or visible paper texture. Absolutely no props, walls, corners, rugs, plants, signage or text",
+      "plate": "cyclorama_atelier_gradient.png",
+      "locks": {
+        "tod": "noon_neutral",
+        "shadow": "soft_diffuse"
+      },
+      "normalize": {
+        "background": [
+          220,
+          214,
+          209
+        ],
+        "top_rgb": [
+          181,
+          174,
+          162
+        ],
+        "floor_rgb": [
+          220,
+          214,
+          209
+        ],
+        "top_left_rgb": [
+          168,
+          162,
+          146
+        ],
+        "top_right_rgb": [
+          193,
+          185,
+          176
+        ],
+        "floor_left_rgb": [
+          195,
+          189,
+          180
+        ],
+        "floor_right_rgb": [
+          238,
+          231,
+          231
+        ],
+        "grain_strength": 0.8,
+        "calibrate_only": true,
+        "shadow_rgb": [
+          157,
+          149,
+          136
+        ],
+        "shadow_alpha": 36,
+        "shadow_width_frac": 0.8,
+        "shadow_height_frac": 0.026,
+        "shadow_offset_frac": -0.015
+      },
+      "preview": "linear-gradient(135deg, #A8A292 0%, #BDB6AA 38%, #DCD6D1 67%, #EEE7E7 100%)",
+      "note_pl": "kierunkowo oświetlona cyklorama: oliwkowy cień po lewej, kamień i pudrowy róż po prawej — tło ma głębię, ale nadal pozostaje czystym studiem",
+      "camera_defaults": {
+        "shot": "hero",
+        "lens": "85mm_product",
+        "dof": "deep",
+        "height": "eye"
+      }
+    },
+    {
+      "id": "softblush",
+      "name_pl": "Pudrowy krem",
+      "hex": "#FAF8F6",
+      "aliases": [
+        "cyclorama_softblush"
+      ],
+      "prompt_en": "a seamless premium furniture-catalog cyclorama in a locked pale pudrowy cream tone RGB(250,248,246) hex #FAF8F6. This is a warm blush-leaning off-white, never pure white, never yellow cream and never cool grey. The same #FAF8F6 tone covers wall, sweep and floor across the entire frame with no visible horizon line. Keep the field calm and almost uniform: no spotlight circle, no vignette, no bright corner and no grey floor band. Depth comes only from the product's soft natural modelling and a whisper-soft warm-grey contact shadow beneath it. Controlled diffused frontal-left light at a neutral D55 white balance; pale upholstery and bedding retain their full highlight texture rather than dissolving into white. Smooth matte surface, zero props, zero room context, zero architecture, zero text or signage",
+      "plate": "cyclorama_softblush.png",
+      "locks": {
+        "tod": "noon_neutral",
+        "shadow": "soft_diffuse"
+      },
+      "normalize": {
+        "background": [
+          250,
+          248,
+          246
+        ],
+        "top_rgb": [
+          250,
+          248,
+          246
+        ],
+        "floor_rgb": [
+          250,
+          248,
+          246
+        ],
+        "calibrate_only": true,
+        "shadow_rgb": [
+          211,
+          205,
+          199
+        ],
+        "shadow_alpha": 72,
+        "shadow_width_frac": 0.98,
+        "shadow_height_frac": 0.065,
+        "shadow_offset_frac": 0.02
+      },
+      "preview": "linear-gradient(180deg, #FAF8F6 0%, #FAF8F6 72%, #F8F5F2 100%)",
+      "note_pl": "stały różowo-kremowy kolor #FAF8F6 i tylko miękki cień produktu — spokojny, jasny katalog w stylu premium marek wnętrzarskich",
+      "camera_defaults": {
+        "shot": "hero",
+        "lens": "85mm_product",
+        "dof": "deep",
+        "height": "eye"
+      }
+    },
+    {
+      "id": "paperwhite",
+      "name_pl": "Jasna biel papierowa",
+      "hex": "#FCFAF7",
+      "aliases": [
+        "cyclorama_paperwhite"
+      ],
+      "prompt_en": "a seamless, minimalist studio cyclorama in bright off-white — a lifted, airy version of the softlight setup. There is NO visible horizon line and NO floor-to-wall seam; the curve is a perfectly continuous infinity sweep. BACKDROP COLOR (locked, uniform): a very bright but still off-white tone at RGB(252,250,247) hex #FCFAF7. The faint warm tint is intentional — this is off-white, NOT stark pure white, NOT hospital white, NOT pure RGB(255,255,255). If the rendered backdrop reads as #FFFFFF pure white, the color is wrong; it must retain a barely-perceptible warm cream undertone. This exact tone must cover the ENTIRE backdrop and floor with ZERO luminance variation. The cyclorama is rendered as one perfectly flat color field — like a painted wall, not a photographed surface. CRITICAL ANTI-HOTSPOT RULE: no part of the backdrop or floor may be brighter than RGB(254,252,250) or darker than RGB(249,247,244). Forbidden artifacts — each of these is a defect: a circular bright glow anywhere on the backdrop, a soft halo behind or above the product, a visible patch where the key light hits the cyclorama, a brighter upper-left corner, a brighter upper-right corner, a brighter band along any edge, ANY luminance gradient or falloff or vignette of any kind on the backdrop, ANY specular sheen, ANY visible evidence of where the light source is positioned. Treat the backdrop as a flat painted surface that ignores the studio lighting setup entirely — the light source is OFF-FRAME and does NOT register on the wall. If a viewer can locate the key light from the backdrop alone, the render has failed. PRODUCT LIGHTING (separate from backdrop): soft, diffused, even high-key lighting from a slightly elevated frontal-left angle. Lifts the product to a bright airy exposure with gentle form-defining shading on the product surfaces only — never spilling onto the backdrop. SHADOW (extremely subtle, almost invisible): a single whisper-soft contact shadow anchors the product to the floor. Shadow color is a very pale warm grey RGB(242,238,232). Opacity is ONLY 4–7 percent at its densest core, never darker — this is a barely-perceptible ground hint, NOT a drop shadow. The shadow feathers gently toward the RIGHT side of the frame. Edges are heavily gaussian-blurred; shadow fades to fully invisible within 10–14 centimeters of the product. CRITICAL: if you can clearly see the shadow as a distinct dark shape, it is TOO STRONG — make it lighter. The shadow should read more as a subtle softening of the floor tone than as a defined area. No second shadow on the left, no rim shadow, no stray cast shadows. TEXTURE: the entire backdrop is completely smooth and matte — zero film grain, zero paper fibers, zero specular reflection, zero environmental detail, zero noise, zero imperfections. Ultra-minimalist clean studio aesthetic. Absolutely no props, no furniture, no plants, no architectural elements, no signage, no overlaid text",
+      "plate": null,
+      "locks": {
+        "tod": "noon_neutral",
+        "shadow": "soft_diffuse"
+      },
+      "normalize": {
+        "background": [
+          252,
+          250,
+          247
+        ],
+        "top_rgb": [
+          250,
+          248,
+          245
+        ],
+        "floor_rgb": [
+          254,
+          252,
+          250
+        ],
+        "calibrate_only": true,
+        "shadow_rgb": [
+          214,
+          208,
+          199
+        ],
+        "shadow_alpha": 30,
+        "shadow_width_frac": 0.8,
+        "shadow_height_frac": 0.025,
+        "shadow_offset_frac": 0.015
+      },
+      "preview": "linear-gradient(180deg, #FAF8F5, #FEFCFA)",
+      "note_pl": "lekka, powietrzna biel z ledwo wyczuwalnym ciepłym podtonem, prawie bez gradientu; bez planszy referencyjnej",
+      "camera_defaults": {
+        "shot": "hero",
+        "lens": "85mm_product",
+        "dof": "deep",
+        "height": "eye"
+      }
+    },
+    {
+      "id": "neutral",
+      "name_pl": "Neutralna biel",
+      "hex": "#FAFAFA",
+      "aliases": [
+        "cyclorama_neutral"
+      ],
+      "prompt_en": "a seamless infinity-curve studio cyclorama in clean neutral white, base tone RGB(250,250,250) hex #FAFAFA (pure photo-studio white, no warm or cool tint). Otherwise identical to the warm cyclorama profile: seamless floor-to-wall curve, no horizon line. CRITICAL LIGHTING DETAIL: a large overhead soft-box creates a visible, soft top-down lighting wash on the backdrop — the upper portion of the curve is fractionally brighter (about RGB 255,255,255) than the base tone, fading gently toward the floor and edges. The gradient is subtle but visible — the cyclorama is not flat. SHADOW SPEC: small soft anchored contact shadow in mid-grey RGB(210,210,210), heavily blurred edges, zero directional cast, fading to invisibility within 25 cm of the contact line. Subtle floor darkening at the contact line, fading within 30 cm. No props, no walls, no environment objects of any kind",
+      "plate": null,
+      "locks": {
+        "tod": "noon_neutral",
+        "shadow": "soft_diffuse"
+      },
+      "normalize": {
+        "shadow_alpha": 34,
+        "shadow_width_frac": 0.82,
+        "shadow_height_frac": 0.028
+      },
+      "preview": "linear-gradient(180deg, #FFFFFF, #FAFAFA)",
+      "note_pl": "czysta biel studyjna, bez podtonu — pod marketplace’y, które i tak podmieniają tło; bez planszy referencyjnej",
+      "camera_defaults": {
+        "shot": "hero",
+        "lens": "85mm_product",
+        "dof": "deep",
+        "height": "eye"
+      }
+    },
+    {
+      "id": "warm",
+      "name_pl": "Cyklorama ciepła",
+      "hex": "#F4F0E5",
+      "aliases": [
+        "cyclorama_warm",
+        "studio_white"
+      ],
+      "prompt_en": "a seamless infinity-curve studio cyclorama in warm off-white, base tone RGB(244,240,229) hex #F4F0E5 (the catalog warm cream used by premium European furniture brands). The backdrop has no visible horizon line between floor and wall — the curve is completely seamless. CRITICAL LIGHTING DETAIL: the cyclorama is NOT flat. A large overhead soft-box creates a visible, soft top-down lighting wash on the backdrop — the upper portion of the curve is fractionally brighter (about RGB 250,247,238) than the base tone, and the brightness fades gently toward the floor and the edges. This subtle top-light gradient is what gives the cyclorama dimension; without it the backdrop looks dead. SHADOW SPEC: a small, soft, anchored contact shadow sits directly beneath the product. Shadow color is a warm mid-grey RGB(200,195,180) — not black. Shadow edges are heavily blurred (gaussian-soft, no harsh silhouette). The shadow has zero directional cast — it is an anchor shadow only, not a thrown shadow. The shadow fades to invisibility within roughly 25 centimeters of the product's contact line with the floor. The floor under the product has a very subtle darkening gradient at the contact line, fading to the full backdrop tone within 30 centimeters. Absolutely no props, no walls, no floor seams, no environment objects, no other furniture, no plants, no rugs, no signage",
+      "plate": null,
+      "locks": null,
+      "normalize": null,
+      "preview": "linear-gradient(180deg, #F4F0E5, #E4DBC6)",
+      "note_pl": "ciepła biel katalogowa; światło i obiektyw z kreatora, bez normalizacji"
+    },
+    {
+      "id": "grey",
+      "name_pl": "Cyklorama szara",
+      "hex": "#DCDCDC",
+      "aliases": [
+        "cyclorama_grey",
+        "studio_grey"
+      ],
+      "prompt_en": "a seamless infinity-curve studio cyclorama in neutral mid-grey, base tone RGB(220,220,220) hex #DCDCDC (packshot grey, slightly cooler than neutral white). Seamless floor-to-wall curve, no horizon line. CRITICAL LIGHTING DETAIL: visible soft top-down lighting wash — upper portion of the curve fractionally brighter (about RGB 235,235,235) than the base tone, fading toward floor and edges. The cyclorama is not flat. SHADOW SPEC: small soft anchored contact shadow in darker grey RGB(180,180,180), heavily blurred edges, zero directional cast, fading within 25 cm. Subtle floor darkening at the contact line. No props, no walls, no environment objects",
+      "plate": null,
+      "locks": null,
+      "normalize": null,
+      "preview": "linear-gradient(180deg, #DEDED9, #9C9D97)",
+      "note_pl": "szary packshot; światło i obiektyw z kreatora, bez normalizacji"
+    },
+    {
+      "id": "softlight",
+      "name_pl": "Softlight minimal",
+      "hex": "#FAF8F6",
+      "aliases": [
+        "cyclorama_softlight"
+      ],
+      "prompt_en": "a seamless, minimalist studio cyclorama in clean off-white. There is NO visible horizon line and NO floor-to-wall seam — the curve is a perfectly continuous infinity sweep. BACKDROP COLOR (locked, uniform): a soft warm off-white at RGB(250,248,246) hex #FAF8F6. This exact tone must cover the ENTIRE backdrop and floor with ZERO luminance variation. The cyclorama is rendered as one perfectly flat color field — like a painted wall, not a photographed surface. CRITICAL ANTI-HOTSPOT RULE: no part of the backdrop or floor may be brighter than RGB(252,250,248) or darker than RGB(247,245,243). Forbidden artifacts — each of these is a defect that ruins the image: a circular bright glow anywhere on the backdrop, a soft halo behind or above the product, a visible patch where the key light hits the cyclorama, a brighter upper-left corner, a brighter upper-right corner, a brighter band along any edge, ANY luminance gradient or falloff or vignette of any kind on the backdrop, ANY specular sheen, ANY visible evidence of where the light source is positioned. Treat the backdrop as a flat painted surface that ignores the studio lighting setup entirely — the light source is OFF-FRAME and does NOT register on the wall. If a viewer can locate the key light from looking at the backdrop alone, the render has failed. PRODUCT LIGHTING (separate from backdrop): the product itself is lit with soft, diffused, even high-key lighting from a slightly elevated frontal-left angle, producing gentle form-defining shading on the product surfaces only — never spilling onto the backdrop. SHADOW (extremely subtle, almost invisible): a single whisper-soft contact shadow anchors the product to the floor. Shadow color is a very pale warm grey RGB(238,234,228). Opacity is ONLY 5–8 percent at its densest core, never darker — this is a barely-perceptible ground hint, NOT a drop shadow. The shadow feathers gently toward the RIGHT side of the frame. Edges are heavily gaussian-blurred; shadow fades to fully invisible within 10–15 centimeters of the product. CRITICAL: if you can clearly see the shadow as a distinct dark shape, it is TOO STRONG — make it lighter. The shadow should read more as a subtle softening of the floor tone than as a defined area. No second shadow on the left, no rim shadow, no stray cast shadows, no dark patches anywhere on the floor. TEXTURE: the entire backdrop is completely smooth and matte — zero film grain, zero paper fibers, zero specular reflection, zero environmental detail, zero noise, zero imperfections. Ultra-minimalist clean studio aesthetic. Absolutely no props, no furniture, no plants, no architectural elements, no signage, no overlaid text",
+      "plate": null,
+      "locks": null,
+      "normalize": null,
+      "preview": "linear-gradient(180deg, #FAF8F6, #FAF8F6)",
+      "note_pl": "płaskie off-white bez horyzontu; światło i obiektyw z kreatora"
+    },
+    {
+      "id": "transparent",
+      "name_pl": "Bez tła (PNG)",
+      "hex": "",
+      "aliases": [
+        "cyclorama_transparent"
+      ],
+      "prompt_en": "transparent background output (alpha PNG) — the product is isolated with no backdrop at all. Render only the product with a small soft warm-grey contact shadow beneath it (RGB 200,195,180, heavily blurred, no directional cast); everything else is fully transparent. No floor, no wall, no environment, no other objects",
+      "plate": null,
+      "locks": null,
+      "normalize": null,
+      "transparent": true,
+      "preview": "repeating-conic-gradient(#E8E3D5 0% 25%,#F4F0E5 0% 50%) 0/16px 16px",
+      "note_pl": "produkt wycięty, PNG z alfą do kompozytowania"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scandi",
+      "name_pl": "Salon skandynawski",
+      "prop_pl": "drewno, biel, rośliny",
+      "prompt_en": "a scandinavian living room with light oak floors, white walls, and indoor plants",
+      "preview": "linear-gradient(180deg,#EFE8D6,#C9B796)",
+      "acc": "#B89F7A"
+    },
+    {
+      "id": "loft",
+      "name_pl": "Loft industrial",
+      "prop_pl": "cegła, beton, metal",
+      "prompt_en": "an industrial loft with exposed brick walls, polished concrete floors, and dark metal accents",
+      "preview": "linear-gradient(180deg,#C9B79C,#7C6B57)",
+      "acc": "#8E7B62"
+    },
+    {
+      "id": "japandi",
+      "name_pl": "Japandi",
+      "prop_pl": "ciepła minimalistyka",
+      "prompt_en": "a japandi interior with a warm minimalist palette, natural wood, and soft diffuse light",
+      "preview": "linear-gradient(180deg,#E9DDC4,#B59A74)",
+      "acc": "#A88560"
+    },
+    {
+      "id": "boho",
+      "name_pl": "Boho ciepłe",
+      "prop_pl": "tekstylia, ratan",
+      "prompt_en": "a bohemian living room with rattan furniture, woven textiles, and warm earthy tones",
+      "preview": "linear-gradient(180deg,#E5C6A0,#A8754C)",
+      "acc": "#C39065"
+    },
+    {
+      "id": "dark_moody",
+      "name_pl": "Mroczne wnętrze",
+      "prop_pl": "ciemne ściany, lampy",
+      "prompt_en": "a moody dark interior with deep painted walls and warm pendant lamp lighting",
+      "preview": "linear-gradient(180deg,#3D3A33,#191815)",
+      "acc": "#5A4F3F"
+    },
+    {
+      "id": "garden",
+      "name_pl": "Taras / ogród",
+      "prop_pl": "zieleń, światło dzienne",
+      "prompt_en": "an outdoor terrace / garden setting with greenery and natural daylight",
+      "preview": "linear-gradient(180deg,#C8D4B6,#7E8E6A)",
+      "acc": "#9CAC83"
+    },
+    {
+      "id": "showroom",
+      "name_pl": "Showroom marki",
+      "prop_pl": "lekka aranżacja prod.",
+      "prompt_en": "a brand showroom with subtle product staging and a neutral palette",
+      "preview": "linear-gradient(180deg,#EAE2CE,#B7AE92)",
+      "acc": "#D2C5A3"
     }
   ]
 }

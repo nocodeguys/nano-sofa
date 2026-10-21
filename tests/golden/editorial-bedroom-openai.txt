@@ -1,0 +1,37 @@
+# golden prompt — case: editorial-bedroom-openai
+# engine: openai | model: gpt-image-2.5-flare | max_refs: 16
+# kind=- mode=editorial shot=- shot_type=hero catalog_profile=-
+# colour=#938A83 material_id=cremona aspect=4:3 res=1K
+# stats: chars=5927 camera_offset_pct=35 preserve_offset_pct=-1 scene_offset_pct=-1 negative_offset_pct=96
+
+REFERENCES (6):
+  1. material_macro           cremona.jpg
+  2. color_patch              color-patch:#938A83
+  3. material_left            cremona-left.jpg
+  4. material_right           cremona-right.jpg
+  5. material_behavior        cremona-behavior.jpg
+  6. material_application     cremona-application.png
+
+SYSTEM INSTRUCTION:
+(none)
+
+PROMPT (5927 chars):
+TASK: Create a brand-new editorial photograph from scratch based on the brief below. There is no base product to preserve — full creative freedom within the art direction.
+Image 1 is a close-up photograph of the real target upholstery fabric. Copy ONLY its yarn construction, texture scale and surface relief onto every upholstered piece; take nothing else — not its photographed colour, crop, fold or lighting.
+Image 2 is a flat, evenly lit patch of the exact target upholstery colour #938A83. It is the single authority for the hue, saturation and lightness of the hero upholstery: under the scene's key light its mid-tones must match this patch. It carries no texture, geometry or lighting — take nothing else from it. The fabric photographs show a different colour and contribute texture only.
+Images 3 and 4 show the same fabric from opposing oblique viewpoints: use them only for how its pile, nubs and sheen respond to light from the side; take nothing else — not their colour, crop or background.
+Image 5 shows the same fabric under grazing light across a curved, touched surface: copy only that optical behaviour — raised fibres facing the light brighten, fibres laid away darken, and these shifts follow real curves and folds, never a printed pattern.
+Image 6 shows a comparable fabric on a whole furniture piece at normal viewing distance: use it only to judge how fine the texture reads from the camera — never its geometry, room, colour or styling, and never let it override the physical sample photographs.
+
+BRIEF: Przytulna sypialnia o świcie, łóżko tapicerowane przy oknie, poranna mgła za szybą.
+
+ART DIRECTION: premium interior-magazine cover composition: one strong focal subject, bold clean negative space reserved at the top for a masthead and along one edge for cover lines, refined styling, high-end editorial lighting, subtle film-like grade.
+SETTING: a scandinavian living room with light oak floors, white walls, and indoor plants.
+LIGHT: early morning cool soft light, approximately 4500 K, low-angle long shadows from one side.
+CAMERA: 50 mm natural perspective, matches the human eye, standard catalog framing; eye-level camera height, standing adult viewpoint.
+COLOR DIRECTION (hard constraint): the hero furniture piece and the dominant tone of the frame are medium taupe blending grey and brown (hex #938A83); the supporting palette stays harmonious and neutral around it.
+TEXTILE DIRECTION (hard constraint): every upholstered furniture piece in the frame is upholstered in fine irregular short-pile chenille upholstery fabric. Fabric spec: Cremona is a fine, irregular short-pile chenille upholstery fabric. Its primary physical read is a dense, small-scale woven ground made from uneven short raised chenille nubs and slender slubs, arranged organically rather than as a regular grid. Each raised element is only a few millimetres across and many dozens span a cushion. At normal furniture-photography distance the surface reads calm, continuous and finely tactile; it must not become plain linen, but the weave must also never enlarge into chunky basketweave. Preserve crisp high-frequency separation between raised yarn and recessed ground: nub edges are fibrous, slightly frayed and irregular, never smoothly rounded, melted together or sponge-like. Narrow inter-yarn gaps retain dark micro-occlusion and tiny contact shadows without becoming large holes. Thousands of loose microfibres create a delicate fuzzy halo and soft rim sheen at grazing viewing angles, especially along curves, folds, seams and silhouette edges. The short nap can be brushed or pressed in locally different directions. Under the same illumination this creates a subtle anisotropic response tied to surface normal, light direction and local fibre lay: fibres facing grazing light turn softly pearly and brighter, while neighbouring fibres laid away from it become gently darker. These luminance changes stay local, soft-edged and low-contrast within the single selected upholstery colour; they follow real curves, touch and folds and never form broad panel-scale clouds, stains, repeated blotches or crushed-velvet marbling. Roughness varies within each yarn: matte fibre bodies are punctuated by sparse, narrow satin micro-highlights, never plastic gloss. The fabric follows the product surface without stretching its physical weave scale around rounded edges or tufting. The four physical-sample photographs are the absolute authority for weave, pile, scale and optical response.
+TEXTILE — must not appear: uniform beige basketweave; plain woven upholstery; micro-weave enlarged into a coarse hero-scale pattern; flat even tone with no local directional nap response; broad panel-scale cloudy blotches; crushed velvet marbling; printed camouflage or stains; leopard, dalmatian or polka-dot spots; round isolated blotches; water stains or tide marks; tiled or repeated blotch texture; identical blotch rhythm across adjacent channels; cloned or mirrored nap pattern between panels; smooth airbrushed surface; melted or fused yarns; foam or sponge texture; generic flat linen weave; blurred microtexture; stretched weave around curves; uniform roughness; oversized chunky weave; large yarn blocks or cavities; coarse upholstery texture; regular grid or checkerboard; waffle weave; windowpane pattern; aligned rows and columns; repeating rectangular cells; uniform perforated texture; open loop bouclé; teddy or sherpa fleece; smooth velvet or velour; corduroy ribs; flat printed grid; perfectly uniform basketweave; high-gloss metallic threads.
+
+OUTPUT STYLE: professional editorial furniture-brand photography, photorealistic, coherent high-end art direction, natural color grading.
+NEGATIVE (must not appear in output): any rendered text, typography, logos, watermarks or UI elements — leave clean negative space where a masthead or headline would be placed. No people, no human figures, no faces, no body parts.

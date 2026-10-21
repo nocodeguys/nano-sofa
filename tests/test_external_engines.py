@@ -199,7 +199,7 @@ def test_openai_generation_without_references_is_json(server, sandbox, monkeypat
     assert captured["data"] is None
     body = captured["json"]
     assert body["size"] == "2304x1296"
-    assert body["quality"] == "high"          # unknown tier → model default
+    assert body["quality"] == "xhigh"         # unknown tier → model default (registry)
     assert "input_fidelity" not in body
     assert out["cost"] == pytest.approx(1056 * 30e-6)
     assert out["resolution"] == "2K"
@@ -280,7 +280,7 @@ def test_product_pipeline_on_openai_sends_base_and_reference_plan(server, base_i
     assert {"material_macro", "color_patch", "material_left", "material_right",
             "material_behavior", "material_application"} <= set(roles)
     assert len(captured["files"]) == len(roles)
-    assert "slot 1" in data["prompt"] and "COLOUR AUTHORITY" in data["prompt"]
+    assert "image 1" in data["prompt"] and "COLOUR AUTHORITY" in data["prompt"]
     assert "BRIEF:" not in data["prompt"]
     assert trace["engine"] == "openai" and trace["variant"]["product_type"] == "bed"
     assert result.actual_cost == pytest.approx(900 * 5e-6 + 5000 * 8e-6 + 6000 * 30e-6)
@@ -382,7 +382,7 @@ def test_product_pipeline_on_openrouter_matches_the_openai_request(server, base_
     assert {"material_macro", "color_patch", "material_left", "material_right",
             "material_behavior", "material_application"} <= set(roles)
     assert len(body["input_references"]) == len(roles)
-    assert "slot 1" in body["prompt"] and "COLOUR AUTHORITY" in body["prompt"]
+    assert "image 1" in body["prompt"] and "COLOUR AUTHORITY" in body["prompt"]
     assert "BRIEF:" not in body["prompt"]
     assert trace["engine"] == "openrouter"
     assert result.actual_cost == pytest.approx(0.05)

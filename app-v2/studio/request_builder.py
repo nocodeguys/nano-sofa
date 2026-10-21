@@ -17,14 +17,16 @@ from app.core.generator import (
     plan_freeform_reference_slots,
     slot_numbers,
 )
-from app.core.schema_loader import schema
+from app.core.model_registry import registry
+from studio.catalog import (
+    DEFAULT_BACKDROP_ID, canonical_background_id, material_structure, resolve_background,
+)
 from studio.catalog import (
     _COLOR_META,
     _COLOR_PL_TO_EN,
     _MATERIAL_NEGATIVES_EN,
     _MATERIAL_PL_TO_EN,
     _MATERIAL_TEXTURE_EN,
-    material_structure,
 )
 from studio.mappings import (
     _BED_CONFIG,
@@ -68,14 +70,13 @@ def _hex_from_custom(color_custom: str) -> str:
 
 
 def _scene_reference_path(env_id: str) -> Optional[Path]:
-    """Return the curated reference image path for an env id, if one exists."""
-    if not env_id:
+    """The curated empty-studio plate of a backdrop (catalog.json `plate`),
+    if the backdrop has one and the file exists."""
+    kind, entry = resolve_background(env_id) if env_id else ("", None)
+    if kind != "backdrop" or not entry or not entry.get("plate"):
         return None
-    for ext in (".jpg", ".jpeg", ".png"):
-        candidate = _SCENE_REFS_DIR / f"{env_id}{ext}"
-        if candidate.is_file():
-            return candidate
-    return None
+    candidate = _SCENE_REFS_DIR / entry["plate"]
+    return candidate if candidate.is_file() else None
 
 
 def _material_reference_path(material_id: str) -> Optional[Path]:
@@ -154,42 +155,55 @@ def _build_generation_request(
     detail_region: str = "",
     catalog: bool = False,
     catalog_profile: str = "",
+    background: str = "",
     product_name: str = "",
 ) -> GenerationRequest:
     """
     Translate a parsed FormData payload into a GenerationRequest.
+
+    `background` (phase 3) is the ONE background id: a backdrop (studio look
+    from catalog.json — locked ones get the catalog treatment), a scene
+    (lifestyle interior) or "custom" (the caller's own photo in
+    `scene_image_path`). `env`, `catalog` and `catalog_profile` are the
+    pre-phase-3 spellings and map onto it.
     Shared by /api/generate (single render) and /api/generate-set (color batch).
     Resolves legacy Polish strings via the alias tables so stale browser caches
     keep working.
     """
-    # ---- Catalog profile ---------------------------------------------- #
-    # One locked look for a whole product range: backdrop, lens, aperture,
-    # light and camera height stop being per-render variables. Yaw stays with
-    # the caller — which way a product faces is a real editorial choice, unlike
-    # the backdrop. A detail or close-up shot keeps its shot type: the locks
-    # exist to make hero packshots interchangeable, and forcing a macro crop
-    # back to a hero shot would just discard what the caller asked for.
-    if catalog:
-        locks = _catalog_profile_locks(catalog_profile)
-        requested_shot = shot.strip() or _CAM_PRESET_TO_STRUCTURED.get(cam, ("hero",))[0]
-        keeps_shot = requested_shot in ("detail_fabric", "detail_corner", "close_up")
-        env = locks["env"]
-        shot = requested_shot if keeps_shot else locks["shot"]
-        height = locks["height"]
-        lens = locks["lens"]
-        dof = locks["dof"]
+    # ---- Background ---------------------------------------------------- #
+    bg_id = canonical_background_id(background) or (
+        canonical_background_id(catalog_profile) if catalog else canonical_background_id(env)
+    ) or DEFAULT_BACKDROP_ID
+    bg_kind, bg_entry = resolve_background(bg_id)
+    env = bg_id                      # canonical id → _ENV_TO_SCENE
+    locked = bg_kind == "backdrop" and bool(bg_entry.get("locks"))
+    if bg_kind != "custom":
+        env_note = ""                # the note belongs to the user's own photo
+    if locked:
+        # One locked look for a whole product range: backdrop, lens,
+        # aperture, light and camera height stop being per-render variables.
+        # Yaw stays with the caller — which way a product faces is a real
+        # editorial choice, unlike the backdrop. A detail or close-up shot
+        # keeps its shot type: the locks exist to make hero packshots
+        # interchangeable, and forcing a macro crop back to a hero shot
+        # would just discard what the caller asked for.
+        locks = _catalog_profile_locks(bg_id)
+        defaults = locks["camera_defaults"]
+        # Phase 4: the backdrop locks the LIGHT; the camera belongs to the
+        # caller. Shot type, lens, depth of field, height and the detail
+        # region arrive as posted; a field an older client left empty takes
+        # the backdrop's default (85 mm, f/8, eye level, hero) — which is
+        # exactly what the old "catalog mode" forced on everyone.
+        shot = shot.strip() or defaults["shot"]
+        height = height.strip() or defaults["height"]
+        lens = lens.strip() or defaults["lens"]
+        dof = dof.strip() or defaults["dof"]
         tod = locks["tod"]
         shadow = locks["shadow"]
-
-        # Catalog mode owns the scene completely.  A stale selection/upload
-        # from section 07 must never compete with the chosen catalog profile.
-        # If a curated empty-studio reference exists, attach that canonical
-        # field automatically; it is much more reliable than asking the model
-        # to recreate a calibrated backdrop from RGB prose alone.
-        scene_image_path = _scene_reference_path(env)
-        env_note = ""
-        env_mode = ""
-        preserve_camera_from_base = False
+        # The locked backdrop owns the scene completely: the curated empty
+        # studio plate (when the backdrop has one) replaces any caller scene.
+        scene_image_path = _scene_reference_path(bg_id)
+    catalog = locked
 
     is_custom_color = color == "custom" and bool(color_custom.strip())
     color_meta = _COLOR_META.get(color, {})
@@ -238,6 +252,7 @@ def _build_generation_request(
     preset_shot, preset_yaw, preset_height = _CAM_PRESET_TO_STRUCTURED.get(
         cam, ("hero", "34_left", "eye")
     )
+    lens = lens.strip() or "50mm_natural"
     shot_id   = shot.strip()   or preset_shot
     yaw_id    = yaw.strip()    or preset_yaw
     height_id = height.strip() or preset_height
@@ -308,10 +323,11 @@ def _build_generation_request(
     leg_count = 0 if is_bed and legs == "keep" else 4
     leg_id = _LEG_TO_ID.get(legs)
 
+    # Only a real note reaches the prompt. The old "environment use: …"
+    # (a UI select the generator never read) and "seed hint: N" (no engine
+    # has a seed) were noise at the end of every prompt.
     notes_parts = []
     if env_note.strip(): notes_parts.append(f"environment note: {env_note.strip()}")
-    if env_mode.strip(): notes_parts.append(f"environment use: {env_mode.strip()}")
-    if seed.strip():     notes_parts.append(f"seed hint: {seed.strip()}")
 
     # Every curated view that exists on disk is DECLARED here. Which of them
     # actually get attached under the model's reference cap is decided in one
@@ -429,7 +445,7 @@ def _build_freeform_request(
     color: str = "",
     mat: str = "",
     people: str = "",
-    model: str = "gemini-3.1-flash-image",
+    model: str = "",
     aspect: str = "4:3",
     res: str = "1K",
     seed: str = "",
@@ -456,7 +472,7 @@ def _build_freeform_request(
     behavior = _material_behavior_reference_path(mat) if mat else None
     application = _material_application_reference_path(mat) if mat else None
     req = GenerationRequest(
-        model_id=model,
+        model_id=registry.resolve(model, "editorial"),
         base_product_image=None,
         swatch_reference_image=str(macro) if macro else None,
         material_left_reference_image=str(left) if left else None,

@@ -9,7 +9,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 
 from app.core.cost_tracker import recent_generations
+from app.core.model_registry import registry
 from app.core.schema_loader import schema
+
+
+def _model_short(model_id: str | None) -> str:
+    m = registry.get(model_id or "")
+    return m.short if m else (model_id or "—")
 from studio.catalog import CATALOG, _COLOR_PL_TO_EN, _MATERIAL_PL_TO_EN, catalog_for_browser
 from studio.mappings import (
     _ACCENT_TO_PROMPT,
@@ -29,9 +35,6 @@ from studio.mappings import (
 )
 from studio.media import _MEDIA_TYPES, _read_png_meta
 from studio.normalize import is_raw_copy as _is_raw
-from studio.openai_images import OPENAI_MODELS
-from studio.openrouter import OPENROUTER_MODELS
-from studio.openrouter import PRODUCT_MODELS as OPENROUTER_PRODUCT_MODELS
 from studio.paths import _DIST_DIR, _OUTPUT_DIR, logger, page_response
 
 router = APIRouter()
@@ -131,86 +134,15 @@ def healthz():
 @router.get("/api/config")
 def api_config():
     """
-    Returns the model enum + per-model constraints so the frontend can render
-    the model picker and disable invalid resolution / refs combinations.
-    Source of truth: prompts/schemas/sofa.json (via app.core.schema_loader).
+    The model catalogue for every page, straight from app-v2/models.json:
+    `models` (studio wizard, Gemini), `lab_models` (wizard on OpenAI),
+    `editorial_models` (freeform: Gemini + OpenRouter + OpenAI), the default
+    per surface, and the ETA seeds. Every entry carries the reference cap,
+    moodboard limit, resolutions, aspects, quality tiers and a per-resolution
+    price so the UI never hard-codes any of it. Deprecated models are listed
+    with `deprecated: true` so an old preset still resolves, never as default.
     """
-    models = []
-    model_labels = {
-        "gemini-2.5-flash-image": "Nano Banana · legacy 1K",
-        "gemini-3.1-flash-image": "Nano Banana 2 · polecany",
-        "gemini-nano-banana-2.1": "Nano Banana 2.1 · nowy, tańszy",
-        "gemini-3-pro-image": "Nano Banana Pro · precyzja",
-    }
-    for mid in schema.model_ids:
-        tier = "pro" if "pro" in mid else "flash"
-        models.append({
-            "id": mid,
-            "label": model_labels.get(mid, mid),
-            "tier": tier,
-            "max_refs": schema.max_refs_for_model(mid),
-            "max_resolution": schema.max_resolution_for_model(mid),
-            "supports_resolution_param": schema.supports_resolution_param(mid),
-            "resolutions": schema.resolution_choices_for_model(mid),
-        })
-    # Official Google guidance (updated 2026-08-26) recommends Nano Banana 2
-    # as the general-purpose image model: stronger multi-reference consistency
-    # and up to 4K output. Keep 2.5 only as a legacy fallback.
-    preferred = "gemini-3.1-flash-image"
-    default_id = (
-        preferred
-        if any(m["id"] == preferred for m in models)
-        else (models[0]["id"] if models else None)
-    )
-    # Editorial tab: the Gemini models above plus the OpenRouter alternatives
-    # (FLUX / Seedream / GPT Image) — text-to-image only, never offered in
-    # the variant pipeline (the bake-off showed they don't preserve product
-    # geometry). The Lab tab lists the OpenAI-direct models. Every entry
-    # carries what the composer needs to adapt: the reference cap, how many
-    # moodboards the page should accept (Gemini keeps its three; external
-    # engines take up to six of their cap), the quality tiers (forwarded as
-    # the Images API `quality` field) and the aspect vocabulary.
-    def _external_model(slug: str, cfg: dict, provider: str) -> dict:
-        resolutions = list(cfg.get("resolutions") or ["auto"])
-        return {
-            "id": slug,
-            "label": cfg["label"],
-            "provider": provider,
-            "max_refs": cfg["max_refs"],
-            "moodboard_max": max(1, min(6, cfg["max_refs"])),
-            "max_resolution": resolutions[-1],
-            "supports_resolution_param": resolutions != ["auto"],
-            "resolutions": resolutions,
-            "price_hint": cfg.get("price_hint", ""),
-            "note": cfg.get("note_pl", ""),
-            "aspects": cfg.get("aspects"),
-            "qualities": list(cfg.get("qualities") or []),
-            "default_quality": cfg.get("default_quality", ""),
-        }
-
-    editorial_models = [
-        {**m, "provider": "google", "moodboard_max": 3, "qualities": [], "default_quality": ""}
-        for m in models
-    ] + [
-        _external_model(slug, cfg, "openrouter") for slug, cfg in OPENROUTER_MODELS.items()
-    ] + [
-        _external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()
-    ]
-    # Lab tab: the product wizard (index page in data-mode="lab") on GPT Image
-    # with the full reference plan — OpenAI direct, or the same models through
-    # OpenRouter (paid with the OpenRouter key).
-    lab_models = [
-        _external_model(slug, cfg, "openai") for slug, cfg in OPENAI_MODELS.items()
-    ] + [
-        _external_model(slug, cfg, "openrouter") for slug, cfg in OPENROUTER_PRODUCT_MODELS.items()
-    ]
-    return {
-        "models": models,
-        "default_model": default_id,
-        "editorial_models": editorial_models,
-        "lab_models": lab_models,
-        "lab_default_model": lab_models[0]["id"] if lab_models else None,
-    }
+    return registry.config_payload()
 
 
 @router.get("/api/eta")
@@ -392,6 +324,8 @@ def api_experiments(limit: int = 120):
             "created_at": trace.get("created_at") or path.stat().st_mtime,
             "status": trace.get("status"),
             "model": trace.get("model_id"),
+            "model_label": _model_short(trace.get("model_id")),
+            "tier": registry.tier_of(trace.get("model_id") or ""),
             "resolution": trace.get("resolution"),
             "aspect_ratio": trace.get("aspect_ratio"),
             "prompt": trace.get("prompt") or "",
@@ -433,6 +367,8 @@ def api_experiments(limit: int = 120):
                 "created_at": rec.get("timestamp"),
                 "status": rec.get("status"),
                 "model": rec.get("model_id"),
+                "model_label": _model_short(rec.get("model_id")),
+                "tier": registry.tier_of(rec.get("model_id") or ""),
                 "resolution": rec.get("resolution"),
                 "aspect_ratio": None,
                 "prompt": "",

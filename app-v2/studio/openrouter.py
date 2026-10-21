@@ -9,10 +9,7 @@ key model; the server never persists it).
 
 Since 2026-09 the same route also carries OpenAI's GPT Image models, which
 accept up to 16 input references — the whole fabric reference set plus the
-colour patch and the moodboards ride along as `input_references`. The models
-flagged `product` also run the Lab tab's product wizard
-(generate_product_openrouter): base photo + the full reference plan, the same
-prompt the OpenAI-direct path sends, paid with the OpenRouter key.
+colour patch and the moodboards ride along as `input_references`.
 """
 
 from __future__ import annotations
@@ -27,6 +24,7 @@ import httpx
 from PIL import Image
 
 from app.core.cost_tracker import new_generation_id
+from app.core.model_registry import registry
 from studio.external_engine import (
     ALL_ASPECTS,
     ExternalEngineError,
@@ -37,13 +35,8 @@ from studio.external_engine import (
 from studio.openai_images import generate_product_external
 from studio.paths import logger
 
-# Alternative models for the editorial tab; `product: True` ones are also
-# offered in the Lab product wizard (edit-capable, product-true — the bake-off
-# ruled FLUX / Seedream out of that pipeline). Quirks (verified live against
-# /api/v1/images/models/{slug}/endpoints, 2026-08, 2026-09-08 and 2026-09-29):
-#  - openai/gpt-image-2.5-flare / -sunburst: every aspect we offer, 0–16 input
-#    references, quality low…max (adds xhigh / max), same token rates as
-#    GPT Image 2. No size parameter — output size is the provider's default.
+# Editorial-only alternative models. Quirks (verified live against
+# /api/v1/images/models/{slug}/endpoints, 2026-08 and 2026-09-08):
 #  - openai/gpt-image-2 takes every aspect we offer, 0–16 input references
 #    and a `quality` enum (low / medium / high); billed per token
 #    (in 8 $/M image, 5 $/M text, out 30 $/M) so the hint is an estimate.
@@ -53,108 +46,34 @@ from studio.paths import logger
 #  - flux.2-pro has no resolution parameter at all.
 #  - krea-2-* supports a REDUCED aspect vocabulary (no 3:4, no 21:9) and only
 #    ONE input reference; its pricing is not published in the endpoints API.
-#  - google/gemini-nano-banana-2.1 (verified 2026-10-12): every aspect we
-#    offer, 0–14 input references, `resolution` 1K / 2K / 4K (no 512). The
-#    same model as the Google-direct path, paid with the OpenRouter key.
 # `aspects` lists what the provider accepts from the page's vocabulary; the
 # frontend disables the rest and _clamp_aspect is the server-side backstop.
-# `qualities` (when present) is forwarded as the Images API `quality` field;
-# `resolutions` (when present) as the `resolution` field.
+# `qualities` (when present) is forwarded as the Images API `quality` field.
 _ALL_ASPECTS = list(ALL_ASPECTS)
-_GPT_IMAGE_QUALITIES = ["low", "medium", "high"]
-_GPT_IMAGE_25_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
-OPENROUTER_MODELS = {
-    "google/gemini-nano-banana-2.1": {
-        "label": "Nano Banana 2.1 · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "≈$0.034 (1K) / $0.05 (2K) / $0.11 (4K) za obraz",
-        "aspects": _ALL_ASPECTS,
-        "resolutions": ["1K", "2K", "4K"],
-        "product": True,
-        "note_pl": "ten sam model co Nano Banana 2.1 przez Google, płatny kluczem OpenRouter",
-    },
-    "openai/gpt-image-2.5-flare": {
-        "label": "GPT Image 2.5 Flare · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.01–0.13/obraz wg jakości",
-        "aspects": _ALL_ASPECTS,
-        "qualities": _GPT_IMAGE_25_QUALITIES,
-        "default_quality": "high",
-        "product": True,
-        "note_pl": "ten sam model co Flare przez OpenAI, płatny kluczem OpenRouter",
-    },
-    "openai/gpt-image-2.5-sunburst": {
-        "label": "GPT Image 2.5 Sunburst · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.01–0.13/obraz wg jakości",
-        "aspects": _ALL_ASPECTS,
-        "qualities": _GPT_IMAGE_25_QUALITIES,
-        "default_quality": "high",
-        "product": True,
-        "note_pl": "ten sam model co Sunburst przez OpenAI, płatny kluczem OpenRouter",
-    },
-    "openai/gpt-image-2": {
-        "label": "GPT Image 2 · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.01–0.13/obraz wg jakości",
-        "aspects": _ALL_ASPECTS,
-        "qualities": _GPT_IMAGE_QUALITIES,
-        "default_quality": "high",
-        "product": True,
-    },
-    "openai/gpt-image-1": {
-        "label": "GPT Image 1 · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.01–0.17/obraz wg jakości",
-        "aspects": ["1:1", "2:3", "3:2"],
-        "qualities": _GPT_IMAGE_QUALITIES,
-        "default_quality": "medium",
-    },
-    "openai/gpt-image-1-mini": {
-        "label": "GPT Image 1 mini · OpenRouter",
-        "max_refs": 16,
-        "price_hint": "≈$0.002–0.04/obraz wg jakości",
-        "aspects": ["1:1", "2:3", "3:2"],
-        "qualities": _GPT_IMAGE_QUALITIES,
-        "default_quality": "medium",
-    },
-    "black-forest-labs/flux.2-pro": {
-        "label": "FLUX.2 pro · OpenRouter",
-        "max_refs": 8,
-        "price_hint": "~$0.06/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "bytedance-seed/seedream-4.5": {
-        "label": "Seedream 4.5 · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "$0.04/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "bytedance-seed/seedream-5-0-pro": {
-        "label": "Seedream 5.0 Pro · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "$0.045/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "bytedance-seed/seedream-5-0-lite": {
-        "label": "Seedream 5.0 Lite · OpenRouter",
-        "max_refs": 14,
-        "price_hint": "$0.035/obraz",
-        "aspects": _ALL_ASPECTS,
-    },
-    "krea/krea-2-large": {
-        "label": "Krea 2 Large · OpenRouter",
-        "max_refs": 1,
-        "price_hint": "cena wg OpenRouter",
-        "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
-    },
-    "krea/krea-2-medium": {
-        "label": "Krea 2 Medium · OpenRouter",
-        "max_refs": 1,
-        "price_hint": "cena wg OpenRouter",
-        "aspects": ["1:1", "4:3", "2:3", "3:2", "9:16", "16:9"],
-    },
-}
+
+
+def _engine_cfg(m) -> dict:
+    cfg = {
+        "label": m.label,
+        "max_refs": m.max_refs,
+        "price_hint": m.pricing.get("price_hint", ""),
+        "aspects": list(m.aspects) or list(_ALL_ASPECTS),
+    }
+    if m.qualities:
+        cfg["qualities"] = list(m.qualities)
+        cfg["default_quality"] = m.default_quality or m.qualities[-1]
+    if m.resolutions and tuple(m.resolutions) != ("auto",):
+        cfg["resolutions"] = list(m.resolutions)
+    if m.product:
+        cfg["product"] = True
+    if m.note_pl:
+        cfg["note_pl"] = m.note_pl
+    return cfg
+
+
+# slug → engine config view of the registry (OpenRouter models only; the
+# per-model quirks above are encoded there as `aspects` / `qualities`).
+OPENROUTER_MODELS = {m.id: _engine_cfg(m) for m in registry.by_engine("openrouter")}
 
 # Nearest supported stand-ins for aspects a model lacks (same orientation).
 # Followed as a chain until an allowed aspect is reached (21:9 → 16:9 → 3:2
@@ -179,7 +98,8 @@ def _clamp_aspect(model: str, aspect: str) -> str:
 
 
 def _resolve_resolution(model: str, resolution: str) -> str:
-    """The `resolution` value to send, or "" for models without the parameter."""
+    """The `resolution` value to send, or "" for models without the parameter
+    (GPT Image via OpenRouter has no size parameter — provider default)."""
     resolutions = OPENROUTER_MODELS.get(model, {}).get("resolutions") or []
     if not resolutions:
         return ""
@@ -218,19 +138,6 @@ def _classify(status: int, body: str) -> OpenRouterError:
                            "OPENROUTER_ERROR", body, status >= 500, 502)
 
 
-def _legacy_references(ref_paths: list[Path]) -> list[ReferenceItem]:
-    items: list[ReferenceItem] = []
-    for index, path in enumerate(ref_paths, start=1):
-        try:
-            image = Image.open(str(path))
-            image.load()
-        except Exception as exc:
-            logger.warning("OpenRouter reference %s unreadable, skipping: %s", path, exc)
-            continue
-        items.append((f"extra_reference_{index}", path, image))
-    return items
-
-
 def generate_openrouter(
     *,
     api_key: str,
@@ -238,7 +145,6 @@ def generate_openrouter(
     prompt: str,
     aspect: str,
     references: Optional[list[ReferenceItem]] = None,
-    ref_paths: Optional[list[Path]] = None,
     quality: str = "",
     resolution: str = "",
     png_meta: Optional[dict[str, str]] = None,
@@ -248,16 +154,12 @@ def generate_openrouter(
     """Blocking call (run via asyncio.to_thread). Returns
     {generation_id, output_path, cost, elapsed_ms, model_id, resolution,
     quality} or raises OpenRouterError with a classified, user-facing
-    message. `references` is the loaded freeform plan (role, source, image);
-    `ref_paths` is the pre-plan calling convention kept for scripts."""
+    message. `references` is the loaded freeform plan (role, source, image)."""
     t0 = time.monotonic()
     generation_id = new_generation_id()
     cfg = OPENROUTER_MODELS.get(model, {"max_refs": 4})
 
-    refs = list(references or [])
-    if not refs and ref_paths:
-        refs = _legacy_references(list(ref_paths))
-    refs = refs[: cfg["max_refs"]]
+    refs = list(references or [])[: cfg["max_refs"]]
 
     payload: dict = {"model": model, "prompt": prompt,
                      "aspect_ratio": _clamp_aspect(model, aspect)}
@@ -328,7 +230,7 @@ def generate_openrouter(
     }
 
 
-# Models the Lab product wizard may run through OpenRouter.
+# Models the Lab product wizard may run through OpenRouter (registry `product`).
 PRODUCT_MODELS = {slug: cfg for slug, cfg in OPENROUTER_MODELS.items() if cfg.get("product")}
 
 

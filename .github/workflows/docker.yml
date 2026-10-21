@@ -6,6 +6,12 @@ on:
       - main
     tags:
       - "v*.*.*"
+  # Pull requests get the gate only (frontend build + pytest); the image is
+  # built and pushed to GHCR solely on pushes to main and on tags, so a PR
+  # can never roll anything out through Watchtower.
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
@@ -52,6 +58,8 @@ jobs:
   build-and-push:
     name: Build multi-arch image and push to GHCR
     needs: test
+    # Never on a pull request — only the gate above runs there.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

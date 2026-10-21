@@ -126,94 +126,33 @@ class PackshotProfile:
 # Named profiles, each paired with the cyclorama prompt profile that describes
 # the same look to the model (see _CATALOG_PROFILE_ENV in studio/mappings.py).
 # The render lands close; this pass makes it exact.
-PROFILES: dict[str, PackshotProfile] = {
-    # Pure photo-studio white. Clinical and completely neutral — the safe
-    # choice for marketplaces that composite product shots onto their own
-    # backgrounds, and the wrong choice for a warm interiors brand.
-    "neutral": PackshotProfile(
-        name="neutral",
-        label="Neutralna biel — #FAFAFA",
-        shadow_alpha=34,
-        shadow_width_frac=0.82,
-        shadow_height_frac=0.028,
-    ),
-    # Warm architectural ivory with the key light at the top-left: the floor
-    # in front of the product is the brightest zone, the top of the backdrop
-    # softens a few values, and the shadow feathers to the right. This is the
-    # warm-catalog / interiors-brand look.
-    "ivory": PackshotProfile(
-        name="ivory",
-        label="Naturalna kość słoniowa — #F7F5F1",
-        background=(247, 245, 241),
-        top_rgb=(244, 242, 238),
-        floor_rgb=(250, 249, 246),
-        calibrate_only=True,
-        shadow_rgb=(208, 205, 199),
-        shadow_alpha=38,
-        shadow_width_frac=0.82,
-        shadow_height_frac=0.028,
-        shadow_offset_frac=0.02,
-    ),
-    # Bright airy off-white with a barely-there warm undertone and almost no
-    # gradient. Lifted and editorial without going stark.
-    "paperwhite": PackshotProfile(
-        name="paperwhite",
-        label="Jasna biel papierowa — #FCFAF7",
-        background=(252, 250, 247),
-        top_rgb=(250, 248, 245),
-        floor_rgb=(254, 252, 250),
-        calibrate_only=True,
-        shadow_rgb=(214, 208, 199),
-        shadow_alpha=30,
-        shadow_width_frac=0.80,
-        shadow_height_frac=0.025,
-        shadow_offset_frac=0.015,
-    ),
-    # Measured from the user's furniture-studio reference: a genuine lit
-    # cyclorama rather than a flat packshot field. It is darker/olive at the
-    # upper-left and opens into a pale blush at the lower-right.
-    "atelier": PackshotProfile(
-        name="atelier",
-        label="Atelier — ciepły gradient",
-        background=(220, 214, 209),
-        top_rgb=(181, 174, 162),
-        floor_rgb=(220, 214, 209),
-        top_left_rgb=(168, 162, 146),       # #A8A292
-        top_right_rgb=(193, 185, 176),      # #C1B9B0
-        floor_left_rgb=(195, 189, 180),     # #C3BDB4
-        floor_right_rgb=(238, 231, 231),    # #EEE7E7
-        grain_strength=0.8,
-        calibrate_only=True,
-        shadow_rgb=(157, 149, 136),
-        shadow_alpha=36,
-        shadow_width_frac=0.80,
-        shadow_height_frac=0.026,
-        shadow_offset_frac=-0.015,
-    ),
-    # Measured from the Westwing-style bed grid supplied by the user. The outer
-    # field is consistently #FAF8F6; perceived variation comes from the bed's
-    # own soft contact shadow, not from a changing wall colour.
-    "softblush": PackshotProfile(
-        name="softblush",
-        label="Pudrowy krem — #FAF8F6",
-        background=(250, 248, 246),
-        top_rgb=(250, 248, 246),
-        floor_rgb=(250, 248, 246),
-        calibrate_only=True,
-        shadow_rgb=(211, 205, 199),
-        shadow_alpha=72,
-        shadow_width_frac=0.98,
-        shadow_height_frac=0.065,
-        shadow_offset_frac=0.02,
-    ),
-}
+def _profiles_from_catalog() -> dict[str, PackshotProfile]:
+    """One PackshotProfile per backdrop that carries a `normalize` block in
+    catalog.json. Tones are stored as [r, g, b] lists there."""
+    from studio.catalog import BACKDROPS  # local: normalize is imported by catalog users
+    out: dict[str, PackshotProfile] = {}
+    for b in BACKDROPS.values():
+        tones = b.get("normalize")
+        if not tones:
+            continue
+        kwargs = {}
+        for key, value in tones.items():
+            kwargs[key] = tuple(value) if isinstance(value, list) else value
+        out[b["id"]] = PackshotProfile(
+            name=b["id"], label=f"{b.get('name_pl', b['id'])} — {b.get('hex', '')}".strip(" —"), **kwargs
+        )
+    return out
 
+
+PROFILES: dict[str, PackshotProfile] = _profiles_from_catalog()
 DEFAULT_PROFILE = "ivory"
 
 
 def resolve_profile(name: str | None) -> PackshotProfile:
     """Profile by id, falling back to the default for anything unknown."""
-    return PROFILES.get((name or "").strip().lower(), PROFILES[DEFAULT_PROFILE])
+    from studio.catalog import canonical_background_id
+    key = canonical_background_id(name) or (name or "").strip().lower()
+    return PROFILES.get(key, PROFILES[DEFAULT_PROFILE])
 
 
 CATALOG_PROFILE = PROFILES[DEFAULT_PROFILE]

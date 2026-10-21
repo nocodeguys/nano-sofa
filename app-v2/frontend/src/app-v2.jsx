@@ -10,15 +10,19 @@ import "@fontsource/geist-mono/500.css";
 import "./styles-v2.css";
 import { NS_DATA, Ic } from "./data.jsx";
 import { NanoTopbar, PageIntro } from "./header.jsx";
-import {
-  useTweaks, TweaksPanel, TweakSection,
-  TweakSlider, TweakToggle, TweakRadio,
-} from "./tweaks-panel.jsx";
+import { Section, AdvancedSection } from "./wizard/Section.jsx";
+import { BackgroundSection } from "./wizard/BackgroundSection.jsx";
+import { CameraSection, CAM_PRESET_DEFAULTS } from "./wizard/CameraSection.jsx";
+import { ReferencesSection } from "./wizard/ReferencesSection.jsx";
+import { BeddingSection } from "./wizard/BeddingSection.jsx";
+import { buildRequest, toFormData } from "./wizard/request.js";
 
 const { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById,
-        SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, ENVIRONMENTS,
+        SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, BACKGROUNDS, canonicalBackgroundId,
         LENSES, TIMES_OF_DAY, SHADOWS,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
+        // Missing since the Vite build (772d16c): picking "Close-up" threw
+        // ReferenceError, so the close-up shot was unreachable from the UI.
         CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA,
         CAMERA_HEIGHTS, CAMERA_YAWS, DEPTHS_OF_FIELD,
         BEDDING_PRESETS, THROW_PRESETS, TIDY_LEVELS, DENSITY_LEVELS, BED_ACCENTS } = NS_DATA;
@@ -69,18 +73,15 @@ function mkErr(message, code = "VALIDATION") {
   return { message, code, retryable: false };
 }
 
-// Client-side ETA seed, mirroring cost_tracker._DURATION_SEED. Used as the
-// instant, model-aware estimate AND the fallback when /api/eta is unavailable
-// (e.g. before the server is restarted with the new route), so the overlay
-// never shows a flat constant. /api/eta refines this with measured history.
-const _ETA_SEED = {
-  flash: { "1K": [8, 16], "2K": [13, 26], "4K": [20, 38] },
-  pro:   { "1K": [18, 34], "2K": [26, 50], "4K": [40, 72] },
-};
-function localEta(model, res, refs) {
-  const tier = (model || "").includes("pro") ? "pro" : "flash";
+// Client-side ETA: the per-tier seeds come with /api/config (`eta_seed`,
+// the same table cost_tracker uses), keyed by the model's `tier`. Used as the
+// instant estimate AND the fallback when /api/eta is unavailable, so the
+// overlay never shows a flat constant. /api/eta refines with measured history.
+const _ETA_FALLBACK = { "1K": [12, 24], "2K": [20, 40], "4K": [30, 60] };
+function localEta(modelObj, etaSeed, res, refs) {
   const r = (res || "1K").split(" ")[0].toUpperCase();
-  const seed = _ETA_SEED[tier][r] || _ETA_SEED[tier]["1K"];
+  const table = (etaSeed && etaSeed[modelObj?.tier]) || null;
+  const seed = (table && (table[r] || table["1K"])) || _ETA_FALLBACK[r] || _ETA_FALLBACK["1K"];
   const n = refs || 0;
   return {
     p50_s: Math.round((seed[0] + 1.2 * n) * 10) / 10,
@@ -185,8 +186,7 @@ const GALLERY_STORAGE = "nano-sofa-v2-gallery";
 const PRESET_FIELDS = [
   "kind", "color", "colorCustom", "colorCustomHex", "mat", "matNotes", "size", "legs", "bedLegs",
   "cam", "lens", "tod", "shadow", "shot", "yaw", "height", "dof", "detailRegion",
-  "env", "envNote", "envMode", "refsLock", "preserveBaseCamera",
-  "catalog", "catalogProfile", "anchorRef",
+  "bg", "bgNote", "refsLock", "preserveBaseCamera",
   "bedding", "beddingCustom", "throw", "tidy", "density", "accents", "bedNote",
   "model", "aspect", "res", "outputFormat", "outputQuality",
 ];
@@ -197,38 +197,6 @@ const PRESET_FIELDS = [
 // places: the preset onClick handler (to seed st.*), and the `matchedPreset`
 // memo below (to highlight the tile only while the structured fields still
 // match — clicking a preset and then drifting auto-deselects the tile).
-const CAM_PRESET_DEFAULTS = {
-  studio: { shot: "hero",          yaw: "34_left",  height: "eye",      lens: "50mm_natural",  dof: "standard" },
-  lounge: { shot: "hero",          yaw: "34_right", height: "eye",      lens: "50mm_natural",  dof: "standard" },
-  loft:   { shot: "hero",          yaw: "34_left",  height: "eye",      lens: "35mm_wide",     dof: "standard" },
-  detail: { shot: "detail_fabric", yaw: "front",    height: "eye",      lens: "100mm_macro",   dof: "macro_shallow", detailRegion: "weave" },
-  eye:    { shot: "hero",          yaw: "front",    height: "eye",      lens: "50mm_natural",  dof: "standard" },
-  top:    { shot: "hero",          yaw: "front",    height: "overhead", lens: "50mm_natural",  dof: "standard" },
-};
-
-// Catalog backdrops. Each id maps to a cyclorama prompt profile AND to the
-// PackshotProfile of the same name in studio/normalize.py — the model renders
-// the look, the normalization pass then reproduces it exactly. `top`/`floor`
-// are only for the swatch preview; the real tones live server-side.
-const CATALOG_BACKDROPS = [
-  { id: "ivory", name: "Naturalna kość słoniowa", hex: "#F7F5F1",
-    top: "#F4F2EE", floor: "#FAF9F6",
-    note: "neutralne ivory bez żółtego zafarbu, kontrolowane światła i mały, bardzo delikatny cień kontaktowy" },
-  { id: "atelier", name: "Atelier — ciepły gradient", hex: "#A8A292 → #EEE7E7",
-    top: "#A8A292", floor: "#EEE7E7",
-    preview: "linear-gradient(135deg, #A8A292 0%, #BDB6AA 38%, #DCD6D1 67%, #EEE7E7 100%)",
-    note: "kierunkowo oświetlona cyklorama: oliwkowy cień po lewej, kamień i pudrowy róż po prawej — tło ma głębię, ale nadal pozostaje czystym studiem" },
-  { id: "softblush", name: "Pudrowy krem", hex: "#FAF8F6",
-    top: "#FAF8F6", floor: "#FAF8F6",
-    preview: "linear-gradient(180deg, #FAF8F6 0%, #FAF8F6 72%, #F8F5F2 100%)",
-    note: "stały różowo-kremowy kolor #FAF8F6 i tylko miękki cień produktu — spokojny, jasny katalog w stylu premium marek wnętrzarskich" },
-  { id: "paperwhite", name: "Jasna biel papierowa", hex: "#FCFAF7",
-    top: "#FAF8F5", floor: "#FEFCFA",
-    note: "lekka, powietrzna biel z ledwo wyczuwalnym ciepłym podtonem, prawie bez gradientu" },
-  { id: "neutral", name: "Neutralna biel", hex: "#FAFAFA",
-    top: "#FFFFFF", floor: "#FAFAFA",
-    note: "czysta biel studyjna, bez podtonu — pod marketplace’y, które i tak podmieniają tło" },
-];
 
 // Colour picker rows for the Warianty / Seria grids: the universal groups
 // first, then each fabric collection under its own label. Label rows span
@@ -291,18 +259,11 @@ function App({ t, mode = "photos" }) {
     try { return !(localStorage.getItem(isLab ? OPENAI_KEY_STORAGE : API_KEY_STORAGE) || ""); } catch { return true; }
   });
 
-  // Server-driven config: models + per-model constraints (max_refs, resolutions).
-  // Falls back to a single Flash entry if the request fails so the UI still loads.
-  const [serverConfig, setServerConfig] = useState(isLab ? {
-    models: [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · OpenAI", provider: "openai",
-               max_refs: 16, max_resolution: "2K", resolutions: ["1K", "2K"],
-               qualities: ["low", "medium", "high", "xhigh", "max"], default_quality: "high" }],
-    default_model: "gpt-image-2.5-flare",
-  } : {
-    models: [{ id: "gemini-3.1-flash-image", label: "Nano Banana 2", tier: "flash",
-               max_refs: 14, max_resolution: "4K", resolutions: ["1K", "2K", "4K"] }],
-    default_model: "gemini-3.1-flash-image",
-  });
+  // Server-driven config: models + per-model constraints (max_refs,
+  // resolutions, pricing, eta seeds) from app-v2/models.json via /api/config.
+  // No model id lives in this file: until the config arrives the picker is
+  // empty and the POST carries model="" (the server applies its default).
+  const [serverConfig, setServerConfig] = useState({ models: [], default_model: "", eta_seed: null });
   useEffect(() => {
     fetch("/api/config")
       .then(r => r.ok ? r.json() : null)
@@ -344,7 +305,7 @@ function App({ t, mode = "photos" }) {
 
   const [st, setSt] = useState({
     uploaded: false, baseFile: null, baseFileName: "", baseFileSize: 0, basePreviewUrl: null,
-    alpha: false, kind: "bed",
+    kind: "bed",
     // Catalogue name of the product in the base photo (TRE-92). Identity only:
     // stamped into the render's metadata and download name, never the prompt.
     product: "",
@@ -355,19 +316,19 @@ function App({ t, mode = "photos" }) {
     // Beds skip legs by default (most sit on a plinth). Toggle on to render
     // visible legs — the backend already honours a non-"keep" leg for beds.
     bedLegs: false,
-    cam: "studio", lens: "50mm_natural", tod: "noon_neutral", shadow: "soft_diffuse",
+    // The default background (ivory) is a locked backdrop, so the camera
+    // starts on its defaults: 85 mm, f/8, eye level (see pickBackground).
+    cam: "studio", lens: "85mm_product", tod: "noon_neutral", shadow: "soft_diffuse",
     // Structured camera controls (section 08). When `shot` is "", the server
     // derives shot/yaw/height from the `cam` preset for back-compat. Once
     // the user touches any of these chips/selects we send explicit values.
-    shot: "hero", yaw: "34_left", height: "eye", dof: "standard",
+    shot: "hero", yaw: "34_left", height: "eye", dof: "deep",
     detailRegion: "weave",
-    env: "scandi", envFile: null, envNote: "", envMode: "reference",
+    // Background (section 01): ONE id — a studio backdrop (locked ones get
+    // the catalog treatment server-side), a lifestyle scene, or "custom"
+    // (bgFile is the user's photo, bgNote its optional note).
+    bg: "ivory", bgFile: null, bgNote: "",
     refs: [null, null, null], refsLock: false,
-    // Catalog profile (section 01b). Locks backdrop / lens / light / camera
-    // height to one shared profile, adds the numeric framing contract, and
-    // normalizes the finished render onto that profile. `anchorRef` optionally
-    // names an approved earlier render whose look every later product inherits.
-    catalog: true, catalogProfile: "ivory", anchorRef: "",
     // Lock camera angle + framing + object pose to the base photo (section 02).
     // Wizard color/material/size/scene still apply — the model just keeps the
     // exact same viewpoint as the uploaded base image. Useful for detail crops
@@ -380,7 +341,7 @@ function App({ t, mode = "photos" }) {
     density: "balanced",
     accents: [],            // array of BED_ACCENTS ids
     bedNote: "",            // optional free-text styling note
-    model: isLab ? "gpt-image-2.5-flare" : "gemini-3.1-flash-image", aspect: "4:3", res: "1K", seed: "",
+    model: "", aspect: "4:3", res: "1K", seed: "",
     outputFormat: "jpg", outputQuality: 82,
   });
   const set = patch => setSt(s => ({ ...s, ...patch }));
@@ -408,7 +369,19 @@ function App({ t, mode = "photos" }) {
   const applyPreset = (name) => {
     const p = presets.find(x => x.name === name);
     if (!p) return;
-    set(p.params);   // merges params; base image, API key and seed untouched
+    // Presets saved before phase 3 carry env / catalog / catalogProfile;
+    // fold them into the one background id and drop the dead fields.
+    const params = { ...p.params };
+    if (params.bg === undefined) {
+      params.bg = (params.catalog
+        ? canonicalBackgroundId(params.catalogProfile)
+        : canonicalBackgroundId(params.env)) || "ivory";
+    }
+    // Pre-phase-4 catalog presets had their camera ignored by the server
+    // (85 mm, f/8, eye level were forced); apply those so they render the same.
+    if (params.catalog === true) Object.assign(params, { lens: "85mm_product", dof: "deep", height: "eye" });
+    for (const k of ["env", "envNote", "envMode", "catalog", "catalogProfile", "anchorRef", "alpha"]) delete params[k];
+    set(params);   // merges params; base image, API key and seed untouched
     setPresetMsg(`Wczytano „${name}” — zdjęcie bazowe i seed bez zmian.`);
   };
   const deletePreset = (name) => {
@@ -448,7 +421,6 @@ function App({ t, mode = "photos" }) {
   };
 
   const fileRef = useRef(null);
-  const envFileRef = useRef(null);
   const refFileRef = useRef(null);
   const refSlotRef = useRef(-1);  // which reference slot the next file-pick fills
   const onPickBase = (file) => {
@@ -480,7 +452,7 @@ function App({ t, mode = "photos" }) {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genElapsed, setGenElapsed] = useState(0);   // seconds, live while generating
-  const [eta, setEta] = useState(() => localEta("gemini-3.1-flash-image", "1K", 0));
+  const [eta, setEta] = useState(() => localEta(null, null, "1K", 0));
   // When true, the next /api/generate call attaches the most recent gallery
   // image as scene_image — locking the backdrop pixel-perfectly across
   // re-renders. Same mechanism the Warianty tab uses for cross-variant
@@ -544,11 +516,11 @@ function App({ t, mode = "photos" }) {
   // Beds skip legs unless the user opts in; sofas always send their leg choice.
   const bedLegsHidden = st.kind === "bed" && !st.bedLegs;
   const effectiveLegs = bedLegsHidden ? "keep" : st.legs;
-  const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
   // "Keep base camera" only applies while a base photo is loaded. A preset saved
   // with it on (or a removed base) must not leave the camera grids locked
   // behind a checkbox that is itself disabled and shown unchecked.
   const baseCamLocked = st.uploaded && !!st.preserveBaseCamera;
+  const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
   // The Szybki preset tile stays highlighted only while the seeded structured
   // fields still match — clicking "Detal makro" then changing the shot type
   // chip auto-deselects the preset, so the row never lies about current state.
@@ -564,7 +536,24 @@ function App({ t, mode = "photos" }) {
     }
     return null;
   }, [st.shot, st.yaw, st.height, st.lens, st.dof, st.detailRegion]);
-  const envObj   = useMemo(() => ENVIRONMENTS.find(e => e.id === st.env), [st.env]);
+  const bgObj = useMemo(() => BACKGROUNDS.find(b => b.id === st.bg) || BACKGROUNDS[0], [st.bg]);
+  // A locked backdrop = the catalog treatment (lens / light locks, framing
+  // contract, curated plate, normalization), decided by catalog.json.
+  const bgLocked = !!bgObj?.locked;
+  // Choosing a background. Moving onto a locked backdrop seeds its camera
+  // defaults (85 mm, f/8, eye level); moving off one restores the lifestyle
+  // defaults. Shot type and detail region are never touched — they are the
+  // user's, under any background (phase 4).
+  const pickBackground = (b) => {
+    const patch = { bg: b.id };
+    if (b.locked && !bgLocked) {
+      const d = b.cameraDefaults || {};
+      Object.assign(patch, { lens: d.lens || "85mm_product", dof: d.dof || "deep", height: d.height || "eye" });
+    } else if (!b.locked && bgLocked) {
+      Object.assign(patch, { lens: "50mm_natural", dof: "standard" });
+    }
+    set(patch);
+  };
   const lensObj   = useMemo(() => LENSES.find(l => l.id === st.lens),         [st.lens]);
   const todObj    = useMemo(() => TIMES_OF_DAY.find(t => t.id === st.tod),    [st.tod]);
   const shadowObj = useMemo(() => SHADOWS.find(s => s.id === st.shadow),      [st.shadow]);
@@ -580,48 +569,6 @@ function App({ t, mode = "photos" }) {
     return txt ? `${txt} (${hexNote})` : hexNote;
   }, [st.colorCustom, st.colorCustomHex]);
 
-  // Single source of truth for the public JSON contract — the same shape is
-  // used by the JSON tab preview, the JSON-tab Copy button, and the footer
-  // "kopiuj JSON" button. Every value is an English stable id, a hex color,
-  // a measurement string, or null. No Polish strings, no UI-only state.
-  const jsonPayload = useMemo(() => ({
-    product: { type: st.kind, base: st.uploaded ? st.baseFileName || "base.jpg" : null },
-    variant: {
-      color: st.color === "custom"
-        ? { custom: st.colorCustom || null, hex: st.colorCustomHex || null }
-        : { id: colorObj?.id, hex: colorObj?.hex },
-      material: { id: matObj?.id, notes: st.matNotes || null },
-      size: { id: sizeObj?.id, dim: sizeObj?.dim },
-      legs: bedLegsHidden ? "disabled_for_bed" : st.legs,
-    },
-    scene: {
-      environment: envObj?.id,
-      // `camera_preset` is the *matched* preset (null when the user has
-      // drifted from a clicked preset) — not the last preset id they
-      // clicked. This makes the JSON honest about current state.
-      camera_preset: matchedPreset,
-      shot: st.shot,
-      // Subject region — populated only for shot types that use one
-      // (close_up / detail_fabric / detail_corner). Keeps the JSON clean
-      // for hero/wide/three_quarter/cropped shots.
-      detail_region: (st.shot === "close_up" || st.shot === "detail_fabric" || st.shot === "detail_corner")
-        ? st.detailRegion
-        : null,
-      yaw: st.yaw,
-      camera_height: st.height,
-      depth_of_field: st.dof,
-      lens: lensObj?.id || st.lens,
-      time_of_day: todObj?.id || st.tod,
-      shadows: shadowObj?.id || st.shadow,
-    },
-    references: st.refs.filter(Boolean).map(r => r.name || "reference"),
-    output: {
-      model: st.model,
-      aspect: st.aspect,
-      resolution: (st.res || "").split(" ")[0],
-      seed: st.seed || null,
-    },
-  }), [st, colorObj, matObj, sizeObj, envObj, camObj, lensObj, todObj, shadowObj, matchedPreset]);
   const modelObj = useMemo(
     () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
     [serverConfig, st.model],
@@ -634,6 +581,15 @@ function App({ t, mode = "photos" }) {
   const setActiveKey = !isLab ? setApiKey : labViaOpenRouter ? setOrKey : setOaKey;
   const keyHint = `Wklej klucz ${keyName}${isLab ? "" : " API"} u góry sceny.`;
   const keyCode = !isLab ? "MISSING_API_KEY" : labViaOpenRouter ? "MISSING_OPENROUTER_KEY" : "MISSING_OPENAI_KEY";
+  // Display name for any model id (history rows, chips) — from the registry,
+  // never derived from the id string.
+  const modelShort = (id) => (serverConfig.models.find(m => m.id === id) || {}).short || id || "—";
+  // Registry price for the current model at a resolution ("1K" when unknown).
+  const modelPrice = (res) => {
+    const table = modelObj?.pricing || {};
+    const r = (res || "1K").split(" ")[0];
+    return Number(table[r] ?? table["1K"] ?? 0);
+  };
 
   // If the server's catalogue doesn't include the currently-selected model
   // (e.g. dev edited the schema), snap to the server default. Same for resolution
@@ -655,12 +611,9 @@ function App({ t, mode = "photos" }) {
   }, [serverConfig, st.model]);
 
   const cost = useMemo(() => {
-    const base = st.model.includes("pro") ? 0.12 : 0.03;
     const refMult = 1 + st.refs.filter(Boolean).length * 0.15;
-    const r = (st.res || "").split(" ")[0];
-    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
-    return (base * refMult * resMult).toFixed(3);
-  }, [st.model, st.refs, st.res]);
+    return (modelPrice(st.res) * refMult).toFixed(3);
+  }, [modelObj, st.refs, st.res]);
 
   // Honest ETA: ask the server for a measured-or-estimated duration whenever the
   // model / resolution / reference-count changes. Debounced so dragging controls
@@ -670,7 +623,7 @@ function App({ t, mode = "photos" }) {
     const res = (st.res || "1K").split(" ")[0];
     // Instant, model-aware estimate so the overlay reflects the current pick
     // immediately (and survives /api/eta being unavailable).
-    setEta(localEta(st.model, res, refs));
+    setEta(localEta(modelObj, serverConfig.eta_seed, res, refs));
     const t = setTimeout(() => {
       fetch(`/api/eta?model=${encodeURIComponent(st.model)}&resolution=${encodeURIComponent(res)}&refs=${refs}`)
         .then(r => (r.ok ? r.json() : null))
@@ -698,94 +651,43 @@ function App({ t, mode = "photos" }) {
     return () => clearInterval(id);
   }, [shootBusy]);
 
+  // ONE request builder for Generuj / Warianty / Seria and for the JSON tab:
+  // the preview is derived from the very entries that go on the wire.
+  const requestCtx = {
+    isLab, apiKey, oaKey, quality, effectiveLegs, customColorText: customColorText(),
+    labKeyField: labViaOpenRouter ? "openrouter_key" : "openai_key", labKey: activeKey, baseCamLocked,
+    bgObj, bgLocked, prevRender: (!bgLocked && lockBackground && gallery[0]?.url) ? "pending" : null,
+    variantColors, variantMaterials, catalogRefs, colorObj, matObj, sizeObj, modelObj,
+    matchedPreset, bedLegsHidden,
+  };
+  const built = useMemo(() => buildRequest(st, { ...requestCtx, mode: "generate" }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [st, isLab, apiKey, oaKey, orKey, quality, effectiveLegs, baseCamLocked, bgObj, bgLocked, lockBackground, gallery,
+     variantColors, variantMaterials, catalogRefs, colorObj, matObj, sizeObj, modelObj, matchedPreset, bedLegsHidden]);
+  const jsonPayload = built.preview;
+  const budget = built.budget;
+
+  // The previous render as the scene, fetched only when the toggle is on.
+  const fetchPrevRender = async () => {
+    if (bgLocked || !lockBackground || !gallery[0]?.url) return null;
+    try {
+      const prev = await fetch(gallery[0].url);
+      const blob = await prev.blob();
+      const ext = (gallery[0].url.split(".").pop() || "png").split("?")[0];
+      return new File([blob], `prev-render.${ext}`, { type: blob.type || "image/png" });
+    } catch (e) {
+      console.warn("Background lock failed, continuing without it:", e);
+      return null;
+    }
+  };
+
   const handleGenerate = async () => {
     setGenError("");
     if (!activeKey.trim()) { setGenError(mkErr(keyHint, keyCode)); setShowKeyEdit(true); return; }
     if (!st.baseFile) { setGenError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
 
-    const fd = new FormData();
-    fd.append("api_key", apiKey.trim());
-    if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
-    fd.append("kind", st.kind);
-    fd.append("product_name", st.product.trim());
-    fd.append("color", st.color);
-    fd.append("color_custom", customColorText());
-    fd.append("mat", st.mat);
-    fd.append("mat_notes", st.matNotes || "");
-    fd.append("size", st.size);
-    fd.append("legs", effectiveLegs);
-    if (st.catalog) {
-      // Catalog has exactly one source of truth: profile + product rotation.
-      // Do not send stale lifestyle/camera values for the server to override.
-      fd.append("yaw", st.yaw || "34_left");
-    } else {
-      fd.append("cam", st.cam);
-      fd.append("lens", st.lens);
-      fd.append("tod", st.tod);
-      fd.append("shadow", st.shadow);
-      fd.append("shot", st.shot || "");
-      fd.append("yaw", st.yaw || "");
-      fd.append("height", st.height || "");
-      fd.append("dof", st.dof || "");
-      fd.append("detail_region", st.detailRegion || "");
-      fd.append("env", st.env || "");
-      fd.append("env_note", st.envNote || "");
-      fd.append("env_mode", st.envMode || "");
-    }
-    fd.append("model", st.model);
-    fd.append("aspect", st.aspect);
-    fd.append("res", st.res);
-    fd.append("seed", st.seed || "");
-    fd.append("output_format", st.outputFormat || "jpg");
-    fd.append("output_quality", String(st.outputQuality || 82));
-    fd.append("base_image", st.baseFile);
-    // Background lock: when active, fetch the most recent gallery render and
-    // attach it as scene_image. The server's packshot SCENE block instructs
-    // Gemini to copy backdrop tone, top-light gradient, and contact-shadow
-    // quality from the attached cyclorama reference, so the second render
-    // lands on the same backdrop pixels as the first. Overrides any
-    // env=custom upload — the lock takes priority.
-    let backgroundLocked = false;
-    if (!st.catalog && lockBackground && gallery[0]?.url) {
-      try {
-        const prev = await fetch(gallery[0].url);
-        const blob = await prev.blob();
-        const ext = (gallery[0].url.split(".").pop() || "png").split("?")[0];
-        const file = new File([blob], `prev-render.${ext}`, { type: blob.type || "image/png" });
-        fd.append("scene_image", file);
-        backgroundLocked = true;
-      } catch (e) {
-        // If fetch fails fall back to the user's env upload (if any).
-        console.warn("Background lock failed, continuing without it:", e);
-      }
-    }
-    if (!st.catalog && !backgroundLocked && st.envFile && st.envFile instanceof File) {
-      fd.append("scene_image", st.envFile);
-    }
-    // Section 09 "Referencje" — moodboard uploads. Send each picked file as a
-    // separate `references` entry so FastAPI receives them as list[UploadFile].
-    const hasAnyRef = st.refs.some(r => r && r.file instanceof File);
-    for (const r of st.refs) {
-      if (!st.catalog && r && r.file instanceof File) fd.append("references", r.file);
-    }
-    // Reference-lock: makes the uploaded reference the source of truth for
-    // camera/lighting/scene; suppresses the wizard's camera + scene blocks.
-    // Only meaningful when at least one reference is present.
-    if (!st.catalog && hasAnyRef && st.refsLock) fd.append("refs_lock", "1");
-    if (st.catalog) {
-      fd.append("catalog", "1");
-      fd.append("catalog_profile", st.catalogProfile || "ivory");
-    }
-    if (!st.catalog && baseCamLocked) fd.append("preserve_base", "1");
-    if (st.kind === "bed") {
-      fd.append("bedding", st.bedding || "");
-      fd.append("bedding_custom", st.beddingCustom || "");
-      fd.append("throw", st.throw || "");
-      fd.append("tidy", st.tidy || "");
-      fd.append("density", st.density || "");
-      fd.append("accents", (st.accents || []).join(","));
-      fd.append("bed_note", st.bedNote || "");
-    }
+    const prevRender = await fetchPrevRender();
+    const fd = toFormData(buildRequest(st, { ...requestCtx, mode: "generate", prevRender }).entries);
 
     setGenerating(true);
     try {
@@ -845,14 +747,12 @@ function App({ t, mode = "photos" }) {
   // Estimated cost for the whole set (anchor + N variants) using the same
   // per-render multipliers as the single-render cost calc above.
   const variantSetCost = useMemo(() => {
-    const base = st.model.includes("pro") ? 0.12 : 0.067;
-    const r = (st.res || "").split(" ")[0];
-    const resMult = r === "4K" ? 2.4 : r === "2K" ? 1.6 : 1;
+    const base = modelPrice(st.res);
     // Each non-anchor variant has 1 extra reference (the anchor png), so apply 1.15× ref multiplier.
-    const anchorCost = base * resMult;
-    const variantCost = base * 1.15 * resMult;
+    const anchorCost = base;
+    const variantCost = base * 1.15;
     return (anchorCost + variantCost * Math.max(0, variantColors.length - 1)).toFixed(3);
-  }, [st.model, st.res, variantColors.length]);
+  }, [modelObj, st.res, variantColors.length]);
 
   // -------- Fotosesja v2 (variant grid from many base photos) handlers ------
   const SID = () => "s" + Math.random().toString(36).slice(2, 10);
@@ -922,47 +822,13 @@ function App({ t, mode = "photos" }) {
 
   // Total renders = sources × pairs; each carries the source as a reference (1.15×).
   const shootGridCost = useMemo(() => {
-    const base = st.model.includes("pro") ? 0.12 : 0.067;
-    const rr = (st.res || "").split(" ")[0];
-    const resMult = rr === "4K" ? 2.4 : rr === "2K" ? 1.6 : 1;
-    return (base * 1.15 * resMult * shootSources.length * shootPairs.length).toFixed(3);
-  }, [st.model, st.res, shootSources.length, shootPairs.length]);
+    return (modelPrice(st.res) * 1.15 * shootSources.length * shootPairs.length).toFixed(3);
+  }, [modelObj, st.res, shootSources.length, shootPairs.length]);
 
   // Shared scene/model/output config sent with both grid + per-tile regen.
   // Note: no `mat`/colour here — those come from the pairs (grid) or the tile (regen).
   const appendShootConfig = (fd) => {
-    fd.append("api_key", apiKey.trim());
-    if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
-    fd.append("kind", st.kind);
-    fd.append("product_name", st.product.trim());
-    fd.append("color_custom", customColorText());
-    fd.append("mat_notes", st.matNotes || "");
-    fd.append("size", st.size);
-    fd.append("legs", effectiveLegs);
-    fd.append("cam", st.cam);
-    fd.append("lens", st.lens);
-    fd.append("tod", st.tod);
-    fd.append("shadow", st.shadow);
-    fd.append("shot", st.shot || "");
-    fd.append("yaw", st.yaw || "");
-    fd.append("height", st.height || "");
-    fd.append("dof", st.dof || "");
-    fd.append("detail_region", st.detailRegion || "");
-    if (st.kind === "bed") {
-      fd.append("bedding", st.bedding || "");
-      fd.append("bedding_custom", st.beddingCustom || "");
-      fd.append("throw", st.throw || "");
-      fd.append("tidy", st.tidy || "");
-      fd.append("density", st.density || "");
-      fd.append("accents", (st.accents || []).join(","));
-      fd.append("bed_note", st.bedNote || "");
-    }
-    fd.append("model", st.model);
-    fd.append("aspect", st.aspect);
-    fd.append("res", st.res);
-    fd.append("seed", st.seed || "");
-    fd.append("output_format", st.outputFormat || "jpg");
-    fd.append("output_quality", String(st.outputQuality || 82));
+    for (const [k, v] of buildRequest(st, { ...requestCtx, mode: "shoot" }).entries) fd.append(k, v);
   };
 
   const handleGenerateGrid = async () => {
@@ -1118,58 +984,8 @@ function App({ t, mode = "photos" }) {
     if (!st.baseFile)   { setVariantError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
     if (variantColors.length < 2) { setVariantError(mkErr("Wybierz co najmniej 2 kolory.", "TOO_FEW_COLORS")); return; }
 
-    const fd = new FormData();
-    fd.append("api_key", apiKey.trim());
-    if (isLab) { fd.append(labViaOpenRouter ? "openrouter_key" : "openai_key", activeKey.trim()); if (quality) fd.append("quality", quality); }
-    fd.append("kind", st.kind);
-    fd.append("product_name", st.product.trim());
-    fd.append("colors_csv", variantColors.join(","));
-    // Empty materials_csv → server reuses single `mat` for every variant.
-    fd.append("materials_csv", variantMaterials.join(","));
-    fd.append("color_custom", customColorText());
-    fd.append("mat", st.mat);
-    fd.append("mat_notes", st.matNotes || "");
-    fd.append("size", st.size);
-    fd.append("legs", effectiveLegs);
-    if (st.catalog) {
-      fd.append("yaw", st.yaw || "34_left");
-    } else {
-      fd.append("cam", st.cam);
-      fd.append("lens", st.lens);
-      fd.append("tod", st.tod);
-      fd.append("shadow", st.shadow);
-      fd.append("shot", st.shot || "");
-      fd.append("yaw", st.yaw || "");
-      fd.append("height", st.height || "");
-      fd.append("dof", st.dof || "");
-      fd.append("detail_region", st.detailRegion || "");
-      fd.append("env", st.env || "");
-      fd.append("env_note", st.envNote || "");
-      fd.append("env_mode", st.envMode || "");
-    }
-    // Bed-styling block. Same payload shape as /api/generate so the variant
-    // set inherits the textile arrangement chosen in section 10.
-    if (st.kind === "bed") {
-      fd.append("bedding", st.bedding || "");
-      fd.append("bedding_custom", st.beddingCustom || "");
-      fd.append("throw", st.throw || "");
-      fd.append("tidy", st.tidy || "");
-      fd.append("density", st.density || "");
-      fd.append("accents", (st.accents || []).join(","));
-      fd.append("bed_note", st.bedNote || "");
-    }
-    fd.append("model", st.model);
-    fd.append("aspect", st.aspect);
-    fd.append("res", st.res);
-    fd.append("seed", st.seed || "");
-    fd.append("output_format", st.outputFormat || "jpg");
-    fd.append("output_quality", String(st.outputQuality || 82));
-    fd.append("base_image", st.baseFile);
-    if (!st.catalog && st.envFile && st.envFile instanceof File) fd.append("scene_image", st.envFile);
-    if (st.catalog) {
-      fd.append("catalog", "1");
-      fd.append("catalog_profile", st.catalogProfile || "ivory");
-    }
+    const prevRender = await fetchPrevRender();
+    const fd = toFormData(buildRequest(st, { ...requestCtx, mode: "set", prevRender }).entries);
 
     setVariantBusy(true);
     try {
@@ -1187,6 +1003,7 @@ function App({ t, mode = "photos" }) {
           .map(v => ({ url: v.image_url, generation_id: v.generation_id,
                        color: COLORS.find(c => c.id === v.color)?.hex || null,
                        material: v.material || null,
+                       product_name: st.product.trim() || null,
                        catalog_profile: data.catalog_profile || null,
                        tag: "set", cost: v.cost, ts: Date.now() }));
         if (fresh.length) setGallery(g => [...fresh, ...g]);
@@ -1226,7 +1043,7 @@ function App({ t, mode = "photos" }) {
         </div>
 
         <div className="stage-canvas" style={{
-          background: envObj?.grad,
+          background: bgObj?.preview,
           "--stage-zoom": (t.stageZoom / 100),
           "--vignette-opacity": t.stageVignette ? 0.18 : 0,
         }}>
@@ -1300,9 +1117,7 @@ function App({ t, mode = "photos" }) {
             <div className="line"><span className="k">tkanina</span><span className="v serif">{matObj?.name || "—"}</span></div>
             <div className="line"><span className="k">format</span><span className="v serif">{sizeObj?.name} · {sizeObj?.dim}</span></div>
             <div className="line"><span className="k">scena</span><span className="v serif">
-              {st.catalog
-                ? (CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).name
-                : envObj?.name}
+              {bgObj?.name}
             </span></div>
           </div>}
 
@@ -1327,9 +1142,7 @@ function App({ t, mode = "photos" }) {
             let ext = "jpg";
             if (activeImg) {
               const tag = activeImg.tag || ("v" + (activeGallery + 1));
-              const sceneId = activeImg.catalog_profile
-                ? `catalog-${activeImg.catalog_profile}`
-                : envObj?.id;
+              const sceneId = activeImg.background || activeImg.catalog_profile || bgObj?.id;
               const slug = fileSlug(activeImg.product_name, activeImg.fabric_code || activeImg.color_id || colorObj?.id,
                 activeImg.material || matObj?.id, sceneId);
               ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
@@ -1423,13 +1236,13 @@ function App({ t, mode = "photos" }) {
                     {sharedMat && <span><b style={{color:"var(--ink)"}}>{matObj?.name}</b></span>}
                     {!sharedMat && <span style={{color:"var(--ink)"}}>{variantMaterials.length}×material</span>}
                     <span>· {sizeObj?.name} ({sizeObj?.dim})</span>
-                    <span>· {envObj?.name}</span>
+                    <span>· {bgObj?.name}</span>
                     <span>· {shotObj?.name || camObj?.name}</span>
                     {regionObj && <span style={{color:"var(--ink)"}}>· {regionObj.name}</span>}
                     <span>· {lensObj?.name?.split(" — ")[0]}</span>
                     <span>· {todObj?.name?.split(" — ")[0]}</span>
                     {beddingObj && <span>· {beddingObj.name}</span>}
-                    <span>· {st.model.includes("pro") ? "pro" : st.model.includes("nano-banana-2.1") ? "nano banana 2.1" : "flash 3.1"}</span>
+                    <span>· {modelShort(st.model)}</span>
                   </div>
                 );
               })()}
@@ -1594,7 +1407,7 @@ function App({ t, mode = "photos" }) {
                           </div>
                         );
                       }
-                      const slug = fileSlug(st.product, cObj?.fabricCode || v.color, vMatId, envObj?.id);
+                      const slug = fileSlug(st.product, cObj?.fabricCode || v.color, vMatId, bgObj?.id);
                       const ext = (v.image_url.split(".").pop() || "png").split("?")[0];
                       const dlName = `nano-sofa-${i === 0 ? "anchor" : "v" + (i + 1)}-${slug}.${ext}`;
                       return (
@@ -1726,7 +1539,7 @@ function App({ t, mode = "photos" }) {
                       key: h.generation_id || (h.image_url + "_" + i),
                       ref: h.generation_id || (h.image_url || "").split("/").pop(),
                       it: { generation_id: h.generation_id, image_url: h.image_url, color: h.color || null, material: h.material || null },
-                      label: (h.model || "").includes("pro") ? "pro" : "flash",
+                      label: modelShort(h.model),
                     }));
                   }
                   if (shootSourceTab === "history" && historyItems === null) {
@@ -1974,7 +1787,7 @@ function App({ t, mode = "photos" }) {
                     <div style={over ? undefined : { width: pct + "%", transition: "width .3s linear" }}></div>
                   </div>
                   <div className="meta">
-                    {st.model.includes("pro") ? "pro" : "flash"} · {st.aspect} · {st.res.split(" ")[0]} · {genElapsed.toFixed(0)} s
+                    {modelShort(st.model)} · {st.aspect} · {st.res.split(" ")[0]} · {genElapsed.toFixed(0)} s
                     {over ? "" : ` / ~${Math.round(p50)} s`}
                     {eta.source === "measured" ? " · zmierzone" : ""}
                   </div>
@@ -1989,20 +1802,20 @@ function App({ t, mode = "photos" }) {
       <section className="form-pane">
         {isLab ? (
           <PageIntro eyebrow={<>Lab · generator OpenAI · eksperyment · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
-            Ten sam przebieg co w Zdjęciach: sesja, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API
+            Ten sam przebieg co w Zdjęciach: tło, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API
             albo przez OpenRouter (wybór w ustawieniach technicznych), a zdjęcie bazowe, komplet referencji tkaniny
             i plamka koloru idą jako obrazy edycji. Warianty i fotosesja też; wyniki lądują w Porównywarce obok Gemini.
           </PageIntro>
         ) : (
           <PageIntro eyebrow={<>Zdjęcia · brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
-            Najpierw definiujesz sesję, potem produkt i wykończenie. Pokazujemy tylko ustawienia aktywnego trybu,
-            dzięki czemu nic nie konkuruje z wybranym profilem.
+            Najpierw tło, potem produkt i wykończenie. Tło katalogowe blokuje światło i obiektyw,
+            więc nic nie konkuruje z profilem; wnętrze i własne zdjęcie zostawiają kamerę Tobie.
           </PageIntro>
         )}
 
         <nav className="workflow-strip" aria-label="Etapy konfiguracji">
           {[
-            { num:"01", title:"Sesja", meta: st.catalog ? "Katalog" : "Lifestyle", target:"section-01", done:true },
+            { num:"01", title:"Tło", meta: bgObj?.name || "—", target:"section-01", done:true },
             { num:"02", title:"Produkt", meta: st.uploaded ? "Zdjęcie gotowe" : "Dodaj zdjęcie", target:"section-02", done:st.uploaded },
             { num:"03", title:"Wykończenie", meta:`${colorObj?.name || "Kolor"} · ${matObj?.name || "Tkanina"}`, target:"section-03", done:true },
           ].map(step => (
@@ -2051,17 +1864,17 @@ function App({ t, mode = "photos" }) {
 
         {/* Technical output settings stay available, but no longer lead the workflow. */}
         <AdvancedSection title="Ustawienia techniczne"
-          summary={`${isLab ? (st.model.includes("sunburst") ? "sunburst" : st.model.includes("flare") ? "flare" : "gpt-image-2") + (labViaOpenRouter ? " · openrouter" : "") + (quality ? " · " + quality : "") : (st.model.includes("pro") ? "pro" : "flash")} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          summary={`${modelShort(st.model)}${labViaOpenRouter ? " · openrouter" : ""}${isLab && quality ? " · " + quality : ""} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help={isLab
             ? "Model GPT Image, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Wersje „· OpenRouter” to te same modele płacone kluczem OpenRouter — GPT Image bez wyboru rozdzielczości (rozmiar domyślny dostawcy). Nano Banana 2.1 · OpenRouter to model Google'a z pełnym planem referencji i rozdzielczością 1K / 2K / 4K. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
-            : "Model, proporcje i rozdzielczość. Nano Banana 2 jest polecanym modelem do codziennej pracy i obsługuje 4K oraz wiele referencji; Nano Banana 2.1 to jego nowszy, tańszy następca (te same limity, lepsza zgodność z promptem); Pro wybierz dla najbardziej wymagającej zgodności marki."}>
+            : "Model, proporcje i rozdzielczość. Nano Banana 2.1 jest polecanym modelem do codziennej pracy (4K, 14 referencji); Pro wybierz dla najbardziej wymagającej zgodności marki. Modele oznaczone jako wycofywane zostają tylko dla starych presetów."}>
           <div className="out-grid">
             <div>
               <div className="field-lbl">model</div>
               <select className="select" value={st.model} onChange={e => set({ model: e.target.value })}>
                 {serverConfig.models.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.label}{m.tier ? (m.tier === "pro" ? " · pro" : " · flash") : ""} · {m.max_resolution === "auto" ? "rozmiar domyślny" : `do ${m.max_resolution || "1K"}`}
+                    {m.label} · {m.max_resolution === "auto" ? "rozmiar domyślny" : `do ${m.max_resolution || "1K"}`} · {m.max_refs} ref.
                   </option>
                 ))}
               </select>
@@ -2120,127 +1933,8 @@ function App({ t, mode = "photos" }) {
           </div>
         </AdvancedSection>
 
-        {/* 01 — mutually exclusive workflow mode */}
-        <Section num="01" title="Tryb zdjęcia"
-          summary={(() => {
-            if (!st.catalog) return "Lifestyle / wnętrze";
-            const b = CATALOG_BACKDROPS.find(x => x.id === st.catalogProfile) || CATALOG_BACKDROPS[0];
-            return `Katalog · ${b.name}`;
-          })()}
-          help="Katalog tworzy spójną serię w jednym studiu. Lifestyle pozwala swobodnie ustawić wnętrze, kamerę i referencje. Tryby nie dzielą ustawień sceny.">
-          <div className="mode-switch">
-            {[
-              { catalog:true, title:"Katalog", sub:"stałe studio, 85 mm, f/8" },
-              { catalog:false, title:"Lifestyle / wnętrze", sub:"scena, kamera i referencje" },
-            ].map(mode => (
-              <button type="button" className={st.catalog === mode.catalog ? "selected" : ""} key={String(mode.catalog)} onClick={() => {
-                set({ catalog:mode.catalog, anchorRef:"", refsLock:false, preserveBaseCamera:false });
-                setLockBackground(false);
-              }}>
-                <span className="mode-title">{mode.title}</span>
-                <span className="mode-sub">{mode.sub}</span>
-              </button>
-            ))}
-          </div>
-
-          {st.catalog && (
-            <div style={{marginTop:12}}>
-              <div className="field-lbl">tło katalogowe</div>
-              <div className="profile-grid">
-                {CATALOG_BACKDROPS.filter(b => ["ivory", "atelier", "softblush"].includes(b.id)).map(b => (
-                  <button type="button" className={"profile-card " + (st.catalogProfile === b.id ? "selected" : "")} key={b.id} onClick={() => set({ catalogProfile: b.id })}>
-                    <span style={{display:"flex", alignItems:"center", gap:8}}>
-                      <span className="profile-swatch" style={{
-                                    border:"1px solid var(--line-2)",
-                                    background: b.preview || `linear-gradient(${b.top}, ${b.floor})`}} />
-                      <span>
-                        <span style={{display:"block", fontSize:12, fontWeight:600}}>{b.name}</span>
-                        <span style={{display:"block", fontSize:10, color:"var(--ink-3)",
-                                      fontFamily:"'Geist Mono', monospace"}}>{b.hex}</span>
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div style={{fontSize:10, color:"var(--ink-3)", marginTop:6, fontFamily:"Geist Mono", lineHeight:1.5}}>
-                {(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).note}
-              </div>
-              <div style={{
-                marginTop:10, padding:"9px 11px", borderRadius:8,
-                background:"var(--bg-1)", border:"1px solid var(--line-2)",
-                fontSize:10.5, color:"var(--ink-2)", lineHeight:1.5,
-              }}>
-                <strong style={{fontWeight:650}}>Aktywne źródło prawdy:</strong>{" "}
-                profil ustawia tło, światło, obiektyw, przysłonę i wysokość kamery.
-                Zmieniasz niżej tylko produkt oraz jego obrót.
-              </div>
-            </div>
-          )}
-
-          {false && st.catalog && (() => {
-            // Optional second lever, on top of the profile. The backdrop is
-            // already identical without it — an anchor additionally carries
-            // camera and lighting over from one approved render. Picking it
-            // is a visual decision, so the picker shows the renders, not a
-            // dropdown of sixty text summaries nobody can read.
-            const recent = (historyItems || []).slice(0, 6);
-            const picked = (historyItems || []).find(h => h.generation_id === st.anchorRef);
-            return (
-              <div style={{marginTop:12, paddingTop:12, borderTop:"1px solid var(--line-2)"}}>
-                <div className="field-lbl" style={{display:"flex", justifyContent:"space-between"}}>
-                  <span>kotwica — opcjonalny wzorzec kamery i światła</span>
-                  <button onClick={loadHistory} disabled={historyBusy}
-                          style={{border:"none", background:"none", cursor:"pointer",
-                                  color:"var(--ink-3)", fontSize:10, fontFamily:"Geist Mono"}}>
-                    {historyBusy ? "…" : "odśwież"}
-                  </button>
-                </div>
-
-                {picked ? (
-                  <div style={{display:"flex", alignItems:"center", gap:10, marginTop:6}}>
-                    <img src={picked.image_url} alt=""
-                         style={{width:64, height:48, objectFit:"cover", borderRadius:6,
-                                 border:"2px solid var(--accent, #5f7a56)"}} />
-                    <div style={{flex:1, minWidth:0, fontSize:11, lineHeight:1.4}}>
-                      <div style={{fontWeight:600}}>Kotwica ustawiona</div>
-                      <div style={{color:"var(--ink-3)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                        {picked.prompt_summary || picked.generation_id}
-                      </div>
-                    </div>
-                    <button onClick={() => set({ anchorRef: "" })}
-                            style={{border:"1px solid var(--line-2)", background:"var(--bg-1)",
-                                    borderRadius:6, padding:"4px 10px", cursor:"pointer", fontSize:11}}>
-                      usuń
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{display:"flex", gap:6, marginTop:6, flexWrap:"wrap"}}>
-                      {recent.map(h => (
-                        <button key={h.generation_id}
-                                onClick={() => set({ anchorRef: h.generation_id })}
-                                title={h.prompt_summary || h.generation_id}
-                                style={{padding:0, border:"1px solid var(--line-2)", borderRadius:6,
-                                        background:"none", cursor:"pointer", lineHeight:0}}>
-                          <img src={h.image_url} alt=""
-                               style={{width:64, height:48, objectFit:"cover", borderRadius:5}} />
-                        </button>
-                      ))}
-                      {!recent.length && (
-                        <span style={{fontSize:11, color:"var(--ink-3)"}}>
-                          {historyBusy ? "wczytuję…" : "brak wcześniejszych renderów"}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{fontSize:10, color:"var(--ink-3)", marginTop:6, fontFamily:"Geist Mono", lineHeight:1.5}}>
-                      niepotrzebne dla samego tła — tło jest identyczne również bez kotwicy
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })()}
-        </Section>
+        <BackgroundSection st={st} set={set} bgObj={bgObj} bgLocked={bgLocked}
+          pickBackground={pickBackground} setLockBackground={setLockBackground} />
 
         {/* 02 — photo */}
         <Section num="02" title="Zdjęcie bazowe" summary={st.uploaded ? "wgrane · " + st.kind : "wymagane"}
@@ -2286,7 +1980,7 @@ function App({ t, mode = "photos" }) {
             </div>
           </div>
 
-          <div>
+          <div style={{ marginTop: 12 }}>
             <div className="field-lbl">model produktu</div>
             <input className="input" placeholder={st.kind === "bed" ? "np. Aria 160" : "np. Rima 1"}
               value={st.product} maxLength={80} onChange={e => set({ product: e.target.value })} />
@@ -2295,11 +1989,6 @@ function App({ t, mode = "photos" }) {
             </div>
           </div>
 
-          <label className="check">
-            <input type="checkbox" checked={st.alpha} onChange={e => set({ alpha: e.target.checked })} />
-            <span className="box"></span>
-            Spłaszcz alfę do 18% szarości tła
-          </label>
         </Section>
 
         {/* 02 — color */}
@@ -2441,480 +2130,13 @@ function App({ t, mode = "photos" }) {
           </div>
         </Section>
 
-        {/* 06 — environment: lifestyle only. Catalog has one source of truth. */}
-        {!st.catalog && (
-        <Section num="07" title="Otoczenie"
-          summary={st.catalog
-            ? `sterowane profilem · ${(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).name}`
-            : envObj?.name}
-          help="Scena, w której pokażemy mebel. „Bez tła” oddaje PNG z alfą. „Własne zdjęcie” pozwala wgrać Twoje wnętrze.">
-          {st.catalog ? (
-            <div style={{
-              display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
-              border:"1px solid rgba(95,122,86,.28)", borderRadius:10,
-              background:"rgba(95,122,86,.06)", fontSize:12.5, lineHeight:1.45,
-            }}>
-              <span style={{
-                width:34, height:34, borderRadius:6, flexShrink:0,
-                border:"1px solid var(--line-2)",
-                background:(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).preview
-                  || `linear-gradient(${(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).top}, ${(CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).floor})`,
-              }} />
-              <span>
-                <strong style={{fontWeight:600}}>Otoczenie wyłączone</strong>
-                {" — tłem zarządza profil katalogowy. Zmień je w sekcji 01b; ustawienia i pliki z tej sekcji nie są wysyłane do modelu."}
-              </span>
-            </div>
-          ) : (<>
-          <div className="env-grid">
-            {ENVIRONMENTS.map(e => (
-              <div key={e.id}
-                className={"env " + (st.env === e.id ? "sel " : "") + (e.checker ? "checker" : "")}
-                onClick={() => set({ env: e.id })}>
-                <div className="env-thumb" style={{ background: e.grad }}>
-                  {!e.custom && !e.checker && (
-                    <>
-                      <div className="floor" style={{ background: e.acc }}></div>
-                      <div className="prop"></div>
-                    </>
-                  )}
-                  {e.custom && <div className="upload-icon">+</div>}
-                </div>
-                <div className="env-meta">
-                  <div className="env-name">{e.name}</div>
-                  <div className="env-prop">{e.prop}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+        <CameraSection st={st} set={set} bgLocked={bgLocked} lensObj={lensObj} camObj={camObj} matchedPreset={matchedPreset} baseCamLocked={baseCamLocked} />
 
-          {st.env === "custom" && (
-            <div className="env-custom">
-              <div className="head">
-                <span className="ico">{Ic.upload}</span>
-                <div style={{ flex: 1 }}>
-                  <div className="lead">{(st.envFile && st.envFile.name) || "Wgraj zdjęcie tła"}</div>
-                  <div className="sub">{st.envFile ? "kliknij aby zmienić" : "model użyje go jako referencji oświetlenia i kolorów"}</div>
-                </div>
-                <input
-                  ref={envFileRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (f) set({ envFile: f });
-                  }}
-                />
-                <button className="size-pill" onClick={() => {
-                  if (st.envFile) { set({ envFile: null }); return; }
-                  envFileRef.current?.click();
-                }}>
-                  {st.envFile ? "usuń" : "wybierz plik"}
-                </button>
-              </div>
-              <div className="tri-row" style={{ marginTop: 0, gridTemplateColumns: "1fr 1fr" }}>
-                <div>
-                  <div className="field-lbl">notatka</div>
-                  <input className="input" placeholder="np. salon na poddaszu, popołudnie"
-                    value={st.envNote} onChange={e => set({ envNote: e.target.value })} />
-                </div>
-                <div>
-                  <div className="field-lbl">tryb</div>
-                  <select className="select" value={st.envMode} onChange={e => set({ envMode: e.target.value })}>
-                    <option value="reference">referencja stylu</option>
-                    <option value="background">jako dosłowne tło</option>
-                    <option value="lighting">tylko światło / kolory</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-          </>)}
-        </Section>
-        )}
+        <ReferencesSection st={st} set={set} bgLocked={bgLocked} modelObj={modelObj}
+          refFileRef={refFileRef} refSlotRef={refSlotRef} onPickRef={onPickRef} clearRef={clearRef}
+          fmtSize={fmtSize} budget={budget} />
 
-        {/* 07 — camera */}
-        <Section num="08" title="Kamera i kadrowanie" summary={(() => {
-          if (st.catalog) {
-            const yawObj = CAMERA_YAWS.find(y => y.id === st.yaw);
-            return `profil 85 mm · f/8 · ${yawObj?.name || "obrót produktu"}`;
-          }
-          if (baseCamLocked) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
-          const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
-          let regionTable = null;
-          if (st.shot === "detail_fabric") regionTable = DETAIL_REGIONS_FABRIC;
-          else if (st.shot === "detail_corner") regionTable = DETAIL_REGIONS_CORNER;
-          else if (st.shot === "close_up") regionTable = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
-          const regionObj = regionTable ? regionTable.find(r => r.id === st.detailRegion) : null;
-          const parts = [shotObj?.name || camObj?.name];
-          if (regionObj) parts.push(regionObj.name);
-          parts.push(lensObj?.name?.split(" — ")[0] || "—");
-          return parts.filter(Boolean).join(" · ");
-        })()}
-          help="Wybierz typ kadru. Dla detali makro rezygnujemy z cyklorama tła i kierujemy model na samą fakturę.">
-          {st.catalog && (
-            <div>
-              <div style={{
-                marginBottom:12, padding:"10px 12px", borderRadius:10,
-                border:"1px solid rgba(95,122,86,.28)", background:"rgba(95,122,86,.06)",
-                fontSize:12, lineHeight:1.5,
-              }}>
-                Profil katalogowy blokuje obiektyw 85 mm, f/8, wysokość kamery,
-                ekspozycję i miękkie światło. Tutaj wybierasz tylko stronę produktu.
-              </div>
-              <div className="field-lbl">obrót produktu</div>
-              <select className="select" value={st.yaw} onChange={e => set({ yaw: e.target.value })}>
-                {CAMERA_YAWS.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
-              </select>
-            </div>
-          )}
-          {!st.catalog && (<>
-          <label style={{
-            display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
-            padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
-            background: baseCamLocked ? "rgba(95,122,86,.06)" : "var(--bg-1)",
-            cursor: st.uploaded ? "pointer" : "not-allowed",
-            opacity: st.uploaded ? 1 : 0.55,
-            fontSize:12.5, lineHeight:1.45,
-          }}>
-            <input
-              type="checkbox"
-              checked={baseCamLocked}
-              disabled={!st.uploaded}
-              onChange={e => set({ preserveBaseCamera: e.target.checked })}
-              style={{marginTop:2, flexShrink:0}} />
-            <span>
-              <strong style={{fontWeight:600}}>Zachowaj kąt i sylwetkę z bazowego zdjęcia</strong>
-              {!st.uploaded
-                ? " — wgraj najpierw zdjęcie bazowe w sekcji 02, żeby włączyć tę opcję."
-                : " — kamera, kadrowanie, dystans i pozycja produktu pochodzą wtedy z bazowego zdjęcia (sekcja 02). Idealne do macro / detal crop, kiedy nie chcesz, by model „doframował” pełny produkt. Kolor, materiał, rozmiar i otoczenie nadal pochodzą z kreatora."}
-            </span>
-          </label>
-          {/* Quick preset — clicking a tile also seeds the structured fields
-              below (yaw, height, shot type, lens, DoF) so the user has a
-              sensible starting point that they can then tweak. Mirrors
-              _CAM_PRESET_TO_STRUCTURED in server.py. */}
-          <div className="field-lbl">szybki preset</div>
-          <div className="cam-grid" style={baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : undefined}>
-            {CAMERAS.map(c => (
-              <div key={c.id} className={"cam " + (matchedPreset === c.id ? "sel" : "")} onClick={() => {
-                set({ cam: c.id, ...(CAM_PRESET_DEFAULTS[c.id] || {}) });
-              }}>
-                <div className={"cam-render " + (c.style || "")}>
-                  <div className="floor"></div>
-                  <div className="obj"></div>
-                </div>
-                <div className="cam-meta">
-                  <div className="cam-name">{c.name}</div>
-                  <div className="cam-prop">{c.prop}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Shot type — primary framing intent. Detail variants suppress
-              the cyclorama SCENE block server-side and emit an OOF-background
-              line, so the model actually crops to the detail region instead
-              of falling back to a hero packshot. */}
-          <div className="field-lbl" style={{marginTop:16}}>typ kadru</div>
-          <div className="cam-grid" style={{
-            gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))",
-            ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
-          }}>
-            {SHOT_TYPES.map(s => (
-              <div key={s.id} className={"cam " + (st.shot === s.id ? "sel" : "")} onClick={() => {
-                // Shot-type picks nudge sensible defaults for lens / DoF /
-                // region so the user has a reasonable starting point.
-                const isDetail = s.id === "detail_fabric" || s.id === "detail_corner";
-                const isCloseUp = s.id === "close_up";
-                const patch = { shot: s.id };
-                if (isDetail) {
-                  patch.lens = (st.lens === "35mm_wide" || st.lens === "50mm_natural") ? "100mm_macro" : st.lens;
-                  patch.dof = "macro_shallow";
-                  if (s.id === "detail_fabric") patch.detailRegion = DETAIL_REGIONS_FABRIC.some(r => r.id === st.detailRegion) ? st.detailRegion : "weave";
-                  if (s.id === "detail_corner") patch.detailRegion = DETAIL_REGIONS_CORNER.some(r => r.id === st.detailRegion) ? st.detailRegion : "arm_back_corner";
-                }
-                if (isCloseUp) {
-                  // 85 mm short telephoto flatters the close-up framing.
-                  // Don't downgrade a longer focal length the user already picked.
-                  if (st.lens === "35mm_wide" || st.lens === "50mm_natural") patch.lens = "85mm_product";
-                  patch.dof = "shallow";
-                  const table = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
-                  const stillValid = table.some(r => r.id === st.detailRegion);
-                  patch.detailRegion = stillValid ? st.detailRegion : (st.kind === "bed" ? "bed_corner_head" : "sofa_corner");
-                }
-                set(patch);
-              }}>
-                <div className="cam-meta" style={{padding:"10px 12px"}}>
-                  <div className="cam-name">{s.name}</div>
-                  <div className="cam-prop">{s.hint}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Subject region — visible for detail and close-up shots. The
-              region table is product-aware for close-up: bed → bed regions,
-              sofa → sofa regions. */}
-          {(() => {
-            let regions = null;
-            let label = "";
-            if (st.shot === "detail_fabric") { regions = DETAIL_REGIONS_FABRIC; label = "obszar detalu"; }
-            else if (st.shot === "detail_corner") { regions = DETAIL_REGIONS_CORNER; label = "obszar detalu"; }
-            else if (st.shot === "close_up") {
-              regions = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
-              label = "obszar zbliżenia";
-            }
-            if (!regions) return null;
-            return (
-              <>
-                <div className="field-lbl" style={{marginTop:12}}>{label}</div>
-                <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:4}}>
-                  {regions.map(r => (
-                    <button key={r.id} type="button"
-                      onClick={() => set({ detailRegion: r.id })}
-                      style={{
-                        padding:"6px 12px", borderRadius:8, fontSize:12.5,
-                        border: st.detailRegion === r.id ? "1.5px solid var(--ink)" : "1px solid var(--line-2)",
-                        background: st.detailRegion === r.id ? "var(--bg-1)" : "transparent",
-                        cursor: "pointer", fontWeight: st.detailRegion === r.id ? 600 : 400,
-                      }}>{r.name}</button>
-                  ))}
-                </div>
-              </>
-            );
-          })()}
-
-          {/* Yaw / height / DoF — orientation + height + aperture. Yaw and
-              height are dimmed for detail shots because the macro crop fills
-              the frame regardless of where the camera is yawed. */}
-          <div className="tri-row" style={{marginTop:12,
-            ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
-          }}>
-            <div style={(st.shot === "detail_fabric" || st.shot === "detail_corner") ? {opacity:0.45, pointerEvents:"none"} : undefined}>
-              <div className="field-lbl">kąt (yaw)</div>
-              <select className="select" value={st.yaw} onChange={e => set({ yaw: e.target.value })}>
-                {CAMERA_YAWS.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
-              </select>
-            </div>
-            <div style={(st.shot === "detail_fabric" || st.shot === "detail_corner") ? {opacity:0.45, pointerEvents:"none"} : undefined}>
-              <div className="field-lbl">wysokość kamery</div>
-              <select className="select" value={st.height} onChange={e => set({ height: e.target.value })}>
-                {CAMERA_HEIGHTS.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="field-lbl">głębia ostrości</div>
-              <select className="select" value={st.dof} onChange={e => set({ dof: e.target.value })}>
-                {DEPTHS_OF_FIELD.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="tri-row">
-            <div>
-              <div className="field-lbl">ogniskowa</div>
-              <select className="select" value={st.lens} onChange={e => set({ lens: e.target.value })}>
-                {LENSES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="field-lbl">pora dnia</div>
-              <select className="select" value={st.tod} onChange={e => set({ tod: e.target.value })}>
-                {TIMES_OF_DAY.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="field-lbl">cienie</div>
-              <select className="select" value={st.shadow} onChange={e => set({ shadow: e.target.value })}>
-                {SHADOWS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
-          </div>
-          </>)}
-        </Section>
-
-        {/* 08 — references: lifestyle only */}
-        {!st.catalog && (() => {
-          // Base product image always occupies slot 1 → user can add up to max_refs - 1 extras.
-          const maxExtras = Math.max(0, (modelObj?.max_refs || 3) - 1);
-          const slotCount = Math.max(0, Math.min(maxExtras, 6));   // UI hard cap of 6 to keep layout sane
-          const filled = st.refs.filter(Boolean).length;
-          return (
-            <Section num="09" title="Referencje"
-              summary={slotCount === 0 ? "n/d" : `${filled} / ${slotCount}`}
-              help={slotCount === 0
-                ? "Wybrany model nie przyjmuje dodatkowych referencji — wystarczy samo zdjęcie bazowe."
-                : `Maks. ${slotCount} dodatkowe obrazy dla wybranego modelu. Wybierz najtrafniejsze kadry, nie cały moodboard.`}>
-              {slotCount > 0 ? (
-                <div className="refs">
-                  <input ref={refFileRef} type="file" accept="image/*" style={{display:"none"}}
-                    onChange={e => { onPickRef(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-                  {Array.from({length: slotCount}).map((_, i) => {
-                    const r = st.refs[i];
-                    return (
-                      <div key={i}
-                        className={"ref-slot " + (r ? "filled" : "")}
-                        title={r ? `${r.name} · ${fmtSize(r.size)} · kliknij aby zmienić` : `slot ${i + 1} — kliknij aby wgrać`}
-                        onClick={() => {
-                          refSlotRef.current = i;
-                          refFileRef.current && refFileRef.current.click();
-                        }}
-                        style={r && r.previewUrl ? {
-                          backgroundImage: `url(${r.previewUrl})`,
-                          backgroundSize: "cover",
-                          backgroundPosition: "center",
-                        } : undefined}>
-                        {r ? (
-                          <button
-                            type="button"
-                            onClick={ev => { ev.stopPropagation(); clearRef(i); }}
-                            title="Usuń referencję"
-                            style={{
-                              position:"absolute", top:4, right:4,
-                              width:18, height:18, borderRadius:9,
-                              border:"none", background:"rgba(0,0,0,.55)",
-                              color:"#fff", fontSize:12, lineHeight:"16px",
-                              cursor:"pointer", padding:0,
-                            }}>×</button>
-                        ) : (
-                          <div>
-                            <div style={{ fontSize: 16, marginBottom: 3 }}>+</div>
-                            <div>slot {i + 1}</div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-              {slotCount > 0 ? (
-                <label style={{
-                  display:"flex", alignItems:"flex-start", gap:8, marginTop:10,
-                  padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
-                  background: (filled > 0 && st.refsLock) ? "rgba(95,122,86,.06)" : "var(--bg-1)",
-                  cursor: (filled > 0 && !st.catalog) ? "pointer" : "not-allowed",
-                  opacity: (filled > 0 && !st.catalog) ? 1 : 0.55,
-                  fontSize:12.5, lineHeight:1.45,
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={filled > 0 && !!st.refsLock && !st.catalog}
-                    disabled={filled === 0 || st.catalog}
-                    onChange={e => set({ refsLock: e.target.checked })}
-                    style={{marginTop:2, flexShrink:0}} />
-                  <span>
-                    <strong style={{fontWeight:600}}>Użyj referencji jako wzorca</strong>
-                    {st.catalog
-                      ? " — wyłączone, ponieważ profil katalogowy korzysta z własnej referencji pustego studia."
-                      : filled === 0
-                      ? " — wgraj najpierw referencję w slot powyżej, żeby włączyć tę opcję."
-                      : " — "}
-                    {filled > 0 && !st.catalog && (
-                      <>
-                        referencja staje się źródłem prawdy dla kąta kamery,
-                        kadrowania, oświetlenia, cieni i sceny. Ustawienia z sekcji{" "}
-                        <span style={{fontFamily:"'Geist Mono', monospace"}}>04 Ujęcie</span>{", "}
-                        <span style={{fontFamily:"'Geist Mono', monospace"}}>06 Otoczenie</span>{" oraz "}
-                        <span style={{fontFamily:"'Geist Mono', monospace"}}>07 Światło</span>
-                        {" "}są wtedy ignorowane. Kolor, materiał, nogi i rozmiar nadal pochodzą z kreatora.
-                      </>
-                    )}
-                  </span>
-                </label>
-              ) : null}
-            </Section>
-          );
-        })()}
-
-        {/* 10 — bed styling (only when product is a bed) */}
-        {st.kind === "bed" && (() => {
-          const beddingObj = BEDDING_PRESETS.find(b => b.id === st.bedding) || BEDDING_PRESETS[1];
-          const tidyObj    = TIDY_LEVELS.find(t => t.id === st.tidy)        || TIDY_LEVELS[1];
-          const densityObj = DENSITY_LEVELS.find(d => d.id === st.density)  || DENSITY_LEVELS[1];
-          const throwObj   = THROW_PRESETS.find(t => t.id === st.throw)     || THROW_PRESETS[0];
-          const accentNames = (st.accents || [])
-            .map(id => BED_ACCENTS.find(a => a.id === id)?.name)
-            .filter(Boolean);
-          const summaryBits = [
-            st.bedding === "none" ? "bez pościeli" : beddingObj?.name,
-            tidyObj?.name,
-            st.density !== "balanced" ? densityObj?.name : null,
-            st.throw !== "none" ? throwObj?.name : null,
-            accentNames.length ? `+${accentNames.length}` : null,
-          ].filter(Boolean);
-          const toggleAccent = (id) => {
-            const cur = new Set(st.accents || []);
-            cur.has(id) ? cur.delete(id) : cur.add(id);
-            set({ accents: Array.from(cur) });
-          };
-          return (
-            <Section num="10" title="Pościel i styling"
-              summary={summaryBits.join(" · ")}
-              help="Co leży na łóżku, jak bardzo jest pościelone i ile rzeczy ma się znaleźć w kadrze. Tylko dla łóżek — wysyłane do Gemini jako osobny blok BEDDING.">
-              <div className="field-lbl">Pościel</div>
-              <select className="select" value={st.bedding} onChange={e => set({ bedding: e.target.value })}>
-                {BEDDING_PRESETS.map(b => <option key={b.id} value={b.id}>{b.name} — {b.prop}</option>)}
-              </select>
-              {st.bedding === "custom" && (
-                <input className="input" placeholder="np. ciepłe wafelkowe w pasku, ecru z koronką na poszewce"
-                  style={{marginTop:6}}
-                  value={st.beddingCustom} onChange={e => set({ beddingCustom: e.target.value })} />
-              )}
-
-              <div className="tri-row" style={{marginTop:12}}>
-                <div>
-                  <div className="field-lbl">Porządek</div>
-                  <select className="select" value={st.tidy} onChange={e => set({ tidy: e.target.value })}>
-                    {TIDY_LEVELS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <div className="field-lbl">Koc / narzuta</div>
-                  <select className="select" value={st.throw} onChange={e => set({ throw: e.target.value })}>
-                    {THROW_PRESETS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <div className="field-lbl">Gęstość kadru</div>
-                  <select className="select" value={st.density} onChange={e => set({ density: e.target.value })}>
-                    {DENSITY_LEVELS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="field-lbl" style={{marginTop:12}}>
-                Akcenty {st.density === "minimal" && (
-                  <span style={{color:"var(--ink-3)", fontWeight:400}}>(ignorowane przy gęstości minimalnej)</span>
-                )}
-              </div>
-              <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
-                {BED_ACCENTS.map(a => {
-                  const on = (st.accents || []).includes(a.id);
-                  return (
-                    <button key={a.id} type="button"
-                      onClick={() => toggleAccent(a.id)}
-                      style={{
-                        padding:"6px 12px", borderRadius:14, fontSize:12,
-                        border: on ? "1.5px solid var(--ink-2)" : "1px solid var(--line-2)",
-                        background: on ? "rgba(95,122,86,.10)" : "var(--bg-1)",
-                        color: on ? "var(--ink)" : "var(--ink-2)",
-                        cursor: "pointer",
-                      }}>
-                      {on ? "✓ " : "+ "}{a.name}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="field-lbl" style={{marginTop:12}}>Notatka stylingu (opcjonalnie)</div>
-              <input className="input"
-                placeholder='np. „kołdra złożona w trójkąt, jedna poszewka delikatnie pomięta"'
-                value={st.bedNote} onChange={e => set({ bedNote: e.target.value })} />
-            </Section>
-          );
-        })()}
+        <BeddingSection st={st} set={set} />
 
         {/* end */}
         {genError && (
@@ -2951,11 +2173,15 @@ function App({ t, mode = "photos" }) {
               <span className="dot">·</span>
               <span>{sizeObj?.name}</span>
               <span className="dot">·</span>
-              <span>{st.catalog
-                ? (CATALOG_BACKDROPS.find(b => b.id === st.catalogProfile) || CATALOG_BACKDROPS[0]).name
-                : envObj?.name}</span>
+              <span>{bgObj?.name}</span>
               <span className="dot">·</span>
               <span className="mono">{st.aspect} · {st.res.split(" ")[0]}</span>
+            </div>
+            <div className="foot-meta" style={{ marginTop: 4 }} title={budget.attached.map(r => `${r.role}: ${r.source}`).join("\n")}>
+              <span className="mono">{budget.attached.length} {budget.attached.length === 1 ? "obraz" : budget.attached.length < 5 ? "obrazy" : "obrazów"} do modelu</span>
+              <span className="dot">·</span>
+              <span>{budget.attached.map(r => r.label).join(", ")}</span>
+              {budget.dropped.length > 0 && <span style={{ color: "var(--warn, #a33a2e)" }}> · {budget.dropped.length} ponad limit modelu</span>}
             </div>
           </div>
           <div className="foot-actions">
@@ -2963,8 +2189,8 @@ function App({ t, mode = "photos" }) {
                 When ON, the next Generate re-uses that render's image as the
                 packshot SCENE reference so the backdrop stays pixel-stable
                 across angle / lens / color changes. */}
-            {gallery.length > 0 && !st.catalog && (
-              <label title="Następna generacja użyje ostatniego renderu jako referencji tła — kąt i kolor mogą się zmieniać, tło zostaje."
+            {gallery.length > 0 && !bgLocked && (
+              <label title="Generuj i Warianty użyją ostatniego renderu jako sceny — kąt i kolor mogą się zmieniać, pomieszczenie zostaje. Model wie, że to render produktu, nie pusta plansza."
                 style={{
                   display:"inline-flex", alignItems:"center", gap: 6,
                   padding:"6px 10px", borderRadius: 999,
@@ -2976,7 +2202,7 @@ function App({ t, mode = "photos" }) {
                 <input type="checkbox" checked={lockBackground}
                   onChange={e => setLockBackground(e.target.checked)}
                   style={{margin:0}} />
-                <span>{lockBackground ? "🔒 tło z poprzedniego" : "zablokuj tło"}</span>
+                <span>{lockBackground ? "🔒 tło z ostatniego renderu" : "tło z ostatniego renderu"}</span>
               </label>
             )}
             <button className="copy" onClick={() => {
@@ -2998,76 +2224,12 @@ function App({ t, mode = "photos" }) {
   );
 }
 
-/* generic section wrapper */
-function Section({ num, title, summary, help, children }) {
-  return (
-    <section className="section" id={`section-${num}`}>
-      <div className="sec-head">
-        <div className="num">{num}</div>
-        <div className="title serif">{title}</div>
-        {summary && <div className="summary">{summary}</div>}
-      </div>
-      {help && <p className="sec-help">{help}</p>}
-      <div className="sec-body">{children}</div>
-    </section>
-  );
-}
-
-function AdvancedSection({ title, summary, help, children }) {
-  return (
-    <details className="advanced-section">
-      <summary className="sec-head">
-        <div className="num">+</div>
-        <div className="title serif">{title}</div>
-        {summary && <div className="summary">{summary}</div>}
-      </summary>
-      <div className="advanced-body">
-        {help && <p className="sec-help">{help}</p>}
-        <div className="sec-body">{children}</div>
-      </div>
-    </details>
-  );
-}
-
-function StagePaneTweaks({ t, setTweak }) {
-  return (
-    <TweaksPanel title="Tweaks — scena">
-      <TweakSection label="Mebel">
-        <TweakSlider label="Szerokość" value={t.sofaWidth} min={28} max={80} step={1} unit="%"
-          onChange={v => setTweak('sofaWidth', v)} />
-        <TweakSlider label="Pozycja od dołu" value={t.sofaBottom} min={10} max={50} step={1} unit="%"
-          onChange={v => setTweak('sofaBottom', v)} />
-        <TweakSlider label="Proporcja (szer/wys)" value={t.sofaAspect} min={1.4} max={3.6} step={0.1}
-          onChange={v => setTweak('sofaAspect', v)} />
-        <TweakSlider label="Zaokrąglenie" value={t.sofaRadius} min={4} max={40} step={1} unit="px"
-          onChange={v => setTweak('sofaRadius', v)} />
-        <TweakSlider label="Siła cienia" value={t.shadowStrength} min={0} max={60} step={2} unit="%"
-          onChange={v => setTweak('shadowStrength', v)} />
-      </TweakSection>
-      <TweakSection label="Scena">
-        <TweakToggle label="Winieta na dole" value={t.stageVignette}
-          onChange={v => setTweak('stageVignette', v)} />
-        <TweakToggle label="Etykieta z parametrami" value={t.showFloorTag}
-          onChange={v => setTweak('showFloorTag', v)} />
-        <TweakToggle label="Mini-warianty (rail)" value={t.showVariantRail}
-          onChange={v => setTweak('showVariantRail', v)} />
-        <TweakRadio label="Generuj — położenie" value={t.fabAlign}
-          options={['left','center','right']}
-          onChange={v => setTweak('fabAlign', v)} />
-      </TweakSection>
-    </TweaksPanel>
-  );
-}
-
 function Root() {
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  // Stage mock-up geometry only (never posted); the tweaks panel that used
+  // to edit it was a dead control for the render and is gone.
+  const t = TWEAK_DEFAULTS;
   if (CATALOG_MISSING) return <CatalogMissing />;
-  return (
-    <>
-      <App t={t} mode={PAGE_MODE} />
-      <StagePaneTweaks t={t} setTweak={setTweak} />
-    </>
-  );
+  return <App t={t} mode={PAGE_MODE} />;
 }
 
 createRoot(document.getElementById("root")).render(<Root />);

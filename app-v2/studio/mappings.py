@@ -6,6 +6,12 @@ no intra-package imports, so any module may import from here freely.
 
 from __future__ import annotations
 
+from app.core.prompt import compile_prompt, freeform_spec
+from studio.catalog import (
+    BACKDROPS, CUSTOM_BACKGROUND_ID, CUSTOM_BACKGROUND_PROMPT, DEFAULT_BACKDROP_ID,
+    SCENES, resolve_background,
+)
+
 _SOFA_CONFIG = {
     "1": "armchair",
     "2": "2-seater",
@@ -26,236 +32,19 @@ _LEG_TO_ID = {
     "swivel": "swivel-base",
 }
 
-# Cyclorama profile — locked multi-sentence spec. The packshot SCENE block
-# in generator.py emits this verbatim when env_mode == "packshot". The level
-# of detail is intentional: the loose one-liner ("clean white studio
-# cyclorama") used to allow the model to reinterpret the backdrop on every
-# render, which is exactly the inconsistency the user reported. With a fixed
-# RGB, an explicit no-horizon-line clause, and a specific contact-shadow
-# description, every packshot lands on the same look.
-_CYCLORAMA_PROFILES = {
-    "cyclorama_warm": (
-        "a seamless infinity-curve studio cyclorama in warm off-white, base "
-        "tone RGB(244,240,229) hex #F4F0E5 (the catalog warm cream used by "
-        "premium European furniture brands). The backdrop has no visible "
-        "horizon line between floor and wall — the curve is completely "
-        "seamless. CRITICAL LIGHTING DETAIL: the cyclorama is NOT flat. "
-        "A large overhead soft-box creates a visible, soft top-down "
-        "lighting wash on the backdrop — the upper portion of the curve "
-        "is fractionally brighter (about RGB 250,247,238) than the base "
-        "tone, and the brightness fades gently toward the floor and the "
-        "edges. This subtle top-light gradient is what gives the cyclorama "
-        "dimension; without it the backdrop looks dead. SHADOW SPEC: a "
-        "small, soft, anchored contact shadow sits directly beneath the "
-        "product. Shadow color is a warm mid-grey RGB(200,195,180) — not "
-        "black. Shadow edges are heavily blurred (gaussian-soft, no harsh "
-        "silhouette). The shadow has zero directional cast — it is an "
-        "anchor shadow only, not a thrown shadow. The shadow fades to "
-        "invisibility within roughly 25 centimeters of the product's "
-        "contact line with the floor. The floor under the product has a "
-        "very subtle darkening gradient at the contact line, fading to the "
-        "full backdrop tone within 30 centimeters. Absolutely no props, "
-        "no walls, no floor seams, no environment objects, no other "
-        "furniture, no plants, no rugs, no signage"
-    ),
-    "cyclorama_neutral": (
-        "a seamless infinity-curve studio cyclorama in clean neutral white, "
-        "base tone RGB(250,250,250) hex #FAFAFA (pure photo-studio white, "
-        "no warm or cool tint). Otherwise identical to the warm cyclorama "
-        "profile: seamless floor-to-wall curve, no horizon line. CRITICAL "
-        "LIGHTING DETAIL: a large overhead soft-box creates a visible, "
-        "soft top-down lighting wash on the backdrop — the upper portion "
-        "of the curve is fractionally brighter (about RGB 255,255,255) "
-        "than the base tone, fading gently toward the floor and edges. "
-        "The gradient is subtle but visible — the cyclorama is not flat. "
-        "SHADOW SPEC: small soft anchored contact shadow in mid-grey "
-        "RGB(210,210,210), heavily blurred edges, zero directional cast, "
-        "fading to invisibility within 25 cm of the contact line. Subtle "
-        "floor darkening at the contact line, fading within 30 cm. No "
-        "props, no walls, no environment objects of any kind"
-    ),
-    "cyclorama_grey": (
-        "a seamless infinity-curve studio cyclorama in neutral mid-grey, "
-        "base tone RGB(220,220,220) hex #DCDCDC (packshot grey, slightly "
-        "cooler than neutral white). Seamless floor-to-wall curve, no "
-        "horizon line. CRITICAL LIGHTING DETAIL: visible soft top-down "
-        "lighting wash — upper portion of the curve fractionally brighter "
-        "(about RGB 235,235,235) than the base tone, fading toward floor "
-        "and edges. The cyclorama is not flat. SHADOW SPEC: small soft "
-        "anchored contact shadow in darker grey RGB(180,180,180), heavily "
-        "blurred edges, zero directional cast, fading within 25 cm. "
-        "Subtle floor darkening at the contact line. No props, no walls, "
-        "no environment objects"
-    ),
-    "cyclorama_transparent": (
-        "transparent background output (alpha PNG) — the product is isolated "
-        "with no backdrop at all. Render only the product with a small soft "
-        "warm-grey contact shadow beneath it (RGB 200,195,180, heavily "
-        "blurred, no directional cast); everything else is fully transparent. "
-        "No floor, no wall, no environment, no other objects"
-    ),
-    "cyclorama_paperwhite": (
-        "a seamless, minimalist studio cyclorama in bright off-white — a "
-        "lifted, airy version of the softlight setup. There is NO visible "
-        "horizon line and NO floor-to-wall seam; the curve is a perfectly "
-        "continuous infinity sweep. BACKDROP COLOR (locked, uniform): a "
-        "very bright but still off-white tone at RGB(252,250,247) hex "
-        "#FCFAF7. The faint warm tint is intentional — this is off-white, "
-        "NOT stark pure white, NOT hospital white, NOT pure RGB(255,255,255). "
-        "If the rendered backdrop reads as #FFFFFF pure white, the color is "
-        "wrong; it must retain a barely-perceptible warm cream undertone. "
-        "This exact tone must cover the ENTIRE backdrop and floor with "
-        "ZERO luminance variation. The cyclorama is rendered as one "
-        "perfectly flat color field — like a painted wall, not a "
-        "photographed surface. CRITICAL ANTI-HOTSPOT RULE: no part of the "
-        "backdrop or floor may be brighter than RGB(254,252,250) or darker "
-        "than RGB(249,247,244). Forbidden artifacts — each of these is a "
-        "defect: a circular bright glow anywhere on the backdrop, a soft "
-        "halo behind or above the product, a visible patch where the key "
-        "light hits the cyclorama, a brighter upper-left corner, a "
-        "brighter upper-right corner, a brighter band along any edge, ANY "
-        "luminance gradient or falloff or vignette of any kind on the "
-        "backdrop, ANY specular sheen, ANY visible evidence of where the "
-        "light source is positioned. Treat the backdrop as a flat painted "
-        "surface that ignores the studio lighting setup entirely — the "
-        "light source is OFF-FRAME and does NOT register on the wall. If "
-        "a viewer can locate the key light from the backdrop alone, the "
-        "render has failed. PRODUCT LIGHTING (separate from backdrop): "
-        "soft, diffused, even high-key lighting from a slightly elevated "
-        "frontal-left angle. Lifts the product to a bright airy exposure "
-        "with gentle form-defining shading on the product surfaces only — "
-        "never spilling onto the backdrop. SHADOW (extremely subtle, "
-        "almost invisible): a single whisper-soft contact shadow anchors "
-        "the product to the floor. Shadow color is a very pale warm grey "
-        "RGB(242,238,232). Opacity is ONLY 4–7 percent at its densest "
-        "core, never darker — this is a barely-perceptible ground hint, "
-        "NOT a drop shadow. The shadow feathers gently toward the RIGHT "
-        "side of the frame. Edges are heavily gaussian-blurred; shadow "
-        "fades to fully invisible within 10–14 centimeters of the product. "
-        "CRITICAL: if you can clearly see the shadow as a distinct dark "
-        "shape, it is TOO STRONG — make it lighter. The shadow should "
-        "read more as a subtle softening of the floor tone than as a "
-        "defined area. No second shadow on the left, no rim shadow, no "
-        "stray cast shadows. TEXTURE: the entire backdrop is completely "
-        "smooth and matte — zero film grain, zero paper fibers, zero "
-        "specular reflection, zero environmental detail, zero noise, zero "
-        "imperfections. Ultra-minimalist clean studio aesthetic. Absolutely "
-        "no props, no furniture, no plants, no architectural elements, no "
-        "signage, no overlaid text"
-    ),
-    "cyclorama_softlight": (
-        "a seamless, minimalist studio cyclorama in clean off-white. There is "
-        "NO visible horizon line and NO floor-to-wall seam — the curve is a "
-        "perfectly continuous infinity sweep. BACKDROP COLOR (locked, "
-        "uniform): a soft warm off-white at RGB(250,248,246) hex #FAF8F6. "
-        "This exact tone must cover the ENTIRE backdrop and floor with "
-        "ZERO luminance variation. The cyclorama is rendered as one "
-        "perfectly flat color field — like a painted wall, not a "
-        "photographed surface. CRITICAL ANTI-HOTSPOT RULE: no part of the "
-        "backdrop or floor may be brighter than RGB(252,250,248) or darker "
-        "than RGB(247,245,243). Forbidden artifacts — each of these is a "
-        "defect that ruins the image: a circular bright glow anywhere on "
-        "the backdrop, a soft halo behind or above the product, a visible "
-        "patch where the key light hits the cyclorama, a brighter upper-"
-        "left corner, a brighter upper-right corner, a brighter band along "
-        "any edge, ANY luminance gradient or falloff or vignette of any "
-        "kind on the backdrop, ANY specular sheen, ANY visible evidence "
-        "of where the light source is positioned. Treat the backdrop as a "
-        "flat painted surface that ignores the studio lighting setup "
-        "entirely — the light source is OFF-FRAME and does NOT register "
-        "on the wall. If a viewer can locate the key light from looking "
-        "at the backdrop alone, the render has failed. PRODUCT LIGHTING "
-        "(separate from backdrop): the product itself is lit with soft, "
-        "diffused, even high-key lighting from a slightly elevated "
-        "frontal-left angle, producing gentle form-defining shading on "
-        "the product surfaces only — never spilling onto the backdrop. "
-        "SHADOW (extremely subtle, almost invisible): a single whisper-"
-        "soft contact shadow anchors the product to the floor. Shadow "
-        "color is a very pale warm grey RGB(238,234,228). Opacity is ONLY "
-        "5–8 percent at its densest core, never darker — this is a "
-        "barely-perceptible ground hint, NOT a drop shadow. The shadow "
-        "feathers gently toward the RIGHT side of the frame. Edges are "
-        "heavily gaussian-blurred; shadow fades to fully invisible within "
-        "10–15 centimeters of the product. CRITICAL: if you can clearly "
-        "see the shadow as a distinct dark shape, it is TOO STRONG — make "
-        "it lighter. The shadow should read more as a subtle softening of "
-        "the floor tone than as a defined area. No second shadow on the "
-        "left, no rim shadow, no stray cast shadows, no dark patches "
-        "anywhere on the floor. TEXTURE: the entire backdrop is completely "
-        "smooth and matte — zero film grain, zero paper fibers, zero "
-        "specular reflection, zero environmental detail, zero noise, zero "
-        "imperfections. Ultra-minimalist clean studio aesthetic. Absolutely "
-        "no props, no furniture, no plants, no architectural elements, no "
-        "signage, no overlaid text"
-    ),
-    "cyclorama_atelier_gradient": (
-        "a seamless, full-depth furniture-studio cyclorama with a pronounced "
-        "two-axis directional light field, based on a real editorial product "
-        "studio rather than a flat e-commerce backdrop. There is NO visible "
-        "horizon line and NO floor-to-wall seam. COLOR AND LIGHT ARE LOCKED: "
-        "the upper-left corner is muted warm olive-grey RGB(168,162,146) hex "
-        "#A8A292; the upper-right opens to warm stone RGB(193,185,176) hex "
-        "#C1B9B0; the lower-left is soft taupe RGB(195,189,180) hex #C3BDB4; "
-        "and the lower-right is pale dusty blush RGB(238,231,231) hex #EEE7E7. "
-        "Blend these four tones as one continuous diagonal studio-light wash: "
-        "darker and more olive at upper-left, progressively brighter and more "
-        "blush toward lower-right. This lateral depth is essential — do NOT "
-        "flatten the backdrop to one average beige. LIGHTING: one very large "
-        "diffused key from camera-right plus broad ambient fill; soft form "
-        "modelling on the product at a controlled neutral exposure. Pale fabric "
-        "and white bedding retain visible weave, folds and tonal separation. "
-        "SHADOW: one faint, compact warm-grey contact shadow directly beneath "
-        "the product, feathering slightly left and disappearing within 12 cm. "
-        "SURFACE: matte, with extremely fine fixed "
-        "photographic grain, never rough plaster or visible paper texture. "
-        "Absolutely no props, walls, corners, rugs, plants, signage or text"
-    ),
-    "cyclorama_softblush": (
-        "a seamless premium furniture-catalog cyclorama in a locked pale "
-        "pudrowy cream tone RGB(250,248,246) hex #FAF8F6. This is a warm "
-        "blush-leaning off-white, never pure white, never yellow cream and "
-        "never cool grey. The same #FAF8F6 tone covers wall, sweep and floor "
-        "across the entire frame with no visible horizon line. Keep the field "
-        "calm and almost uniform: no spotlight circle, no vignette, no bright "
-        "corner and no grey floor band. Depth comes only from the product's "
-        "soft natural modelling and a whisper-soft warm-grey contact shadow "
-        "beneath it. Controlled diffused frontal-left light at a neutral D55 "
-        "white balance; pale upholstery and bedding retain their full highlight "
-        "texture rather than dissolving into white. Smooth matte surface, zero props, "
-        "zero room context, zero architecture, zero text or signage"
-    ),
-    "cyclorama_architectural": (
-        "a seamless architectural-studio backdrop in warm soft ivory, base "
-        "tone RGB(247,245,241) hex #F7F5F1 — a restrained neutral ivory that "
-        "reads as warm and architectural without a yellow or orange cast. "
-        "There is NO visible horizon line and NO visible floor-to-wall seam; "
-        "the surface behaves like a perfect floating cyclorama with the "
-        "product appearing to rest on a continuous ivory plane. CRITICAL "
-        "LIGHTING DETAIL: controlled, even studio lighting created by one large "
-        "diffused key source positioned well OUTSIDE the image bounds, above "
-        "and to camera-left. The lighting source and all photographic equipment "
-        "must remain completely off-camera: no reflectors, stands, booms, flags "
-        "or studio apparatus visible anywhere in the image. This "
-        "produces a gentle directional wash: the floor area in front of and "
-        "around the product is fractionally brighter (about RGB 250,249,246) "
-        "than the upper portion of the backdrop, which softens by only 2–3 RGB "
-        "values toward the top edge. Preserve midtone and highlight separation "
-        "on every pale textile; the bedding must never clip into a featureless "
-        "white mass. SHADOW SPEC: one faint, compact contact shadow anchors the "
-        "product directly at its floor contact. It is a pale neutral warm-grey "
-        "at only 8–12 percent opacity, feathering slightly right and disappearing "
-        "within 10–15 centimeters. No broad ellipse, no dark cast shadow and no "
-        "second shadow. TEXTURE: the "
-        "entire backdrop is completely smooth and matte — zero film grain, "
-        "zero specular reflections, zero environmental detail, zero texture "
-        "noise, no paper fibers, no wall imperfections. It must never inherit "
-        "or display upholstery supplied in a material reference: no bouclé "
-        "loops, weave, yarns, textile relief, enlarged fabric pattern, projected "
-        "material texture or fabric-shaped shadows anywhere on the backdrop or "
-        "floor. Absolutely no props, "
-        "no furniture, no plants, no architectural elements, no signage"
-    ),
-}
+# Backdrop prompt paragraphs live in catalog.json (`backdrops[].prompt_en`);
+# this view keeps the old name for callers. Keyed by canonical id AND by
+# every alias (old env ids) so stale presets keep resolving.
+def _backdrop_prompts() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for b in BACKDROPS.values():
+        out[b["id"]] = b["prompt_en"]
+        for alias in b.get("aliases", []) or []:
+            out[alias] = b["prompt_en"]
+    return out
+
+
+_CYCLORAMA_PROFILES = _backdrop_prompts()
 
 # ---------------------------------------------------------------------------
 # Catalog profile — the "one shoot" contract.
@@ -280,49 +69,46 @@ _CYCLORAMA_PROFILES = {
 # only has to nudge it, rather than upscale a small product and soften it.
 # ---------------------------------------------------------------------------
 _CATALOG_LOCKS = {
+    "tod":    "noon_neutral",
+    "shadow": "soft_diffuse",
+}
+# What a locked backdrop seeds when the caller leaves a camera field empty
+# (older clients posted only `yaw` in catalog mode). The caller may set any
+# of them explicitly — phase 4 made shot type, lens, depth of field and
+# detail region first-class under a locked backdrop.
+_CATALOG_CAMERA_DEFAULTS = {
     "shot":   "hero",
     "height": "eye",
     "lens":   "85mm_product",
     "dof":    "deep",               # f/8 — no background separation on a cyclorama
-    "tod":    "noon_neutral",
-    "shadow": "soft_diffuse",
 }
 
-# Catalog backdrop id → (cyclorama prompt profile, locked shadow, locked light).
-# Each entry pairs the written description the model renders against with the
-# PackshotProfile of the same name in studio/normalize.py, which rebuilds that
-# same look exactly afterwards. Keeping the two in step is what lets the
-# normalization pass be a nudge rather than a repaint.
-#
-# `ivory` is the default: a pure-white cyclorama is the correct answer for a
-# marketplace that composites onto its own background, and the wrong one for a
-# warm interiors brand, where it reads as clinical.
-_CATALOG_PROFILE_ENV = {
-    "ivory":      {"env": "cyclorama_architectural", "shadow": "soft_diffuse",
-                   "tod": "noon_neutral"},
-    "atelier":    {"env": "cyclorama_atelier_gradient", "shadow": "soft_diffuse",
-                   "tod": "noon_neutral"},
-    "softblush":  {"env": "cyclorama_softblush",     "shadow": "soft_diffuse",
-                   "tod": "noon_neutral"},
-    "neutral":    {"env": "cyclorama_neutral",       "shadow": "soft_diffuse",
-                   "tod": "noon_neutral"},
-    "paperwhite": {"env": "cyclorama_paperwhite",    "shadow": "soft_diffuse",
-                   "tod": "noon_neutral"},
-}
-_CATALOG_PROFILE_DEFAULT = "ivory"
+# Locked backdrops (catalog treatment) come from catalog.json: a backdrop
+# with a `locks` block pins lens / aperture / light / camera height so every
+# product of a range is shot in the same studio. `_CATALOG_LOCKS` is the
+# fallback set when an entry omits a key.
+_CATALOG_PROFILE_DEFAULT = DEFAULT_BACKDROP_ID
 
 
 def _catalog_profile_locks(profile: str) -> dict:
-    """Merge the shared locks with the chosen backdrop's own settings."""
-    chosen = _CATALOG_PROFILE_ENV.get(
-        (profile or "").strip().lower(), _CATALOG_PROFILE_ENV[_CATALOG_PROFILE_DEFAULT]
-    )
-    return {**_CATALOG_LOCKS, **chosen}
+    """Locks for a backdrop id (or alias); unknown ids → the default backdrop."""
+    kind, entry = resolve_background(profile)
+    if kind != "backdrop" or not entry.get("locks"):
+        entry = BACKDROPS[DEFAULT_BACKDROP_ID]
+    return {
+        **_CATALOG_LOCKS, **(entry.get("locks") or {}),
+        "camera_defaults": {**_CATALOG_CAMERA_DEFAULTS, **(entry.get("camera_defaults") or {})},
+        "env": entry["id"],
+    }
 
 # Shot type → numeric framing clause. Detail and close-up shots are absent on
 # purpose: a macro crop has no "subject scale within the frame" to lock, and
 # normalize.py refuses to touch those renders for the same reason.
 _CATALOG_FRAMING_CONTRACT = {
+    # Phase 4: the numeric contract exists for the hero packshot only. Wide,
+    # three-quarter, cropped, close-up and macro crops are editorial choices
+    # the caller makes on purpose; a second numeric contract fighting the
+    # framing string was one of the ways a close-up came back as a hero.
     "hero": (
         "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
         "framing language above): the product's widest visible extent spans "
@@ -334,22 +120,6 @@ _CATALOG_FRAMING_CONTRACT = {
         "backdrop fills every remaining margin. Do not crop the product at any "
         "frame edge, do not zoom in tighter than this, and do not pull back "
         "further than this."
-    ),
-    "wide": (
-        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
-        "framing language above): the product's widest visible extent spans "
-        "50-56 percent of the frame width, centred horizontally with equal "
-        "margins. The product's lowest point of contact with the floor sits at "
-        "78-82 percent of the frame height, measured downward from the top "
-        "edge. Do not crop the product at any frame edge."
-    ),
-    "three_quarter": (
-        "CATALOG FRAMING CONTRACT (hard requirement, overrides any looser "
-        "framing language above): the product's widest visible extent spans "
-        "88-94 percent of the frame width, centred horizontally. The product's "
-        "lowest point of contact with the floor sits at 88-92 percent of the "
-        "frame height, measured downward from the top edge. Do not crop the "
-        "product at any frame edge."
     ),
 }
 
@@ -363,32 +133,21 @@ def _catalog_framing_contract(shot_id: str) -> str:
 # Mode drives the two branches of the SCENE block in generator.py:
 #   "packshot"  → product on a clean backdrop, no room context.
 #   "lifestyle" → product staged inside a real interior, environment first-class.
-_ENV_TO_SCENE = {
-    # Cyclorama presets — locked profiles that always look the same.
-    "cyclorama_warm":        ("packshot", _CYCLORAMA_PROFILES["cyclorama_warm"]),
-    "cyclorama_neutral":     ("packshot", _CYCLORAMA_PROFILES["cyclorama_neutral"]),
-    "cyclorama_grey":        ("packshot", _CYCLORAMA_PROFILES["cyclorama_grey"]),
-    "cyclorama_transparent": ("packshot", _CYCLORAMA_PROFILES["cyclorama_transparent"]),
-    "cyclorama_architectural": ("packshot", _CYCLORAMA_PROFILES["cyclorama_architectural"]),
-    "cyclorama_softlight":     ("packshot", _CYCLORAMA_PROFILES["cyclorama_softlight"]),
-    "cyclorama_paperwhite":    ("packshot", _CYCLORAMA_PROFILES["cyclorama_paperwhite"]),
-    "cyclorama_atelier_gradient": ("packshot", _CYCLORAMA_PROFILES["cyclorama_atelier_gradient"]),
-    "cyclorama_softblush":       ("packshot", _CYCLORAMA_PROFILES["cyclorama_softblush"]),
-    # Legacy aliases — point at the new locked profiles so existing wizard
-    # users automatically inherit the consistency upgrade.
-    "studio_white":          ("packshot", _CYCLORAMA_PROFILES["cyclorama_warm"]),
-    "studio_grey":           ("packshot", _CYCLORAMA_PROFILES["cyclorama_grey"]),
-    "transparent":           ("packshot", _CYCLORAMA_PROFILES["cyclorama_transparent"]),
-    # Lifestyle envs — unchanged narrative descriptions.
-    "scandi":        ("lifestyle", "a scandinavian living room with light oak floors, white walls, and indoor plants"),
-    "loft":          ("lifestyle", "an industrial loft with exposed brick walls, polished concrete floors, and dark metal accents"),
-    "japandi":       ("lifestyle", "a japandi interior with a warm minimalist palette, natural wood, and soft diffuse light"),
-    "boho":          ("lifestyle", "a bohemian living room with rattan furniture, woven textiles, and warm earthy tones"),
-    "dark_moody":    ("lifestyle", "a moody dark interior with deep painted walls and warm pendant lamp lighting"),
-    "garden":        ("lifestyle", "an outdoor terrace / garden setting with greenery and natural daylight"),
-    "showroom":      ("lifestyle", "a brand showroom with subtle product staging and a neutral palette"),
-    "custom":        ("lifestyle", "the custom interior shown in the user's uploaded background reference image"),
-}
+def _env_to_scene() -> dict[str, tuple[str, str]]:
+    """env id → (mode, prompt): every backdrop (packshot) under its id and
+    aliases, every scene (lifestyle), and the custom upload."""
+    out: dict[str, tuple[str, str]] = {}
+    for b in BACKDROPS.values():
+        out[b["id"]] = ("packshot", b["prompt_en"])
+        for alias in b.get("aliases", []) or []:
+            out[alias] = ("packshot", b["prompt_en"])
+    for sc in SCENES.values():
+        out[sc["id"]] = ("lifestyle", sc["prompt_en"])
+    out[CUSTOM_BACKGROUND_ID] = ("lifestyle", CUSTOM_BACKGROUND_PROMPT)
+    return out
+
+
+_ENV_TO_SCENE = _env_to_scene()
 
 # Canonical key is the English `id` from data.jsx (LENSES / TIMES_OF_DAY /
 # SHADOWS). Polish display strings are accepted too for backward compatibility
@@ -744,134 +503,29 @@ def _build_freeform_prompt(
     color_hex: str = "",
 ) -> str:
     """
-    Compose the full editorial prompt: the user's brief leads, picker
-    fragments follow as art-direction constraints. Every picker is optional —
-    empty ids are simply skipped, so the minimal prompt is TASK + BRIEF +
-    OUTPUT STYLE.
+    Compose the full editorial prompt: picker ids are resolved to English
+    fragments here (the tables live in this module), the wording and order
+    live in app/core/prompt. Every picker is optional — empty ids are simply
+    skipped, so the minimal prompt is TASK + BRIEF + OUTPUT STYLE.
 
     `slots` maps reference roles to the 1-based positions that are ACTUALLY
     attached (generator.plan_freeform_reference_slots after the engine's
     cap), so the prompt never describes an image the model did not receive.
     """
-    lines: list[str] = [
-        "TASK: Create a brand-new editorial photograph from scratch based on "
-        "the brief below. There is no base product to preserve — full "
-        "creative freedom within the art direction."
-    ]
-    slots = dict(slots or {})
-    macro_slot = slots.get("material_macro")
-    if macro_slot:
-        lines.append(
-            f"Attached image {macro_slot} is a close-up photograph of the real "
-            "target upholstery fabric. Copy ONLY its yarn construction, texture "
-            "scale and surface relief onto every upholstered piece; ignore its "
-            "photographed colour, crop, fold and lighting."
-        )
-    patch_slot = slots.get("color_patch")
-    if patch_slot:
-        hex_label = (color_hex or "").strip().upper()
-        lines.append(
-            f"Attached image {patch_slot} is a flat, evenly lit patch of the exact "
-            f"target upholstery colour{(' ' + hex_label) if hex_label else ''}. It is "
-            "the single authority for the hue, saturation and lightness of the hero "
-            "upholstery: under the scene's key light its mid-tones must match this "
-            "patch. It carries no texture, geometry or lighting — copy nothing else "
-            "from it. The fabric photographs show a different colour and contribute "
-            "texture only."
-        )
-    angle_slots = [slots[role] for role in ("material_left", "material_right") if role in slots]
-    if angle_slots:
-        plural = len(angle_slots) > 1
-        label = " and ".join(str(slot) for slot in angle_slots)
-        viewpoint = "opposing oblique viewpoints" if plural else "an oblique viewpoint"
-        lines.append(
-            f"Attached image{'s' if plural else ''} {label} show{'' if plural else 's'} "
-            f"the same fabric from {viewpoint}: use "
-            f"{'them' if plural else 'it'} only for how its pile, nubs and sheen "
-            "respond to light from the side; ignore "
-            f"{'their' if plural else 'its'} colour, crop and background."
-        )
-    behavior_slot = slots.get("material_behavior")
-    if behavior_slot:
-        lines.append(
-            f"Attached image {behavior_slot} shows the same fabric under grazing light "
-            "across a curved, touched surface: copy only that optical behaviour — "
-            "raised fibres facing the light brighten, fibres laid away darken, and "
-            "these shifts follow real curves and folds, never a printed pattern."
-        )
-    application_slot = slots.get("material_application")
-    if application_slot:
-        lines.append(
-            f"Attached image {application_slot} shows a comparable fabric on a whole "
-            "furniture piece at normal viewing distance: use it only to judge how "
-            "fine the texture reads from the camera — never its geometry, room, "
-            "colour or styling, and never let it override the physical sample "
-            "photographs."
-        )
-    mood_slots = sorted(
-        number for role, number in slots.items() if role.startswith("extra_reference_")
+    spec = freeform_spec(
+        text=text,
+        art_direction=_EDITORIAL_STYLES.get(style, "") if style in _EDITORIAL_STYLES else "",
+        setting_text=_ENV_TO_SCENE[env][1] if (env and env in _ENV_TO_SCENE and env != "custom") else "",
+        light_text=_TOD_TO_PROMPT.get(tod, "") if tod in _TOD_TO_PROMPT else "",
+        lens_descriptor=_LENS_TO_PROMPT[lens]["descriptor"] if lens in _LENS_TO_PROMPT else "",
+        height_phrase=_HEIGHT_TO_PHRASE.get(height, "") if height in _HEIGHT_TO_PHRASE else "",
+        color_en=color_en,
+        mat_noun_en=mat_noun_en,
+        mat_texture_en=mat_texture_en,
+        mat_avoid_en=mat_avoid_en,
+        people_text=_PEOPLE_TO_PROMPT[people] if people in _PEOPLE_TO_PROMPT else "",
+        seed=seed,
+        slots=slots,
+        color_hex=color_hex,
     )
-    if mood_slots:
-        label = (
-            f"image {mood_slots[0]}" if len(mood_slots) == 1
-            else f"images {mood_slots[0]}–{mood_slots[-1]}"
-        )
-        lines.append(
-            f"Use attached {label} as loose mood and styling "
-            "inspiration only — do not copy them literally."
-        )
-    lines.append("")
-    lines.append(f"BRIEF: {text.strip()}")
-    lines.append("")
-
-    if style in _EDITORIAL_STYLES:
-        lines.append(f"ART DIRECTION: {_EDITORIAL_STYLES[style]}.")
-    if env and env in _ENV_TO_SCENE and env != "custom":
-        lines.append(f"SETTING: {_ENV_TO_SCENE[env][1]}.")
-    if tod in _TOD_TO_PROMPT:
-        lines.append(f"LIGHT: {_TOD_TO_PROMPT[tod]}.")
-    cam_bits = []
-    if lens in _LENS_TO_PROMPT:
-        cam_bits.append(_LENS_TO_PROMPT[lens]["descriptor"])
-    if height in _HEIGHT_TO_PHRASE:
-        cam_bits.append(_HEIGHT_TO_PHRASE[height])
-    if cam_bits:
-        lines.append("CAMERA: " + "; ".join(cam_bits) + ".")
-    if color_en:
-        lines.append(
-            f"COLOR DIRECTION (hard constraint): the hero furniture piece and "
-            f"the dominant tone of the frame are {color_en}; the supporting "
-            "palette stays harmonious and neutral around it."
-        )
-    if mat_noun_en:
-        # The full texture spec, not a one-line hint — with no base image to
-        # anchor the fabric, a soft hint gets overridden by the model's own
-        # styling (the same noun-vs-spec lesson as the variant pipeline).
-        lines.append(
-            f"TEXTILE DIRECTION (hard constraint): every upholstered "
-            f"furniture piece in the frame is upholstered in {mat_noun_en}. "
-            f"Fabric spec: {mat_texture_en}"
-        )
-        if mat_avoid_en:
-            lines.append(
-                "TEXTILE — must not appear: " + "; ".join(mat_avoid_en) + "."
-            )
-    if people in _PEOPLE_TO_PROMPT:
-        lines.append(f"PEOPLE: {_PEOPLE_TO_PROMPT[people]}")
-    if seed.strip():
-        lines.append(f"seed hint: {seed.strip()}")
-
-    lines.append("")
-    lines.append(
-        "OUTPUT STYLE: professional editorial furniture-brand photography, "
-        "photorealistic, coherent high-end art direction, natural color grading."
-    )
-    negative = (
-        "NEGATIVE (must not appear in output): any rendered text, typography, "
-        "logos, watermarks or UI elements — leave clean negative space where "
-        "a masthead or headline would be placed."
-    )
-    if people not in _PEOPLE_TO_PROMPT:
-        negative += " No people, no human figures, no faces, no body parts."
-    lines.append(negative)
-    return "\n".join(lines)
+    return compile_prompt(spec)

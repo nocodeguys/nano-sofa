@@ -54,7 +54,12 @@ Outputs: PNG/JPG → outputs/  (volume-mounted in Docker; EXIF-stamped "Nano Sof
    model's `max_refs` cap and fixes the slot order; the prompt text and the
    trace number slots from the attached list, never from the declared
    fields, so a dropped reference can never mislabel the ones after it.
-   `generator.generate()` then assembles the prompt, flattens alpha,
+   The prompt text itself comes from `app/core/prompt/`: the request is
+   turned into a `PromptSpec` (`product_spec`), and `compile_prompt` emits
+   the paragraphs in the order fixed in `compile.py`, with the wording in
+   `sections.py`. Editorial fills the same spec via `freeform_spec`. Any
+   change to wording or order shows up in `tests/golden/` (see
+   `docs/EVAL.md`). `generator.generate()` then flattens alpha,
    calls Gemini with exponential backoff, classifies failures, saves the
    image, logs cost to SQLite (`app/state/costs.db`).
 4. Debugging wording: `NANO_SOFA_LOG_PROMPT=1` dumps the full prompt that
@@ -104,10 +109,12 @@ and Experiments treat every engine alike:
 
 | What | Where | Notes |
 |---|---|---|
-| Model catalogue + constraints (max refs, resolutions) | `prompts/schemas/sofa.json` | The contract. Editable without code; takes effect on server restart. UI reads it via `/api/config`. |
+| Model registry: ids, engine, caps, resolutions, aspects, prices, deprecation, ETA seeds, defaults per surface | `app-v2/models.json` via `app/core/model_registry.py` | Since 2026-10-20 the ONLY place a model id or price may appear (`tests/test_model_registry.py` greps the tree). Server, cost tracker, engines and the UI (`/api/config`) all read it. |
+| Prompt contract (preserve lists, system instruction, output vocab) | `prompts/schemas/sofa.json` | No longer carries models. Takes effect on server restart. |
 | Leg reference library | `legs/manifest.json` + renders | See `legs/ADDING-A-LEG.md`. |
-| Materials & colors | **currently duplicated in 5 places** — see invariant below | Being consolidated server-side, served via `/api/config`. |
-| Model research notes | `docs/research/nano-banana-state.md` | Refreshed by the `nano-banana-researcher` agent. |
+| Materials, colours, **backdrops and scenes** | `app-v2/catalog.json` | Since 2026-10-20 (phase 3) a backdrop entry carries everything about one studio look: hex, the prompt paragraph, the curated plate, the look locks (= catalog treatment) and the normalize tones. Server (`studio/catalog.py`, `mappings`, `normalize`), browser (`/catalog.js`) and tests read the same entry. |
+| Model research notes | `docs/research/nano-banana-state.md`, `docs/research/gpt-image-state.md` | Refreshed by the `nano-banana-researcher` / `gpt-image-researcher` agents. |
+| Evaluation harness | `scripts/eval_cases.py`, `tests/golden/`, `scripts/eval_matrix.py`, `scripts/eval_report.py` | See `docs/EVAL.md`. Any prompt change must update the goldens in the same PR. |
 
 ## Invariants (hard-won — do not relearn these)
 
@@ -135,6 +142,43 @@ and Experiments treat every engine alike:
 6. **`/docs` belongs to Swagger**; the user guide lives at `/help`.
 7. **Beds vs sofas share one pipeline**: `product_type` switches prompt
    blocks; platform/divan beds set `leg_count=0`.
+8. **The CAMERA paragraph owns the viewpoint** (2026-10-20, phase 2b). The
+   system instruction protects product identity only; it must never say
+   "preserve camera angle" — with that sentence the model ignored every
+   requested yaw (measured: `docs/eval/baseline-nb2-or.md`). Camera comes
+   in the first ~6 % of the prompt, before the backdrop and the material
+   paragraphs; nothing after it re-describes a viewpoint.
+9. **Every attached image is described, with a scope.** Each reference
+   paragraph names what to take and ends with what not to take ("take
+   nothing else"). A detail / macro shot never gets images that show a
+   whole product at hero distance (the cyclorama plate, the in-use photo):
+   `plan_reference_slots` drops them, so a macro cannot be pulled back to a
+   hero by its own references (measured: mask 0.31 → 0.74).
+10. **Wording changes are measured, not argued.** Change `app/core/prompt/`,
+    update `tests/golden/`, run `scripts/eval_matrix.py` on the same model
+    as the last baseline, link the compare in the PR (`docs/EVAL.md`).
+11. **Exactly three background inputs** (phase 3): a backdrop id, a scene id,
+    or `custom` with the user's photo — one form field, `background`, one
+    picker (section 01). `catalog`, `catalog_profile` and `env` are accepted
+    as aliases for old presets and map onto it. A scene upload is accepted
+    only for `custom` or with `scene_from_render=1` (a previous render reused
+    as the room, which the prompt then names truthfully). A locked backdrop
+    replaces any caller scene with its own plate and strips moodboards. The
+    old "tryb" select, tweaks panel, anchor picker and alpha checkbox are gone
+    because none of them reached the prompt (`tests/test_background.py`).
+12. **A locked backdrop locks the light, not the camera** (phase 4). Its
+    `locks` block is `tod` + `shadow`; `camera_defaults` fill only fields a
+    client left empty. Shot type, lens, depth of field, height, yaw and the
+    detail region are the caller's under every background. The numeric
+    CATALOG FRAMING CONTRACT exists for `hero` only; `close_up`,
+    `detail_fabric` and `detail_corner` are `TIGHT_SHOTS`: no plate, no
+    in-use photo, their own CAMERA / SCENE paragraphs, no normalization.
+13. **The JSON preview is the request** (phase 5). `wizard/request.js`
+    builds the multipart entries once; the JSON tab, the footer's reference
+    budget and the three POSTs (Generuj, Warianty, Seria) all read those
+    entries. `referenceBudget` mirrors `plan_reference_slots` so the UI can
+    say which images will be attached — the server stays the authority;
+    when the planner's rules change, change the mirror in the same PR.
 
 ## Deploy loop
 
@@ -154,6 +198,36 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 - [x] Single source of truth for materials/colors (`app-v2/catalog.json` + `/catalog.js`)
 - [x] Vite build: production React, ES modules, self-hosted fonts, hashed assets
 - [x] Split `server.py` into `studio/` modules (paths, catalog, mappings, request_builder, media, routes_*)
-- [ ] Split the frontend `App()` (~2300 lines) into components — now easy with ES modules, do it opportunistically as sections get touched
+- [x] Split the frontend `App()` into components — started 2026-10-21 (phase 5): `src/wizard/` holds Tło, Kamera, Referencje, Pościel and the Section wrappers; `wizard/request.js` is the one request builder (FormData, JSON preview and the reference budget come from the same entries). Colour / material / size / legs / base photo and the stage panes are still inline in `app-v2.jsx` (~2200 lines)
 - [x] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests gating CI
-- [ ] Decide fate of the WebGL 3D preview branch (`worktree-webgl-3d-preview`, 15 commits behind)
+- [x] WebGL 3D preview branch — **archived, not merged** (2026-10-21). `worktree-webgl-3d-preview` holds two commits (a WebGL bed preview, a VPS brief) on top of the pre-split monolith, 40+ commits behind; nothing it touches exists in that shape any more. The local worktree checkout is removed; the branch stays on origin as a reference. A 3D preview, if wanted, is re-implemented against `src/wizard/` components.
+- [x] Predictability refactor, phases 0–6 (2026-10-20/21): see `docs/REFACTOR-PLAN-2026-10.md` for the diagnosis, each phase's gate and what is still unmeasured.
+
+## How to change the prompt
+
+The prompt is compiled, not written by hand per call. To change what the
+model reads:
+
+1. **Wording** → `app/core/prompt/sections.py`, one function per paragraph.
+   **Order** → `app/core/prompt/compile.py` (`PRODUCT_ORDER`, `FREEFORM_ORDER`).
+   **Which fields exist** → `app/core/prompt/spec.py` (`PromptSpec`), filled by
+   `from_request.product_spec` / `freeform_spec`. The persona (system
+   instruction) → `prompts/schemas/sofa.json`; backdrop paragraphs → `app-v2/catalog.json`
+   `backdrops[].prompt_en`; material nouns / specs → `catalog.json` `materials[]`.
+2. **Which images attach, in what order** → `app/core/generator.plan_reference_slots`
+   (and `plan_freeform_reference_slots`). Mirror any rule change in
+   `frontend/src/wizard/request.js` `referenceBudget` so the UI's "N obrazów
+   do modelu" stays truthful.
+3. Run `pytest`. `tests/test_golden_prompts.py` fails with a diff for every
+   case whose prompt, reference list or system instruction changed. If the
+   change is intended: `pytest tests/test_golden_prompts.py --update-golden`,
+   then **read `git diff tests/golden/`** — that diff is the change, and it
+   goes into the same commit.
+4. Measure before you argue: `scripts/eval_matrix.py --model <same model as the
+   last baseline>`, then `scripts/eval_report.py compare <baseline> <run>`.
+   Link the compare in the PR; copy the report into `docs/eval/`. The
+   invariants above (1, 4, 8, 9) are things measurement already settled —
+   do not re-learn them.
+5. Never add a model id, price or cap outside `app-v2/models.json`, never a
+   backdrop outside `catalog.json`, never a second place that decides the
+   background (`tests/test_model_registry.py`, `tests/test_background.py`).

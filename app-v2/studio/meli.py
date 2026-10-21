@@ -33,6 +33,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image
 
+from app.core.model_registry import registry
 from studio.errors import _validation_error
 from studio.external_engine import ALL_ASPECTS, ExternalEngineError
 from studio.media import _derived_url, _parse_quality, _prune_storage, _save_upload
@@ -76,7 +77,7 @@ def snap_opacity(value) -> Optional[int]:
         return None
     return min(OPACITY_LEVELS, key=lambda level: abs(level - number))
 _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
-_DEFAULT_MODEL = "google/gemini-nano-banana-2.1"
+_DEFAULT_MODEL = registry.default_for("meli")   # app-v2/models.json
 # Base photo + finish photos + colour patch. A model with a smaller cap keeps
 # the base photo and drops the finish photos from the end.
 _MAX_FINISH_REFS = 4

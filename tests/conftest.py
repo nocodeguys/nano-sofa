@@ -18,6 +18,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--update-golden", action="store_true", default=False,
+        help="rewrite tests/golden/*.txt from the current code instead of comparing",
+    )
+
+
+@pytest.fixture(scope="session")
+def update_golden(request) -> bool:
+    return bool(request.config.getoption("--update-golden"))
+
+
 def _load_server():
     spec = importlib.util.spec_from_file_location(
         "nano_sofa_server", REPO_ROOT / "app-v2" / "server.py"

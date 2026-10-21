@@ -24,7 +24,6 @@ if str(APP_V2) not in sys.path:
 
 from app.core.generator import (  # noqa: E402
     _build_prompt_text,
-    _collect_reference_images,
     plan_reference_slots,
     slot_numbers,
 )
@@ -62,14 +61,18 @@ def _request(server, base_image, **over):
 # --------------------------------------------------------------------------
 # The locked profile
 # --------------------------------------------------------------------------
-def test_catalog_mode_overrides_look_settings(server, base_image):
-    """Catalog mode ignores conflicting look settings — that is its whole job."""
+def test_catalog_mode_locks_the_light_and_keeps_the_callers_camera(server, base_image):
+    """A locked backdrop pins the light (that is what makes a range read as
+    one session); since phase 4 the camera stays with the caller, and only
+    an empty camera field takes the backdrop's default."""
     req = _request(server, base_image, catalog=True)
-
-    assert req.focal_length_mm == 85          # 85mm_product, not the 35mm asked for
-    assert req.aperture == "f/8.0"            # deep, not the default standard
     assert "golden" not in req.tod_description.lower()
     assert "hard" not in req.shadow_description.lower()
+    assert req.focal_length_mm == 35          # the 35mm the caller asked for survives
+
+    old_client = _request(server, base_image, catalog=True, lens="", dof="", height="")
+    assert old_client.focal_length_mm == 85   # 85mm_product default
+    assert old_client.aperture == "f/8.0"     # deep default
 
 
 @pytest.mark.parametrize("profile,hex_tone", [
@@ -114,7 +117,9 @@ def test_catalog_uses_its_canonical_empty_studio_reference(
     )
     assert Path(req.scene_reference_image).name == filename
     assert "yellow sunset" not in req.notes
-    assert not req.preserve_camera_from_base
+    # Phase 4: keeping image 1's camera is a camera choice, and the camera
+    # belongs to the caller even under a locked backdrop.
+    assert req.preserve_camera_from_base
 
 
 def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
@@ -133,12 +138,12 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     assert req.material_application_reference_image is None
     # 2.5-flash caps at 3 refs: base + cyclorama + macro. The colour patch
     # does not fit and must not be named in the prompt.
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    assert len(plan_reference_slots(req)) == 3
     roles = [slot.role for slot in plan_reference_slots(req)]
     assert roles == ["base_product", "scene", "material_macro"]
 
     text = _build_prompt_text(req)
-    assert "MATERIAL TEXTURE AUTHORITY (slot 3)" in text
+    assert "MATERIAL TEXTURE AUTHORITY (image 3)" in text
     assert "COLOUR AUTHORITY" not in text
     assert "IGNORE the photographed colour" in text
     assert req.upholstery_color in text
@@ -161,9 +166,9 @@ def test_cremona_uses_the_supplied_canonical_texture_reference(
     # plan_reference_slots, and the prompt only names attached slots.
     assert Path(req.material_behavior_reference_image).name == "cremona-behavior.jpg"
     assert Path(req.material_application_reference_image).name == "cremona-application.png"
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    assert len(plan_reference_slots(req)) == 3
     text = _build_prompt_text(req)
-    assert "MATERIAL TEXTURE AUTHORITY (slot 3)" in text
+    assert "MATERIAL TEXTURE AUTHORITY (image 3)" in text
     assert "MULTI-ANGLE" not in text
     assert "LIGHT-RESPONSE" not in text
     assert "IN-USE SCALE CHECK" not in text
@@ -184,13 +189,13 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert Path(req.material_application_reference_image).name == "cremona-application.png"
     # base, cyclorama, macro, colour patch, left, right, behaviour,
     # application = 8 attached on a 14-ref model.
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 8
+    assert len(plan_reference_slots(req)) == 8
     text = _build_prompt_text(req)
-    assert "COLOUR AUTHORITY (slot 4)" in text
-    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (slots 5 and 6)" in text
-    assert "FABRIC LIGHT-RESPONSE AUTHORITY (slot 7)" in text
+    assert "COLOUR AUTHORITY (image 4)" in text
+    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 5 and 6)" in text
+    assert "FABRIC LIGHT-RESPONSE AUTHORITY (image 7)" in text
     assert "MATERIAL EVIDENCE HIERARCHY — HARD REQUIREMENT" in text
-    assert "FABRIC IN-USE SCALE CHECK (slot 8)" in text
+    assert "FABRIC IN-USE SCALE CHECK (image 8)" in text
     assert "stable three-dimensional yarn relief" in text
     assert "do not average the two views into a smooth surface" in text
     assert "reversible directional sheen" in text
@@ -205,7 +210,7 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert "physical sample photographs" in text
     assert "can never override or reinterpret those samples" in text
     assert "never the reference piece's geometry" in text
-    assert "Slot 1 remains the absolute product-geometry authority" in text
+    assert "Image 1 remains the absolute product-geometry authority" in text
 
 
 def test_boucle_reference_set_uses_looped_wording_not_cremona_pile(
@@ -229,9 +234,9 @@ def test_boucle_reference_set_uses_looped_wording_not_cremona_pile(
     assert req.material_structure == "looped"
     text = _build_prompt_text(req)
 
-    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (slots 5 and 6)" in text
-    assert "FABRIC LIGHT-RESPONSE AUTHORITY (slot 7)" in text
-    assert "FABRIC IN-USE SCALE CHECK (slot 8)" in text
+    assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 5 and 6)" in text
+    assert "FABRIC LIGHT-RESPONSE AUTHORITY (image 7)" in text
+    assert "FABRIC IN-USE SCALE CHECK (image 8)" in text
     assert "coarse looped textile" in text
     assert "Preserve the same individual loops and loop clusters" in text
     assert "never forms thin sharp creases" in text
@@ -260,7 +265,7 @@ def test_catalog_backdrop_explicitly_rejects_material_reference_bleed(
     assert "no bouclé loops" in text
     assert "SOURCE BACKGROUND DISCARD" in text
     assert "Treat every pixel outside the product silhouette" in text
-    assert "Never average, blend or reconcile slot 1's background" in text
+    assert "Never average, blend or reconcile image 1's background" in text
 
 
 def test_material_without_canonical_swatch_gets_the_colour_patch_instead(
@@ -270,9 +275,9 @@ def test_material_without_canonical_swatch_gets_the_colour_patch_instead(
     assert req.swatch_reference_image is None
     roles = [slot.role for slot in plan_reference_slots(req)]
     assert roles == ["base_product", "scene", "color_patch"]
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    assert len(plan_reference_slots(req)) == 3
     text = _build_prompt_text(req)
-    assert "COLOUR AUTHORITY (slot 3)" in text
+    assert "COLOUR AUTHORITY (image 3)" in text
     assert "#C3BEB6" in text
 
 
@@ -293,8 +298,8 @@ def test_slot_numbers_follow_attached_images_not_declared_fields(
     roles = [slot.role for slot in plan]
     assert roles == ["base_product", "material_macro", "color_patch"]
     text = _build_prompt_text(req, slot_numbers(plan))
-    assert "MATERIAL TEXTURE AUTHORITY (slot 2)" in text
-    assert "COLOUR AUTHORITY (slot 3)" in text
+    assert "MATERIAL TEXTURE AUTHORITY (image 2)" in text
+    assert "COLOUR AUTHORITY (image 3)" in text
     assert "MULTI-ANGLE" not in text
     assert "moodboard" not in text.lower() or "REFERENCE LOCK" not in text
 
@@ -346,8 +351,11 @@ def test_variant_scene_that_contains_the_product_is_never_called_empty(
 ):
     from dataclasses import replace
 
+    # An UNLOCKED studio backdrop: a locked one swaps any caller scene for
+    # its curated plate, so the "previous render as backdrop" case cannot
+    # arise there.
     req = _request(
-        server, base_image, env="cyclorama_neutral", env_mode="",
+        server, base_image, env="grey", env_mode="",
         scene_image_path=base_image,
     )
     honest = replace(req, scene_contains_product=True)

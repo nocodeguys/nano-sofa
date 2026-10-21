@@ -7,7 +7,18 @@
 
 ## Why these fields
 
-### `model` is now an enum, not a free string
+> **2026-10-21:** `reference_slots` (the 4-slot model) and the `negative`
+> default list were removed as well — references are planned in
+> `app/core/generator.plan_reference_slots` and what must not appear comes
+> from each material's `avoid_en` in `catalog.json`.
+>
+> **2026-10-20:** the `model` enum and the `model_constraints` block were
+> removed from the schema. Model ids, reference caps, resolutions and prices
+> now live in `app-v2/models.json` (see `app/core/model_registry.py` and
+> ARCHITECTURE.md "Sources of truth"). The two sections below are kept as
+> history of why the constraints were made explicit in the first place.
+
+### `model` is now an enum, not a free string (historical)
 
 In v0.1.0, `model` was an unconstrained string. The research pass (2026-05-08) confirmed that `gemini-2.5-flash-image-preview` was shut down on January 15, 2026 and will return a 404 on any call. An unconstrained string field means that stale model IDs pass schema validation silently. The enum now limits the field to the three currently live IDs. The Gradio app should still gate on this, but the schema is the first line of defense.
 
