@@ -1110,6 +1110,42 @@ button { font-family: inherit; }
 .cam-name { font-size: 12px; }
 .cam-prop { font-size: 10.5px; color: var(--ink-3); margin-top: 1px; }
 
+/* section 08 — product-page frame tiles + collapsed raw controls */
+.frame-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.cam.frame { text-align: center; }
+.cam.frame:hover { border-color: var(--line-2); }
+.cam.frame.sel:hover { border-color: var(--ink); }
+.cam.frame.off { opacity: .45; cursor: not-allowed; }
+.frame-glyph {
+  height: 54px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-2); color: var(--ink-3);
+}
+.cam.frame.sel .frame-glyph { color: var(--ink); }
+.frame-set { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.frame-set-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 500;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer;
+}
+.frame-set-btn .cost { font-family: 'Geist Mono', monospace; font-size: 11px; opacity: .7; }
+.frame-set-btn:disabled { opacity: .6; cursor: progress; }
+.frame-set-note { font-size: 12px; color: var(--ink-3); display: inline-flex; align-items: center; }
+.frame-set-err { flex-basis: 100%; font-size: 11.5px; color: #A33A2E; }
+.cam-advanced { margin-top: 14px; }
+.cam-advanced > summary {
+  cursor: pointer; font-size: 12px; color: var(--ink-3);
+  list-style: none; display: inline-flex; align-items: center; gap: 6px;
+}
+.cam-advanced > summary::-webkit-details-marker { display: none; }
+.cam-advanced > summary::before { content: "+"; font-family: 'Geist Mono', monospace; transition: transform var(--t-fast); }
+.cam-advanced[open] > summary::before { transform: rotate(45deg); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 6px 11px; border-radius: 8px; font-size: 12px;
+  border: 1px solid var(--line-2); background: transparent; color: var(--ink); cursor: pointer;
+}
+.chip.on { border: 1.5px solid var(--ink); background: var(--bg-2); font-weight: 600; }
+
 /* selects row */
 .tri-row {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;

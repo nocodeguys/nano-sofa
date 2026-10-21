@@ -2,215 +2,229 @@ import React from "react";
 import { NS_DATA } from "../data.jsx";
 import { Section } from "./Section.jsx";
 
-const { CAMERAS, SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
+const { SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
         CLOSE_REGIONS_BED, CLOSE_REGIONS_SOFA, CAMERA_HEIGHTS, CAMERA_YAWS,
         DEPTHS_OF_FIELD, LENSES, TIMES_OF_DAY, SHADOWS } = NS_DATA;
 
-// Szybki preset → seeded structured fields. Mirrors _CAM_PRESET_TO_STRUCTURED
-// in studio/mappings.py (server-side fallback for legacy form posts) but adds
-// the lens / DoF / detail-region that the UI also seeds on click. App uses it
-// to highlight the matching tile (`matchedPreset`).
-export const CAM_PRESET_DEFAULTS = {
-  studio: { shot: "hero",          yaw: "34_left",  height: "eye",      lens: "50mm_natural",  dof: "standard" },
-  lounge: { shot: "hero",          yaw: "34_right", height: "eye",      lens: "50mm_natural",  dof: "standard" },
-  loft:   { shot: "hero",          yaw: "34_left",  height: "eye",      lens: "35mm_wide",     dof: "standard" },
-  detail: { shot: "detail_fabric", yaw: "front",    height: "eye",      lens: "100mm_macro",   dof: "macro_shallow", detailRegion: "weave" },
-  eye:    { shot: "hero",          yaw: "front",    height: "eye",      lens: "50mm_natural",  dof: "standard" },
-  top:    { shot: "hero",          yaw: "front",    height: "overhead", lens: "50mm_natural",  dof: "standard" },
-};
+// The product-page shot list — what a shop like Westwing shows per bed:
+// 3/4 hero, front, side profile, back, from above, a close-up of the
+// headboard / armrest, and a fabric macro. One click seeds shot / yaw /
+// height / region; lens and DoF follow the shot (see framePatch). Lifestyle
+// interiors are a background choice (section 01), not a camera one.
+const FRAMES = [
+  { id: "hero",   name: "3/4 hero",   hint: "główne zdjęcie",  shot: "hero",          yaw: "34_left",    height: "eye" },
+  { id: "front",  name: "Front",      hint: "na wprost",       shot: "hero",          yaw: "front",      height: "eye" },
+  { id: "side",   name: "Bok",        hint: "profil",          shot: "hero",          yaw: "side_left",  height: "eye" },
+  { id: "back",   name: "Tył",        hint: "od tyłu",         shot: "hero",          yaw: "back",       height: "eye" },
+  { id: "top",    name: "Z góry",     hint: "45°, aranżacja",  shot: "hero",          yaw: "34_left",    height: "overhead" },
+  { id: "close",  name: "Zbliżenie",  hint: "",                shot: "close_up",      yaw: "34_left",    height: "eye" },
+  { id: "fabric", name: "Tkanina",    hint: "makro splotu",    shot: "detail_fabric", yaw: "front",      height: "eye", region: "weave" },
+];
 
-/* 08 — camera and framing. Always fully available; a locked backdrop only
-   greys out the light selects (the server locks tod / shadow). */
-export function CameraSection({ st, set, bgLocked, lensObj, camObj, matchedPreset, baseCamLocked }) {
+// The close-up subject differs by product: headboard corner on a bed,
+// armrest on a sofa (the regions Westwing / catalogue pages actually show).
+function framesFor(kind) {
+  return FRAMES.map(f => f.id !== "close" ? f : kind === "bed"
+    ? { ...f, hint: "narożnik wezgłowia", region: "bed_corner_head" }
+    : { ...f, hint: "podłokietnik",       region: "sofa_armrest" });
+}
+
+// Which frame tile the current structured fields correspond to, or null when
+// the user has drifted into custom settings. Lens / DoF are refinements and
+// do not un-highlight a frame. Also sent as `camera_preset` in the JSON tab.
+export function matchFrame(st) {
+  for (const f of framesFor(st.kind)) {
+    if (f.shot !== st.shot || f.height !== st.height) continue;
+    if (f.region ? f.region !== st.detailRegion : f.yaw !== st.yaw) continue;
+    return f.id;
+  }
+  return null;
+}
+
+function framePatch(f, bgObj, bgLocked) {
+  const patch = { shot: f.shot, yaw: f.yaw, height: f.height, preserveBaseCamera: false };
+  if (f.region) patch.detailRegion = f.region;
+  if (f.shot === "detail_fabric") Object.assign(patch, { lens: "100mm_macro", dof: "macro_shallow" });
+  else if (f.shot === "close_up") Object.assign(patch, { lens: "85mm_product", dof: "shallow" });
+  else if (bgLocked) {
+    const d = bgObj?.cameraDefaults || {};
+    Object.assign(patch, { lens: d.lens || "85mm_product", dof: d.dof || "deep" });
+  } else Object.assign(patch, { lens: "50mm_natural", dof: "standard" });
+  return patch;
+}
+
+// The whole shot list as wizard-state patches, for "Generuj cały zestaw":
+// one /api/generate per frame, everything else in the wizard unchanged.
+export function frameSet(st, bgObj, bgLocked) {
+  return framesFor(st.kind).map(f => ({ id: f.id, name: f.name, patch: framePatch(f, bgObj, bgLocked) }));
+}
+
+/* Line pictograms of the furniture from each frame's camera position. */
+function FrameGlyph({ id }) {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round", strokeLinecap: "round" };
   return (
-<Section num="08" title="Kamera i kadrowanie" summary={(() => {
-  if (baseCamLocked) return "z bazowego zdjęcia · " + (lensObj?.name?.split(" — ")[0] || "—");
-  const shotObj = SHOT_TYPES.find(s => s.id === st.shot);
-  let regionTable = null;
-  if (st.shot === "detail_fabric") regionTable = DETAIL_REGIONS_FABRIC;
-  else if (st.shot === "detail_corner") regionTable = DETAIL_REGIONS_CORNER;
-  else if (st.shot === "close_up") regionTable = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
-  const regionObj = regionTable ? regionTable.find(r => r.id === st.detailRegion) : null;
-  const parts = [shotObj?.name || camObj?.name];
-  if (regionObj) parts.push(regionObj.name);
-  parts.push(lensObj?.name?.split(" — ")[0] || "—");
-  return parts.filter(Boolean).join(" · ");
-})()}
-  help="Wybierz typ kadru, obrót, obiektyw i głębię. Zbliżenia i detale makro nie dostają planszy tła ani zdjęcia całego mebla, a kontrakt kadrowania katalogu dotyczy tylko ujęcia hero.">
-  {bgLocked && (
-    <div style={{
-      marginBottom:12, padding:"10px 12px", borderRadius:10,
-      border:"1px solid rgba(95,122,86,.28)", background:"rgba(95,122,86,.06)",
-      fontSize:12, lineHeight:1.5,
-    }}>
-      Tło katalogowe blokuje tylko światło (południe, miękkie cienie). Kadr, obrót,
-      obiektyw, głębia i region są Twoje; render hero jest normalizowany do profilu.
+    <svg width="64" height="40" viewBox="0 0 64 40" aria-hidden="true">
+      {id === "base" && <g {...p}><rect x="8" y="6" width="48" height="28" rx="2"/><path d="M16 28l10-10 7 7 5-4 10 7"/><circle cx="44" cy="14" r="3"/></g>}
+      {id === "hero" && <g {...p}><path d="M10 28l14 6 30-8-14-5z"/><path d="M10 28v3l14 6 30-8v-3"/><path d="M40 21V9l14 4v13"/></g>}
+      {id === "front" && <g {...p}><rect x="12" y="8" width="40" height="14" rx="5"/><rect x="8" y="22" width="48" height="10" rx="2"/></g>}
+      {id === "side" && <g {...p}><path d="M8 32V8h5v15"/><rect x="8" y="23" width="48" height="9" rx="2"/></g>}
+      {id === "back" && <g {...p}><rect x="12" y="6" width="40" height="22" rx="5"/><path d="M8 28h48v4H8z"/></g>}
+      {id === "top" && <g {...p}><path d="M14 30l6-24h24l6 24z"/><path d="M21 8h22v5H21z"/><path d="M16 22h32"/></g>}
+      {id === "close" && <g {...p}><path d="M14 36V12a8 8 0 0 1 8-8h34"/><path d="M14 26h42"/><circle cx="22" cy="20" r="0.6" fill="currentColor"/></g>}
+      {id === "fabric" && <g {...p} strokeWidth="1.1"><path d="M8 10h48M8 17h48M8 24h48M8 31h48"/><path d="M14 6v28M24 6v28M34 6v28M44 6v28M54 6v28" strokeDasharray="3 4"/></g>}
+    </svg>
+  );
+}
+
+/* 08 — camera and framing. Picking a frame is the whole job; the raw
+   controls stay available under "Ustawienia zaawansowane". A locked
+   backdrop only greys out the light selects (the server locks tod / shadow). */
+export function CameraSection({ st, set, bgObj, bgLocked, lensObj, baseCamLocked, frameRun, onGenerateSet, setCost }) {
+  const frames = framesFor(st.kind);
+  const current = baseCamLocked ? "base" : matchFrame(st);
+  const curFrame = frames.find(f => f.id === current);
+  const tile = (id, name, hint, onClick, disabled) => (
+    <div key={id} className={"cam frame" + (current === id ? " sel" : "") + (disabled ? " off" : "")}
+         onClick={disabled ? undefined : onClick} title={disabled ? "wgraj najpierw zdjęcie bazowe (sekcja 02)" : undefined}>
+      <div className="frame-glyph"><FrameGlyph id={id} /></div>
+      <div className="cam-meta">
+        <div className="cam-name">{name}</div>
+        {hint && <div className="cam-prop">{hint}</div>}
+      </div>
     </div>
-  )}
-  <label style={{
-    display:"flex", alignItems:"flex-start", gap:8, marginBottom:12,
-    padding:"10px 12px", border:"1px solid var(--line-2)", borderRadius:10,
-    background: baseCamLocked ? "rgba(95,122,86,.06)" : "var(--bg-1)",
-    cursor: st.uploaded ? "pointer" : "not-allowed",
-    opacity: st.uploaded ? 1 : 0.55,
-    fontSize:12.5, lineHeight:1.45,
-  }}>
-    <input
-      type="checkbox"
-      checked={baseCamLocked}
-      disabled={!st.uploaded}
-      onChange={e => set({ preserveBaseCamera: e.target.checked })}
-      style={{marginTop:2, flexShrink:0}} />
-    <span>
-      <strong style={{fontWeight:600}}>Zachowaj kąt i sylwetkę z bazowego zdjęcia</strong>
-      {!st.uploaded
-        ? " — wgraj najpierw zdjęcie bazowe w sekcji 02, żeby włączyć tę opcję."
-        : " — kamera, kadrowanie, dystans i pozycja produktu pochodzą wtedy z bazowego zdjęcia (sekcja 02). Idealne do macro / detal crop, kiedy nie chcesz, by model „doframował” pełny produkt. Kolor, materiał, rozmiar i otoczenie nadal pochodzą z kreatora."}
-    </span>
-  </label>
-  {/* Quick preset — clicking a tile also seeds the structured fields
-      below (yaw, height, shot type, lens, DoF) so the user has a
-      sensible starting point that they can then tweak. Mirrors
-      _CAM_PRESET_TO_STRUCTURED in server.py. */}
-  <div className="field-lbl">szybki preset</div>
-  <div className="cam-grid" style={baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : undefined}>
-    {CAMERAS.map(c => (
-      <div key={c.id} className={"cam " + (matchedPreset === c.id ? "sel" : "")} onClick={() => {
-        set({ cam: c.id, ...(CAM_PRESET_DEFAULTS[c.id] || {}) });
-      }}>
-        <div className={"cam-render " + (c.style || "")}>
-          <div className="floor"></div>
-          <div className="obj"></div>
+  );
+
+  let regions = null;
+  if (st.shot === "detail_fabric") regions = DETAIL_REGIONS_FABRIC;
+  else if (st.shot === "detail_corner") regions = DETAIL_REGIONS_CORNER;
+  else if (st.shot === "close_up") regions = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
+  const isDetail = st.shot === "detail_fabric" || st.shot === "detail_corner";
+  const lensName = lensObj?.name?.split(" — ")[0] || "—";
+  const summary = current === "base" ? "jak na zdjęciu bazowym"
+    : curFrame ? curFrame.name + " · " + lensName
+    : "własne ustawienia · " + lensName;
+
+  return (
+<Section num="08" title="Kadr" summary={summary}
+  help="Wybierz jeden kadr na render. Pełna karta produktu to zwykle te siedem ujęć plus aranżacja we wnętrzu (tło z sekcji 01).">
+  <div className="cam-grid frame-grid">
+    {tile("base", "Jak na zdjęciu", "kąt z sekcji 02", () => set({ preserveBaseCamera: true }), !st.uploaded)}
+    {frames.map(f => tile(f.id, f.name, f.hint, () => set(framePatch(f, bgObj, bgLocked))))}
+  </div>
+
+  {/* Whole set in one click — the frame tile above only picks the next
+      single render; this renders all seven with the rest of the wizard. */}
+  <div className="frame-set">
+    <button type="button" className="frame-set-btn" disabled={!!frameRun?.busy} onClick={() => onGenerateSet()}>
+      {frameRun?.busy
+        ? <>Generuję zestaw… {frameRun.done}/{frameRun.total}</>
+        : <>Generuj cały zestaw · {frames.length} kadrów <span className="cost">${setCost}</span></>}
+    </button>
+    {frameRun && !frameRun.busy && (
+      <span className="frame-set-note">
+        {frameRun.failed.length === 0
+          ? `Gotowe ${frameRun.done}/${frameRun.total} — kadry są w galerii.`
+          : `Gotowe ${frameRun.done - frameRun.failed.length}/${frameRun.total}. Nie wyszło: ${frameRun.failed.map(f => f.name).join(", ")}.`}
+        {frameRun.failed.length > 0 && (
+          <button type="button" className="chip" style={{marginLeft:8}}
+            onClick={() => onGenerateSet(frameRun.failed.map(f => f.id))}>Ponów nieudane</button>
+        )}
+      </span>
+    )}
+    {frameRun?.failed?.length > 0 && !frameRun.busy && (
+      <div className="frame-set-err">{frameRun.failed[0].error?.message}</div>
+    )}
+  </div>
+
+  <details className="cam-advanced">
+    <summary>Ustawienia zaawansowane — kadr, obiektyw, światło</summary>
+
+    <div style={baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : undefined}>
+      <div className="field-lbl" style={{marginTop:12}}>typ kadru</div>
+      <div className="chip-row">
+        {SHOT_TYPES.map(s => (
+          <button key={s.id} type="button" title={s.hint}
+            className={"chip" + (st.shot === s.id ? " on" : "")}
+            onClick={() => {
+              const patch = { shot: s.id };
+              if (s.id === "detail_fabric" || s.id === "detail_corner") {
+                patch.lens = (st.lens === "35mm_wide" || st.lens === "50mm_natural") ? "100mm_macro" : st.lens;
+                patch.dof = "macro_shallow";
+                const table = s.id === "detail_fabric" ? DETAIL_REGIONS_FABRIC : DETAIL_REGIONS_CORNER;
+                patch.detailRegion = table.some(r => r.id === st.detailRegion) ? st.detailRegion : table[0].id;
+              }
+              if (s.id === "close_up") {
+                // 85 mm flatters the close-up; never downgrade a longer lens.
+                if (st.lens === "35mm_wide" || st.lens === "50mm_natural") patch.lens = "85mm_product";
+                patch.dof = "shallow";
+                const table = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
+                patch.detailRegion = table.some(r => r.id === st.detailRegion) ? st.detailRegion
+                  : (st.kind === "bed" ? "bed_corner_head" : "sofa_corner");
+              }
+              set(patch);
+            }}>{s.name}</button>
+        ))}
+      </div>
+
+      {regions && (
+        <>
+          <div className="field-lbl" style={{marginTop:12}}>{st.shot === "close_up" ? "obszar zbliżenia" : "obszar detalu"}</div>
+          <div className="chip-row">
+            {regions.map(r => (
+              <button key={r.id} type="button" className={"chip" + (st.detailRegion === r.id ? " on" : "")}
+                onClick={() => set({ detailRegion: r.id })}>{r.name}</button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Yaw / height are dimmed for detail shots: the macro crop fills the
+          frame regardless of where the camera stands. */}
+      <div className="tri-row">
+        <div style={isDetail ? {opacity:0.45, pointerEvents:"none"} : undefined}>
+          <div className="field-lbl">kąt</div>
+          <select className="select" value={st.yaw} onChange={e => set({ yaw: e.target.value })}>
+            {CAMERA_YAWS.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
+          </select>
         </div>
-        <div className="cam-meta">
-          <div className="cam-name">{c.name}</div>
-          <div className="cam-prop">{c.prop}</div>
+        <div style={isDetail ? {opacity:0.45, pointerEvents:"none"} : undefined}>
+          <div className="field-lbl">wysokość kamery</div>
+          <select className="select" value={st.height} onChange={e => set({ height: e.target.value })}>
+            {CAMERA_HEIGHTS.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="field-lbl">głębia ostrości</div>
+          <select className="select" value={st.dof} onChange={e => set({ dof: e.target.value })}>
+            {DEPTHS_OF_FIELD.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
         </div>
       </div>
-    ))}
-  </div>
+    </div>
 
-  {/* Shot type — primary framing intent. Detail variants suppress
-      the cyclorama SCENE block server-side and emit an OOF-background
-      line, so the model actually crops to the detail region instead
-      of falling back to a hero packshot. */}
-  <div className="field-lbl" style={{marginTop:16}}>typ kadru</div>
-  <div className="cam-grid" style={{
-    gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))",
-    ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
-  }}>
-    {SHOT_TYPES.map(s => (
-      <div key={s.id} className={"cam " + (st.shot === s.id ? "sel" : "")} onClick={() => {
-        // Shot-type picks nudge sensible defaults for lens / DoF /
-        // region so the user has a reasonable starting point.
-        const isDetail = s.id === "detail_fabric" || s.id === "detail_corner";
-        const isCloseUp = s.id === "close_up";
-        const patch = { shot: s.id };
-        if (isDetail) {
-          patch.lens = (st.lens === "35mm_wide" || st.lens === "50mm_natural") ? "100mm_macro" : st.lens;
-          patch.dof = "macro_shallow";
-          if (s.id === "detail_fabric") patch.detailRegion = DETAIL_REGIONS_FABRIC.some(r => r.id === st.detailRegion) ? st.detailRegion : "weave";
-          if (s.id === "detail_corner") patch.detailRegion = DETAIL_REGIONS_CORNER.some(r => r.id === st.detailRegion) ? st.detailRegion : "arm_back_corner";
-        }
-        if (isCloseUp) {
-          // 85 mm short telephoto flatters the close-up framing.
-          // Don't downgrade a longer focal length the user already picked.
-          if (st.lens === "35mm_wide" || st.lens === "50mm_natural") patch.lens = "85mm_product";
-          patch.dof = "shallow";
-          const table = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
-          const stillValid = table.some(r => r.id === st.detailRegion);
-          patch.detailRegion = stillValid ? st.detailRegion : (st.kind === "bed" ? "bed_corner_head" : "sofa_corner");
-        }
-        set(patch);
-      }}>
-        <div className="cam-meta" style={{padding:"10px 12px"}}>
-          <div className="cam-name">{s.name}</div>
-          <div className="cam-prop">{s.hint}</div>
-        </div>
+    <div className="tri-row">
+      <div>
+        <div className="field-lbl">ogniskowa</div>
+        <select className="select" value={st.lens} onChange={e => set({ lens: e.target.value })}>
+          {LENSES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>
       </div>
-    ))}
-  </div>
-
-  {/* Subject region — visible for detail and close-up shots. The
-      region table is product-aware for close-up: bed → bed regions,
-      sofa → sofa regions. */}
-  {(() => {
-    let regions = null;
-    let label = "";
-    if (st.shot === "detail_fabric") { regions = DETAIL_REGIONS_FABRIC; label = "obszar detalu"; }
-    else if (st.shot === "detail_corner") { regions = DETAIL_REGIONS_CORNER; label = "obszar detalu"; }
-    else if (st.shot === "close_up") {
-      regions = st.kind === "bed" ? CLOSE_REGIONS_BED : CLOSE_REGIONS_SOFA;
-      label = "obszar zbliżenia";
-    }
-    if (!regions) return null;
-    return (
-      <>
-        <div className="field-lbl" style={{marginTop:12}}>{label}</div>
-        <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:4}}>
-          {regions.map(r => (
-            <button key={r.id} type="button"
-              onClick={() => set({ detailRegion: r.id })}
-              style={{
-                padding:"6px 12px", borderRadius:8, fontSize:12.5,
-                border: st.detailRegion === r.id ? "1.5px solid var(--ink)" : "1px solid var(--line-2)",
-                background: st.detailRegion === r.id ? "var(--bg-1)" : "transparent",
-                cursor: "pointer", fontWeight: st.detailRegion === r.id ? 600 : 400,
-              }}>{r.name}</button>
-          ))}
-        </div>
-      </>
-    );
-  })()}
-
-  {/* Yaw / height / DoF — orientation + height + aperture. Yaw and
-      height are dimmed for detail shots because the macro crop fills
-      the frame regardless of where the camera is yawed. */}
-  <div className="tri-row" style={{marginTop:12,
-    ...(baseCamLocked ? {opacity:0.4, pointerEvents:"none"} : {}),
-  }}>
-    <div style={(st.shot === "detail_fabric" || st.shot === "detail_corner") ? {opacity:0.45, pointerEvents:"none"} : undefined}>
-      <div className="field-lbl">kąt (yaw)</div>
-      <select className="select" value={st.yaw} onChange={e => set({ yaw: e.target.value })}>
-        {CAMERA_YAWS.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
-      </select>
+      <div style={bgLocked ? { opacity: 0.45 } : undefined} title={bgLocked ? "zablokowane przez tło katalogowe" : undefined}>
+        <div className="field-lbl">pora dnia{bgLocked ? " · katalog" : ""}</div>
+        <select className="select" value={bgLocked ? "noon_neutral" : st.tod} disabled={bgLocked}
+                onChange={e => set({ tod: e.target.value })}>
+          {TIMES_OF_DAY.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </div>
+      <div style={bgLocked ? { opacity: 0.45 } : undefined} title={bgLocked ? "zablokowane przez tło katalogowe" : undefined}>
+        <div className="field-lbl">cienie{bgLocked ? " · katalog" : ""}</div>
+        <select className="select" value={bgLocked ? "soft_diffuse" : st.shadow} disabled={bgLocked}
+                onChange={e => set({ shadow: e.target.value })}>
+          {SHADOWS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
     </div>
-    <div style={(st.shot === "detail_fabric" || st.shot === "detail_corner") ? {opacity:0.45, pointerEvents:"none"} : undefined}>
-      <div className="field-lbl">wysokość kamery</div>
-      <select className="select" value={st.height} onChange={e => set({ height: e.target.value })}>
-        {CAMERA_HEIGHTS.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-      </select>
-    </div>
-    <div>
-      <div className="field-lbl">głębia ostrości</div>
-      <select className="select" value={st.dof} onChange={e => set({ dof: e.target.value })}>
-        {DEPTHS_OF_FIELD.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-      </select>
-    </div>
-  </div>
-
-  <div className="tri-row">
-    <div>
-      <div className="field-lbl">ogniskowa</div>
-      <select className="select" value={st.lens} onChange={e => set({ lens: e.target.value })}>
-        {LENSES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-      </select>
-    </div>
-    <div style={bgLocked ? { opacity: 0.45 } : undefined} title={bgLocked ? "zablokowane przez tło katalogowe" : undefined}>
-      <div className="field-lbl">pora dnia{bgLocked ? " · katalog" : ""}</div>
-      <select className="select" value={bgLocked ? "noon_neutral" : st.tod} disabled={bgLocked}
-              onChange={e => set({ tod: e.target.value })}>
-        {TIMES_OF_DAY.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-      </select>
-    </div>
-    <div style={bgLocked ? { opacity: 0.45 } : undefined} title={bgLocked ? "zablokowane przez tło katalogowe" : undefined}>
-      <div className="field-lbl">cienie{bgLocked ? " · katalog" : ""}</div>
-      <select className="select" value={bgLocked ? "soft_diffuse" : st.shadow} disabled={bgLocked}
-              onChange={e => set({ shadow: e.target.value })}>
-        {SHADOWS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-      </select>
-    </div>
-  </div>
+  </details>
 </Section>
   );
 }

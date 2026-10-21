@@ -12,7 +12,7 @@ import { NS_DATA, Ic } from "./data.jsx";
 import { NanoTopbar, PageIntro } from "./header.jsx";
 import { Section, AdvancedSection } from "./wizard/Section.jsx";
 import { BackgroundSection } from "./wizard/BackgroundSection.jsx";
-import { CameraSection, CAM_PRESET_DEFAULTS } from "./wizard/CameraSection.jsx";
+import { CameraSection, matchFrame, frameSet } from "./wizard/CameraSection.jsx";
 import { ReferencesSection } from "./wizard/ReferencesSection.jsx";
 import { BeddingSection } from "./wizard/BeddingSection.jsx";
 import { buildRequest, toFormData } from "./wizard/request.js";
@@ -190,13 +190,6 @@ const PRESET_FIELDS = [
   "bedding", "beddingCustom", "throw", "tidy", "density", "accents", "bedNote",
   "model", "aspect", "res", "outputFormat", "outputQuality",
 ];
-
-// Szybki preset → seeded structured fields. Mirrors _CAM_PRESET_TO_STRUCTURED
-// in server.py (server-side fallback for legacy form posts) but adds the
-// lens / DoF / detail-region that the UI also seeds on click.  Used in two
-// places: the preset onClick handler (to seed st.*), and the `matchedPreset`
-// memo below (to highlight the tile only while the structured fields still
-// match — clicking a preset and then drifting auto-deselects the tile).
 
 // Colour picker rows for the Warianty / Seria grids: the universal groups
 // first, then each fabric collection under its own label. Label rows span
@@ -521,21 +514,10 @@ function App({ t, mode = "photos" }) {
   // behind a checkbox that is itself disabled and shown unchecked.
   const baseCamLocked = st.uploaded && !!st.preserveBaseCamera;
   const camObj   = useMemo(() => CAMERAS.find(c => c.id === st.cam), [st.cam]);
-  // The Szybki preset tile stays highlighted only while the seeded structured
-  // fields still match — clicking "Detal makro" then changing the shot type
-  // chip auto-deselects the preset, so the row never lies about current state.
-  const matchedPreset = useMemo(() => {
-    for (const [presetId, seed] of Object.entries(CAM_PRESET_DEFAULTS)) {
-      if (seed.shot   !== st.shot)   continue;
-      if (seed.yaw    !== st.yaw)    continue;
-      if (seed.height !== st.height) continue;
-      if (seed.lens   !== st.lens)   continue;
-      if (seed.dof    !== st.dof)    continue;
-      if (seed.detailRegion && seed.detailRegion !== st.detailRegion) continue;
-      return presetId;
-    }
-    return null;
-  }, [st.shot, st.yaw, st.height, st.lens, st.dof, st.detailRegion]);
+  // The section-08 frame tile ("3/4 hero", "Bok", …) the structured camera
+  // fields still match, or null once the user drifts into custom settings.
+  const matchedPreset = useMemo(() => matchFrame(st),
+    [st.kind, st.shot, st.yaw, st.height, st.detailRegion]);
   const bgObj = useMemo(() => BACKGROUNDS.find(b => b.id === st.bg) || BACKGROUNDS[0], [st.bg]);
   // A locked backdrop = the catalog treatment (lens / light locks, framing
   // contract, curated plate, normalization), decided by catalog.json.
@@ -715,6 +697,57 @@ function App({ t, mode = "photos" }) {
     } finally {
       setGenerating(false);
     }
+  };
+
+  // "Generuj cały zestaw" (section 08): one /api/generate per product-page
+  // frame, the wizard state patched with that frame's camera fields. The
+  // server's semaphore (BATCH_CONCURRENCY) throttles; we keep 3 in flight.
+  // `only` re-runs just the frames that failed last time.
+  const [frameRun, setFrameRun] = useState(null); // { busy, done, total, failed:[{id,name,error}] }
+  const handleGenerateFrames = async (only = null) => {
+    setGenError("");
+    if (!activeKey.trim()) { setGenError(mkErr(keyHint, keyCode)); setShowKeyEdit(true); return; }
+    if (!st.baseFile) { setGenError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
+    const jobs = frameSet(st, bgObj, bgLocked).filter(f => !only || only.includes(f.id));
+    const snap = st;
+    const failed = [];
+    // A retry continues the previous run's count (6/7 → 7/7), not a new one.
+    const total = only && frameRun ? frameRun.total : jobs.length;
+    let done = total - jobs.length;
+    setFrameRun({ busy: true, done, total, failed: [] });
+    const runOne = async (f) => {
+      const stF = { ...snap, ...f.patch };
+      const fd = toFormData(buildRequest(stF, { ...requestCtx, mode: "generate", prevRender: null,
+        baseCamLocked: false, matchedPreset: f.id }).entries);
+      try {
+        const r = await fetch("/api/generate", { method: "POST", body: fd });
+        let data = null;
+        try { data = await r.json(); } catch { /* non-JSON body (proxy error page) */ }
+        if (!r.ok || !data || data.error) { failed.push({ id: f.id, name: f.name, error: errorFromResponse(r, data) }); return; }
+        setGallery(g => [
+          { url: data.image_url, generation_id: data.generation_id || null,
+            color: snap.color === "custom" ? (snap.colorCustomHex || null) : (colorObj?.hex || null),
+            color_id: snap.color === "custom" ? "custom" : (colorObj?.id || null),
+            fabric_code: colorObj?.fabricCode || null,
+            product_name: snap.product.trim() || null,
+            material: matObj?.id || null,
+            catalog_profile: data.catalog_profile || null,
+            tag: fileSlug(f.name), cost: data.cost, ts: Date.now() },
+          ...g,
+        ]);
+        setActiveGallery(0);
+      } catch (e) {
+        failed.push({ id: f.id, name: f.name, error: errorFromException(e) });
+      } finally {
+        done += 1;
+        setFrameRun(fr => fr && { ...fr, done });
+      }
+    };
+    const queue = [...jobs];
+    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+      while (queue.length) await runOne(queue.shift());
+    }));
+    setFrameRun({ busy: false, done, total, failed });
   };
 
   // When the user switches sofa↔bed, snap st.size onto the new list. Skip the
@@ -2130,7 +2163,8 @@ function App({ t, mode = "photos" }) {
           </div>
         </Section>
 
-        <CameraSection st={st} set={set} bgLocked={bgLocked} lensObj={lensObj} camObj={camObj} matchedPreset={matchedPreset} baseCamLocked={baseCamLocked} />
+        <CameraSection st={st} set={set} bgObj={bgObj} bgLocked={bgLocked} lensObj={lensObj} baseCamLocked={baseCamLocked}
+          frameRun={frameRun} onGenerateSet={handleGenerateFrames} setCost={(cost * 7).toFixed(2)} />
 
         <ReferencesSection st={st} set={set} bgLocked={bgLocked} modelObj={modelObj}
           refFileRef={refFileRef} refSlotRef={refSlotRef} onPickRef={onPickRef} clearRef={clearRef}
