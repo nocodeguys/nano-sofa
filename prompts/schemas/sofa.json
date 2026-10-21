@@ -20,31 +20,6 @@
       "type": "string",
       "description": "Image model id. The list of models, their caps, resolutions and prices live in app-v2/models.json (app/core/model_registry.py); this field is no longer an enum so the schema does not have to change when the line-up does."
     },
-    "reference_slots": {
-      "type": "object",
-      "description": "Declares which reference images are included in this request and their send-order. Order matters: slot 1 is always the base product; the model uses positional context to know which image is which. The Gradio app assembles the contents list in slot-number order. On gemini-2.5-flash-image the hard cap is 3 slots total. Attempting to fill base + legs + scene + swatch on Flash will fail or silently drop slot 4. Use a preview-tier model if more than 3 reference slots are needed.",
-      "required": [
-        "slot_1_base_product"
-      ],
-      "properties": {
-        "slot_1_base_product": {
-          "type": "string",
-          "description": "Stable ID of the base product photo. Always slot 1. Must resolve to a JPEG or PNG with a solid background — do not pass alpha-channel (transparent-background) PNGs here. If the source photo has alpha, flatten to 18% neutral grey before passing (mitigates background-bleed failure mode)."
-        },
-        "slot_2_leg_reference": {
-          "type": "string",
-          "description": "ID from legs/manifest.json. Always slot 2 when legs are being swapped. The app resolves this to the angle-matched render PNG for the camera angle in use."
-        },
-        "slot_3_scene_or_swatch": {
-          "type": "string",
-          "description": "Optional. If provided on gemini-2.5-flash-image, this exhausts the 3-ref cap — no slot 4 is available. Use for either a scene reference OR a fabric swatch, not both, on Flash. On preview-tier models, use slot_4_swatch for the swatch and keep this slot for the scene."
-        },
-        "slot_4_swatch": {
-          "type": "string",
-          "description": "Optional fabric swatch reference. Use gemini-3.1-flash-image or gemini-3-pro-image for multi-reference consistency. Leave absent on gemini-2.5-flash-image when its smaller input cap is reached."
-        }
-      }
-    },
     "system_instruction": {
       "type": "string",
       "description": "Text sent as the system instruction (Gemini GenerateContentConfig). Engines without a system field (OpenAI Images, OpenRouter) receive the same text as the first paragraph of the prompt, so every engine reads the same persona. It must not contradict the prompt: the viewpoint belongs to the CAMERA paragraph, the persona only protects product identity.",
@@ -108,7 +83,7 @@
         },
         "base_reference": {
           "type": "string",
-          "description": "Stable ID resolving to the base product photo. Also populate reference_slots.slot_1_base_product with the same ID. Keeping both ensures downstream systems that read either field see a consistent value."
+          "description": "Stable ID resolving to the base product photo — always image 1 of the request. Which other images attach, and in which order, is decided in app/core/generator.plan_reference_slots."
         },
         "leg_count": {
           "type": "integer",
@@ -186,7 +161,7 @@
             "base_image_has_alpha": {
               "type": "boolean",
               "default": false,
-              "description": "Set true if the base product image was delivered as a transparent-background PNG. The Gradio app uses this flag to pre-process the image: flattening alpha to 18% neutral grey before passing to the model. If true and the app does not pre-process, the background-bleed failure mode is likely — the model reconstructs a random studio background from training priors instead of treating alpha as 'no background'."
+              "description": "Set true if the base product image was delivered as a transparent-background PNG. The generator flattens alpha onto neutral grey before the call; the model otherwise reconstructs a random studio background."
             }
           }
         },
@@ -290,7 +265,7 @@
             "9:16",
             "4:5"
           ],
-          "description": "Supported on all three active models. 9:16 is the Instagram Stories / Reels vertical. 4:5 is the Instagram feed portrait (the most common social vertical for product photography). The extreme 1:4, 4:1, 1:8 and 8:1 ratios supported by Gemini 3.1 Flash Image are intentionally omitted because they are not useful for furniture catalog photography."
+          "description": "Output aspect ratio. 9:16 is the Instagram Stories / Reels vertical, 4:5 the feed portrait. Per-model aspect vocabularies live in app-v2/models.json."
         },
         "resolution": {
           "type": "string",
@@ -300,39 +275,13 @@
             "4K"
           ],
           "default": "1K",
-          "description": "Target output resolution. gemini-2.5-flash-image is capped at 1K. Gemini 3.1 Flash Image and Gemini 3 Pro Image support 1K, 2K and 4K via ImageConfig.image_size; the UI enforces the per-model cap."
+          "description": "Target output resolution. Per-model ceilings and the `image_size` parameter support live in app-v2/models.json."
         },
         "style": {
           "type": "string",
           "default": "e-commerce hero photography, photorealistic, neutral color grading"
         }
       }
-    },
-    "negative": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "default": [
-        "text",
-        "watermarks",
-        "brand labels",
-        "price tags",
-        "hallucinated text of any kind",
-        "distorted proportions",
-        "duplicate legs",
-        "missing legs",
-        "warped fabric",
-        "warped seams",
-        "asymmetric stitching where reference is symmetric",
-        "extra cushions",
-        "missing cushions",
-        "throw pillows not present in reference",
-        "decorative accessories not present in reference",
-        "alpha channel artefacts",
-        "incorrect background reconstruction",
-        "shadow direction inconsistent with scene lighting"
-      ]
     },
     "multi_turn": {
       "type": "object",
@@ -360,5 +309,6 @@
       "type": "string",
       "description": "Free-form human-readable note included verbatim in the prompt for the model to consider. Use this for one-off instructions that do not fit other fields."
     }
-  }
+  },
+  "description": "Request contract for a product variant render: the product identity to preserve, the variant axes, the camera and the output. Models live in app-v2/models.json, materials / colours / backdrops in app-v2/catalog.json, prompt wording in app/core/prompt/."
 }

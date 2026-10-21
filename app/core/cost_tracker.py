@@ -117,11 +117,6 @@ class CostEstimate:
             lines.append("(Batch pricing applied — 50% discount)")
         return "\n".join(lines)
 
-    def format_summary(self) -> str:
-        if self.thinking_cost_high > 0:
-            return f"~${self.total_low:.4f} – ${self.total_high:.4f} / image"
-        return f"~${self.total_low:.4f} / image"
-
 
 @dataclass
 class GenerationRecord:
@@ -219,20 +214,6 @@ def estimate_cost(
         is_batch=is_batch,
         has_thinking=has_thinking,
     )
-
-
-def estimate_batch_cost(
-    model_id: str,
-    resolution: str,
-    num_ref_images: int,
-    count: int,
-) -> tuple[CostEstimate, float, float]:
-    """
-    Returns (per_image_estimate, total_low, total_high) for a batch of `count`
-    images.
-    """
-    est = estimate_cost(model_id, resolution, num_ref_images, is_batch=False)
-    return est, est.total_low * count, est.total_high * count
 
 
 # --------------------------------------------------------------------------- #

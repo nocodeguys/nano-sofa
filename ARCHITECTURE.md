@@ -200,4 +200,34 @@ deploy path. Local dev: `./app-v2/run.sh` (uses `.venv`, port 7861).
 - [x] Split `server.py` into `studio/` modules (paths, catalog, mappings, request_builder, media, routes_*)
 - [x] Split the frontend `App()` into components — started 2026-10-21 (phase 5): `src/wizard/` holds Tło, Kamera, Referencje, Pościel and the Section wrappers; `wizard/request.js` is the one request builder (FormData, JSON preview and the reference budget come from the same entries). Colour / material / size / legs / base photo and the stage panes are still inline in `app-v2.jsx` (~2200 lines)
 - [x] Prompt-invariant tests (texture spec must survive into the final prompt) + smoke tests gating CI
-- [ ] Decide fate of the WebGL 3D preview branch (`worktree-webgl-3d-preview`, 15 commits behind)
+- [x] WebGL 3D preview branch — **archived, not merged** (2026-10-21). `worktree-webgl-3d-preview` holds two commits (a WebGL bed preview, a VPS brief) on top of the pre-split monolith, 40+ commits behind; nothing it touches exists in that shape any more. The local worktree checkout is removed; the branch stays on origin as a reference. A 3D preview, if wanted, is re-implemented against `src/wizard/` components.
+- [x] Predictability refactor, phases 0–6 (2026-10-20/21): see `docs/REFACTOR-PLAN-2026-10.md` for the diagnosis, each phase's gate and what is still unmeasured.
+
+## How to change the prompt
+
+The prompt is compiled, not written by hand per call. To change what the
+model reads:
+
+1. **Wording** → `app/core/prompt/sections.py`, one function per paragraph.
+   **Order** → `app/core/prompt/compile.py` (`PRODUCT_ORDER`, `FREEFORM_ORDER`).
+   **Which fields exist** → `app/core/prompt/spec.py` (`PromptSpec`), filled by
+   `from_request.product_spec` / `freeform_spec`. The persona (system
+   instruction) → `prompts/schemas/sofa.json`; backdrop paragraphs → `app-v2/catalog.json`
+   `backdrops[].prompt_en`; material nouns / specs → `catalog.json` `materials[]`.
+2. **Which images attach, in what order** → `app/core/generator.plan_reference_slots`
+   (and `plan_freeform_reference_slots`). Mirror any rule change in
+   `frontend/src/wizard/request.js` `referenceBudget` so the UI's "N obrazów
+   do modelu" stays truthful.
+3. Run `pytest`. `tests/test_golden_prompts.py` fails with a diff for every
+   case whose prompt, reference list or system instruction changed. If the
+   change is intended: `pytest tests/test_golden_prompts.py --update-golden`,
+   then **read `git diff tests/golden/`** — that diff is the change, and it
+   goes into the same commit.
+4. Measure before you argue: `scripts/eval_matrix.py --model <same model as the
+   last baseline>`, then `scripts/eval_report.py compare <baseline> <run>`.
+   Link the compare in the PR; copy the report into `docs/eval/`. The
+   invariants above (1, 4, 8, 9) are things measurement already settled —
+   do not re-learn them.
+5. Never add a model id, price or cap outside `app-v2/models.json`, never a
+   backdrop outside `catalog.json`, never a second place that decides the
+   background (`tests/test_model_registry.py`, `tests/test_background.py`).

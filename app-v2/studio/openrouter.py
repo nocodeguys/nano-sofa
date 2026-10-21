@@ -121,19 +121,6 @@ def _classify(status: int, body: str) -> OpenRouterError:
                            "OPENROUTER_ERROR", body, status >= 500, 502)
 
 
-def _legacy_references(ref_paths: list[Path]) -> list[ReferenceItem]:
-    items: list[ReferenceItem] = []
-    for index, path in enumerate(ref_paths, start=1):
-        try:
-            image = Image.open(str(path))
-            image.load()
-        except Exception as exc:
-            logger.warning("OpenRouter reference %s unreadable, skipping: %s", path, exc)
-            continue
-        items.append((f"extra_reference_{index}", path, image))
-    return items
-
-
 def generate_openrouter(
     *,
     api_key: str,
@@ -141,7 +128,6 @@ def generate_openrouter(
     prompt: str,
     aspect: str,
     references: Optional[list[ReferenceItem]] = None,
-    ref_paths: Optional[list[Path]] = None,
     quality: str = "",
     png_meta: Optional[dict[str, str]] = None,
     prompt_summary: str = "",
@@ -150,16 +136,12 @@ def generate_openrouter(
     """Blocking call (run via asyncio.to_thread). Returns
     {generation_id, output_path, cost, elapsed_ms, model_id, resolution,
     quality} or raises OpenRouterError with a classified, user-facing
-    message. `references` is the loaded freeform plan (role, source, image);
-    `ref_paths` is the pre-plan calling convention kept for scripts."""
+    message. `references` is the loaded freeform plan (role, source, image)."""
     t0 = time.monotonic()
     generation_id = new_generation_id()
     cfg = OPENROUTER_MODELS.get(model, {"max_refs": 4})
 
-    refs = list(references or [])
-    if not refs and ref_paths:
-        refs = _legacy_references(list(ref_paths))
-    refs = refs[: cfg["max_refs"]]
+    refs = list(references or [])[: cfg["max_refs"]]
 
     payload: dict = {"model": model, "prompt": prompt,
                      "aspect_ratio": _clamp_aspect(model, aspect)}

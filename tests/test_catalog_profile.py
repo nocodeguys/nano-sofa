@@ -24,7 +24,6 @@ if str(APP_V2) not in sys.path:
 
 from app.core.generator import (  # noqa: E402
     _build_prompt_text,
-    _collect_reference_images,
     plan_reference_slots,
     slot_numbers,
 )
@@ -138,7 +137,7 @@ def test_boucle_uses_canonical_texture_reference_without_copying_its_colour(
     assert req.material_application_reference_image is None
     # 2.5-flash caps at 3 refs: base + cyclorama + macro. The colour patch
     # does not fit and must not be named in the prompt.
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    assert len(plan_reference_slots(req)) == 3
     roles = [slot.role for slot in plan_reference_slots(req)]
     assert roles == ["base_product", "scene", "material_macro"]
 
@@ -166,7 +165,7 @@ def test_cremona_uses_the_supplied_canonical_texture_reference(
     # plan_reference_slots, and the prompt only names attached slots.
     assert Path(req.material_behavior_reference_image).name == "cremona-behavior.jpg"
     assert Path(req.material_application_reference_image).name == "cremona-application.png"
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    assert len(plan_reference_slots(req)) == 3
     text = _build_prompt_text(req)
     assert "MATERIAL TEXTURE AUTHORITY (image 3)" in text
     assert "MULTI-ANGLE" not in text
@@ -189,7 +188,7 @@ def test_cremona_adds_light_response_reference_when_model_has_room(
     assert Path(req.material_application_reference_image).name == "cremona-application.png"
     # base, cyclorama, macro, colour patch, left, right, behaviour,
     # application = 8 attached on a 14-ref model.
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 8
+    assert len(plan_reference_slots(req)) == 8
     text = _build_prompt_text(req)
     assert "COLOUR AUTHORITY (image 4)" in text
     assert "FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 5 and 6)" in text
@@ -234,7 +233,7 @@ def test_material_without_canonical_swatch_gets_the_colour_patch_instead(
     assert req.swatch_reference_image is None
     roles = [slot.role for slot in plan_reference_slots(req)]
     assert roles == ["base_product", "scene", "color_patch"]
-    assert len(_collect_reference_images(req, Image.open(base_image))) == 3
+    assert len(plan_reference_slots(req)) == 3
     text = _build_prompt_text(req)
     assert "COLOUR AUTHORITY (image 3)" in text
     assert "#C3BEB6" in text

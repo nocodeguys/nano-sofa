@@ -28,7 +28,6 @@ from app.core.cost_tracker import (
     new_generation_id,
     record_generation,
 )
-from app.core.leg_browser import leg_browser
 from app.core.generation_trace import build_generation_trace, write_generation_trace
 from app.core.schema_loader import schema
 from app.core.prompt import compile_prompt, product_spec
@@ -650,13 +649,6 @@ def _load_reference_plan(
     return loaded
 
 
-def _collect_reference_images(
-    req: GenerationRequest, base_img: Image.Image
-) -> list[Image.Image]:
-    """Reference images in attached order (slot 1 = base product)."""
-    return [image for _slot, image in _load_reference_plan(req, base_img)]
-
-
 def _build_scene_block(
     req: GenerationRequest, product_noun: str, slots: Optional[dict[str, int]] = None
 ) -> str:
@@ -1092,7 +1084,7 @@ def validate_request(req: GenerationRequest) -> list[str]:
     if num_refs > max_refs:
         errors.append(
             f"Too many reference images: {num_refs} slots filled but {req.model_id} "
-            f"allows a maximum of {max_refs}. Remove slot 4 (swatch) or use a preview-tier model."
+            f"allows a maximum of {max_refs}. Drop a reference or pick a model with a higher cap."
         )
 
     # Shadow direction required when legs or scene are swapped

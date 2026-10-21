@@ -7,6 +7,11 @@
 
 ## Why these fields
 
+> **2026-10-21:** `reference_slots` (the 4-slot model) and the `negative`
+> default list were removed as well — references are planned in
+> `app/core/generator.plan_reference_slots` and what must not appear comes
+> from each material's `avoid_en` in `catalog.json`.
+>
 > **2026-10-20:** the `model` enum and the `model_constraints` block were
 > removed from the schema. Model ids, reference caps, resolutions and prices
 > now live in `app-v2/models.json` (see `app/core/model_registry.py` and

@@ -37,50 +37,6 @@ def _image_sha256(image: Image.Image) -> str:
     return hashlib.sha256(header + rgb.tobytes()).hexdigest()
 
 
-def reference_roles(req: Any, *, freeform: bool = False) -> list[tuple[str, Any]]:
-    """Return the declared reference order without exposing request secrets."""
-    if freeform:
-        # Mirrors generator.plan_freeform_reference_slots: material authority
-        # first, then the exact colour patch, then the moodboards.
-        active: list[tuple[str, Any]] = []
-        if getattr(req, "swatch_reference_image", None) is not None:
-            active.append(("material_macro", req.swatch_reference_image))
-        color_hex = (getattr(req, "upholstery_hex", "") or "").strip()
-        if color_hex:
-            active.append(("color_patch", f"color-patch:{color_hex.upper()}"))
-        for role, attr in (
-            ("material_left", "material_left_reference_image"),
-            ("material_right", "material_right_reference_image"),
-            ("material_behavior", "material_behavior_reference_image"),
-            ("material_application", "material_application_reference_image"),
-        ):
-            source = getattr(req, attr, None)
-            if source is not None:
-                active.append((role, source))
-        active.extend(
-            (f"extra_reference_{idx}", source)
-            for idx, source in enumerate(req.extra_reference_images or [], start=1)
-        )
-        return active
-
-    declared = [
-        ("base_product", req.base_product_image),
-        ("leg", req.leg_reference_image),
-        ("scene", req.scene_reference_image),
-        ("material_macro", req.swatch_reference_image),
-        ("material_left", req.material_left_reference_image),
-        ("material_right", req.material_right_reference_image),
-        ("material_behavior", req.material_behavior_reference_image),
-        ("material_application", req.material_application_reference_image),
-    ]
-    active = [(role, source) for role, source in declared if source is not None]
-    active.extend(
-        (f"extra_reference_{idx}", source)
-        for idx, source in enumerate(req.extra_reference_images or [], start=1)
-    )
-    return active
-
-
 def build_generation_trace(
     *,
     req: Any,
@@ -89,21 +45,18 @@ def build_generation_trace(
     effective_system_instruction: str,
     reference_images: Iterable[Image.Image],
     freeform: bool = False,
-    reference_roles: Iterable[tuple[str, Any]] | None = None,
+    reference_roles: Iterable[tuple[str, Any]],
 ) -> dict[str, Any]:
     """Build the immutable input portion of a generation manifest.
 
     Only an explicit allow-list of request fields is serialized, so API keys and
     conversation history can never leak into the trace. `reference_roles` is the
     (role, source) list of the images that were ACTUALLY attached, in order —
-    the generator passes it so a dropped reference never shifts the labels of
-    the ones after it. When omitted, the declared request order is assumed.
+    every engine passes it (from plan_reference_slots / the freeform plan) so
+    a dropped reference never shifts the labels of the ones after it.
     """
     images = list(reference_images)
-    roles = (
-        list(reference_roles) if reference_roles is not None
-        else globals()["reference_roles"](req, freeform=freeform)
-    )
+    roles = list(reference_roles)
     references = []
     for slot, (image, role_source) in enumerate(zip(images, roles), start=1):
         role, source = role_source
