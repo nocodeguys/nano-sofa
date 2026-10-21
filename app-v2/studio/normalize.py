@@ -152,10 +152,13 @@ def resolve_profile(name: str | None) -> PackshotProfile:
     """Profile by id, falling back to the default for anything unknown."""
     from studio.catalog import canonical_background_id
     key = canonical_background_id(name) or (name or "").strip().lower()
-    return PROFILES.get(key, PROFILES[DEFAULT_PROFILE])
+    return PROFILES.get(key) or PROFILES.get(DEFAULT_PROFILE) or PackshotProfile()
 
 
-CATALOG_PROFILE = PROFILES[DEFAULT_PROFILE]
+# Never a KeyError at import: a runtime catalogue without backdrops must not
+# take the server down (the catalogue loader fills the block in; this is the
+# last line of defence).
+CATALOG_PROFILE = PROFILES.get(DEFAULT_PROFILE) or PackshotProfile()
 
 # Suffix of the untouched render kept beside every normalized master. Anything
 # listing the outputs directory must skip these or each catalog shot shows up

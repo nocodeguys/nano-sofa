@@ -10,7 +10,33 @@ from __future__ import annotations
 
 import json
 
-from studio.paths import _CATALOG_PATH, _REPO_ROOT, logger
+from studio.paths import _BUNDLED_CATALOG_PATH, _CATALOG_PATH, _REPO_ROOT, logger
+
+# Blocks the admin panel never edits; they come from the image. A runtime
+# catalogue written by an older image (Docker keeps it in the outputs volume,
+# and keeps it across image updates while admin edits wait to be pushed) has
+# none of them — without this fill-in the server failed at import on the
+# first deploy of phase 3 (2026-10-21, sofa.testonix.pl answered 404).
+_IMAGE_ONLY_BLOCKS = ("backdrops", "scenes")
+
+
+def _fill_image_only_blocks(catalog: dict) -> dict:
+    missing = [k for k in _IMAGE_ONLY_BLOCKS if not catalog.get(k)]
+    if not missing:
+        return catalog
+    try:
+        with open(_BUNDLED_CATALOG_PATH, encoding="utf-8") as bundled_file:
+            bundled = json.load(bundled_file)
+    except (OSError, ValueError) as exc:
+        logger.error("catalog: runtime copy lacks %s and the bundled catalogue is unreadable: %s",
+                     missing, exc)
+        return catalog
+    for key in missing:
+        if bundled.get(key):
+            catalog[key] = bundled[key]
+    logger.warning("catalog: runtime copy lacked %s — filled in from the bundled catalogue", missing)
+    return catalog
+
 
 # Materials + colours live in catalog.json — the single source of truth shared
 # with the browser (served as window.NS_CATALOG via GET /catalog.js). The dicts
@@ -19,7 +45,7 @@ from studio.paths import _CATALOG_PATH, _REPO_ROOT, logger
 # must agree with the texture spec — see ARCHITECTURE.md invariant #1).
 def _read_catalog() -> dict:
     with open(_CATALOG_PATH, encoding="utf-8") as catalog_file:
-        return json.load(catalog_file)
+        return _fill_image_only_blocks(json.load(catalog_file))
 
 
 CATALOG = _read_catalog()
@@ -209,7 +235,7 @@ def reload_catalog(catalog: dict | None = None) -> dict:
     mutated in place.  The caller validates the payload before invoking this
     function; reading from disk remains useful for startup and recovery.
     """
-    fresh = catalog if catalog is not None else _read_catalog()
+    fresh = _fill_image_only_blocks(catalog if catalog is not None else _read_catalog())
 
     flat = flatten_colors(fresh)
     colors = {c["id"]: c["prompt_en"] for c in flat}

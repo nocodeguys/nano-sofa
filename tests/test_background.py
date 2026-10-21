@@ -232,3 +232,26 @@ def test_route_keeps_scene_upload_for_custom_and_for_previous_render(server, bas
     req = capture_render["req"]
     assert req.scene_reference_image is not None and req.scene_contains_product
     assert "DIFFERENT upholstery colour" in _build_prompt_text(req)
+
+
+# --------------------------------------------------------------------------
+# A runtime catalogue written by an older image has no `backdrops` / `scenes`
+# (Docker keeps it in the outputs volume while admin edits wait to be
+# pushed). The server must still start — it did not on the first deploy.
+# --------------------------------------------------------------------------
+def test_old_runtime_catalog_gets_image_blocks_filled_in(server):
+    import copy
+    from studio import catalog as cat
+    from studio import normalize
+
+    old = copy.deepcopy(cat.CATALOG)
+    try:
+        legacy = {k: v for k, v in copy.deepcopy(cat.CATALOG).items() if k not in ("backdrops", "scenes")}
+        filled = cat._fill_image_only_blocks(dict(legacy))
+        assert filled["backdrops"] and filled["scenes"]
+        cat.reload_catalog(legacy)                      # what the admin save / startup path does
+        assert "ivory" in cat.BACKDROPS and "scandi" in cat.SCENES
+        assert cat.resolve_background("cyclorama_architectural")[1]["id"] == "ivory"
+        assert normalize.resolve_profile("ivory").name == "ivory"
+    finally:
+        cat.reload_catalog(old)
