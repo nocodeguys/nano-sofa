@@ -2,7 +2,7 @@
 # engine: openai | model: gpt-image-2.5-flare | max_refs: 16
 # kind=sofa mode=catalog shot=close_up shot_type=close_up catalog_profile=ivory
 # colour=#C3BEB6 material_id=boucle aspect=4:3 res=1K
-# stats: chars=8882 camera_offset_pct=13 preserve_offset_pct=-1 scene_offset_pct=23 negative_offset_pct=93
+# stats: chars=9370 camera_offset_pct=13 preserve_offset_pct=-1 scene_offset_pct=22 negative_offset_pct=93
 
 REFERENCES (6):
   1. base_product             <base-image>
@@ -15,7 +15,7 @@ REFERENCES (6):
 SYSTEM INSTRUCTION:
 (no system field — the persona above is the first paragraph of the prompt)
 
-PROMPT (8882 chars):
+PROMPT (9370 chars):
 You are a product photography assistant producing clean e-commerce imagery of the exact product shown in image 1. Preserve its frame geometry, cushion count, stitching pattern, leg count and leg positions, seat depth, arm height and all visible joinery exactly. Camera angle, framing and crop follow the CAMERA paragraph of the prompt; when it says to keep image 1's camera, keep it exactly. Never add throw pillows, decorative objects or accessories that are neither in image 1 nor asked for in the prompt. Never change proportions to look more editorial. Never render text, brand names or price labels.
 
 Edit the sofa in image 1 to produce a product photography variant with the specifications below. Image 1 is the geometry authority: the output shows this exact sofa, changed only where this prompt says so.
@@ -28,7 +28,9 @@ KEEP EXACTLY from image 1: frame silhouette, stitching; exactly 4 legs, in their
 CAMERA — CLOSE-UP CROP: front 34 left view, approximately 35 degrees from the left. Focal length equivalent 85 mm, f/8.0 aperture. Framing: close-up shot of one full-height corner of the sofa, showing the armrest, the backrest, and the seat at that corner; only that section of the product is visible in the frame; the rest of the product is intentionally cropped at the frame edge; product anatomy is still recognizable but the framing is tight on the chosen region; eye-level camera height, standing adult viewpoint. The full sofa must NOT be visible: only the region named in the framing fills the frame and the rest of the sofa is cropped out by the frame edge. Image 1 supplies the sofa's geometry, colour and material, not its framing: do not reproduce image 1's full view.
 All leg contact shadows must be consistent with the shadow direction described in the SCENE section.
 
-SCENE (close-up crop): behind the cropped region only the backdrop is visible — a seamless architectural-studio backdrop in warm soft ivory — rendered softly out of focus; no horizon line, no floor-to-wall sweep, no contact shadow and no environment objects in the frame. The frame is filled by the region named in CAMERA. Lighting: midday neutral daylight, approximately 5500 K, overhead light with short even shadows. Lens: 85 mm short telephoto, mild background compression, flattering product photography standard.
+SCENE (close-up crop): behind the cropped region only the backdrop is visible, rendered softly out of focus. The backdrop is a seamless architectural-studio backdrop in warm soft ivory, base tone RGB(247,245,241) hex #F7F5F1 — a restrained neutral ivory that reads as warm and architectural without a yellow or orange cast. No horizon line, no floor-to-wall sweep, no contact shadow and no environment objects in the frame. The frame is filled by the region named in CAMERA. Lighting: midday neutral daylight, approximately 5500 K, overhead light with short even shadows. Lens: 85 mm short telephoto, mild background compression, flattering product photography standard.
+
+SOURCE BACKGROUND DISCARD — HARD REQUIREMENT: completely discard image 1's background, wall, floor, shadows and lighting gradient. Every out-of-focus pixel behind the sofa is the backdrop tone above — never image 1's background, never warmer, darker or more yellow than that tone, and never a tint borrowed from the upholstery colour.
 
 UPHOLSTERY: neutral greige grey-beige, like light natural stone (hex #C3BEB6) bouclé fabric.
 Texture detail: Authentic heavy upholstery bouclé made from looped yarns. The surface is built from irregular open and closed yarn loops gathered into small uneven clusters, with tiny darker cavities between the loops. Loop size, density and softness match the physical sample photographs exactly: at normal furniture-photography distance the bouclé reads as a fine, dense, soft nubbly surface with gentle three-dimensional relief, neither enlarged into coarse curls nor flattened into smooth felt, foam or plaster. The relief is soft and low in contrast: loops and gaps differ by only a few tones of the same colour, like soft cotton-wool, never crisp, crinkled, flaky or glittering, with no dark flecks, grey speckle or multi-tone tweed effect. The large-scale shading of the form (curves, edges, the roll of the base) stays stronger than the texture contrast, so the texture follows the shape instead of lying on it like noise. Soft wool-and-cotton character, dense and substantial, completely matte; tonal variation between individual yarns stays within the selected colour and never warms or cools it. The distribution is organic and non-repeating, never a perfectly even pebble texture. Drape: a thick, springy, fairly stiff textile upholstered taut over firm foam. Flat panels stay smooth and tensioned, edges and seams are softly rounded by the fabric's own thickness, and it bends only in broad soft radii, with no wrinkles, puckering, gathering, ripples or loose slipcover folds.

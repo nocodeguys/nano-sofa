@@ -17,6 +17,8 @@ Conventions: a section that starts a new block begins its first line with
 """
 from __future__ import annotations
 
+import re
+
 from app.core.prompt.spec import PromptSpec
 
 Lines = list[str]
@@ -240,6 +242,21 @@ def shadow(s: PromptSpec) -> Lines:
     return []
 
 
+_HEX_SENTENCE = re.compile(r"[^.]*#[0-9A-Fa-f]{6}[^.]*\.")
+
+
+def _backdrop_tone(text: str) -> str:
+    """What a tight shot keeps of a backdrop paragraph: its first sentence,
+    plus the first sentence that names a hex when the opening one does not
+    (atelier, paperwhite and softlight state their colour further down)."""
+    head = text.partition(". ")[0].rstrip(".") + "."
+    if "#" not in head:
+        m = _HEX_SENTENCE.search(text)
+        if m:
+            head += " " + m.group(0).strip()
+    return head
+
+
 def scene(s: PromptSpec) -> Lines:
     if s.reference_locked or s.scene.keep_source_scene:
         return []
@@ -301,14 +318,25 @@ def _scene_block(s: PromptSpec) -> str:
             # A close-up still shows a little backdrop behind the region —
             # but no sweep, no top-light gradient, no contact shadow, and no
             # whole-product framing cue that would pull the crop back out.
+            # The plate is not attached (TIGHT_SHOTS), so the backdrop's first
+            # sentence — tone, hex, "no yellow cast" — has to carry the colour
+            # alone, and image 1's background must be discarded explicitly:
+            # with only "warm soft ivory" the model kept the base photo's wall
+            # or drifted to beige next to a greige upholstery.
+            tone = _backdrop_tone(scene_desc)
             return (
                 f"\nSCENE (close-up crop): behind the cropped region only the backdrop is "
-                f"visible — {scene_desc.split(',')[0].split(' — ')[0]} — rendered softly "
-                f"out of focus; no horizon line, no floor-to-wall sweep, no contact "
-                f"shadow and no environment objects in the frame. The frame is filled "
-                f"by the region named in CAMERA."
+                f"visible, rendered softly out of focus. The backdrop is {tone} "
+                f"No horizon line, no floor-to-wall sweep, no contact shadow and no "
+                f"environment objects in the frame. The frame is filled by the region "
+                f"named in CAMERA."
                 f"{tod_clause}"
                 f"{lens_clause}"
+                f"\n\nSOURCE BACKGROUND DISCARD — HARD REQUIREMENT: completely discard "
+                f"image 1's background, wall, floor, shadows and lighting gradient. "
+                f"Every out-of-focus pixel behind the {noun} is the backdrop tone above — "
+                f"never image 1's background, never warmer, darker or more yellow than "
+                f"that tone, and never a tint borrowed from the upholstery colour."
             )
         if s.camera.is_detail:
             return (

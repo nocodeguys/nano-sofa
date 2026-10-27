@@ -170,7 +170,12 @@ def test_close_up_is_a_tight_shot(server, base_image):
     assert "scene" not in roles and "material_application" not in roles
     text = _build_prompt_text(req)
     assert "CAMERA — CLOSE-UP CROP" in text and "SCENE (close-up crop)" in text
-    assert "SOURCE BACKGROUND DISCARD" not in text
+    # No plate is attached, so the prompt must not describe one...
+    assert "BACKDROP / CYCLORAMA REFERENCE" not in text and "studio plate" not in text
+    # ...and the backdrop's tone line has to carry the colour on its own,
+    # with image 1's background discarded (the beige close-up regression).
+    assert "#F7F5F1" in text and "without a yellow or orange cast" in text
+    assert "completely discard image 1's background" in text
     assert "must NOT be visible" in text
 
 
