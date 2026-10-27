@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 
 from app.core.cost_tracker import recent_generations
 from app.core.model_registry import registry
@@ -207,6 +210,43 @@ def get_output(name: str):
     if candidate.parent != _OUTPUT_DIR or not candidate.is_file():
         raise HTTPException(404, "Not found")
     return FileResponse(candidate, media_type=_MEDIA_TYPES.get(candidate.suffix.lower()))
+
+
+class _ZipFile(BaseModel):
+    url: str              # "/api/outputs/<name>" as the generate routes return it
+    filename: str = ""    # name inside the archive (the page's download name)
+
+
+class _ZipRequest(BaseModel):
+    files: list[_ZipFile]
+    zip_name: str = "nano-sofa-zestaw.zip"
+
+
+@router.post("/api/outputs/zip")
+def zip_outputs(body: _ZipRequest):
+    """One archive for a frame set — the browser would otherwise download the
+    seven renders one by one. Same basename + parent check as get_output, so
+    only files living directly in _OUTPUT_DIR can be packed. JPG / PNG / WEBP
+    are already compressed, so the entries are stored, not deflated."""
+    if not body.files or len(body.files) > 50:
+        raise HTTPException(400, "Podaj od 1 do 50 plików.")
+    buf = io.BytesIO()
+    used: set[str] = set()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as archive:
+        for f in body.files:
+            candidate = (_OUTPUT_DIR / Path(f.url).name).resolve()
+            if candidate.parent != _OUTPUT_DIR or not candidate.is_file():
+                raise HTTPException(404, f"Nie znaleziono: {Path(f.url).name}")
+            arcname = Path(f.filename).name or candidate.name
+            stem, suffix = Path(arcname).stem, Path(arcname).suffix
+            n = 2
+            while arcname in used:       # two frames with the same download name
+                arcname, n = f"{stem}-{n}{suffix}", n + 1
+            used.add(arcname)
+            archive.write(candidate, arcname)
+    zip_name = Path(body.zip_name).name or "nano-sofa-zestaw.zip"
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{zip_name}"'})
 
 
 @router.get("/api/history")

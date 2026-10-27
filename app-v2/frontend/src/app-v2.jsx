@@ -69,6 +69,31 @@ function fileSlug(...parts) {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+// The file name a gallery render downloads under — the stage button and the
+// frame-set ZIP use the same one. `fallback` supplies the scene / colour /
+// material when the item predates those fields.
+function downloadNameFor(img, i, fallback = {}) {
+  const tag = img.tag || ("v" + (i + 1));
+  const sceneId = img.background || img.catalog_profile || fallback.bg;
+  const slug = fileSlug(img.product_name, img.fabric_code || img.color_id || fallback.color,
+    img.material || fallback.material, sceneId);
+  const ext = (img.url.split(".").pop() || "jpg").split("?")[0];
+  return { name: `nano-sofa-${tag}-${slug || "render"}.${ext}`, ext };
+}
+
+// Pill buttons floating on the stage (single download, set ZIP).
+const stagePill = {
+  display: "flex", alignItems: "center", gap: 8,
+  padding: "11px 16px", fontSize: 13, fontFamily: "Geist",
+  background: "rgba(255,255,255,.92)", color: "var(--ink)",
+  borderRadius: 999, textDecoration: "none",
+  border: "0.5px solid rgba(0,0,0,.12)",
+  boxShadow: "var(--shadow-pop)",
+  cursor: "pointer",
+  letterSpacing: "-0.005em",
+  whiteSpace: "nowrap",
+};
+
 function mkErr(message, code = "VALIDATION") {
   return { message, code, retryable: false };
 }
@@ -445,7 +470,7 @@ function App({ t, mode = "photos" }) {
   // background consistency. Disabled until at least one render exists.
   const [lockBackground, setLockBackground] = useState(false);
   const [genError, setGenError] = useState("");
-  // Each item: {url, generation_id, color(hex), material(id), tag, cost, ts}.
+  // Each item: {url, generation_id, color(hex), material(id), tag, setId, cost, ts}.
   // generation_id lets any render be reused as a Fotosesja anchor; the list is
   // persisted (durable fields only — all urls are stable /api/outputs paths).
   const [gallery, setGallery] = useState(() => {
@@ -458,7 +483,7 @@ function App({ t, mode = "photos" }) {
         color: g.color || null, color_id: g.color_id || null, fabric_code: g.fabric_code || null,
         product_name: g.product_name || null,
         material: g.material || null, catalog_profile: g.catalog_profile || null,
-        tag: g.tag || null, cost: g.cost ?? null, ts: g.ts || null,
+        tag: g.tag || null, setId: g.setId || null, cost: g.cost ?? null, ts: g.ts || null,
       }));
       localStorage.setItem(GALLERY_STORAGE, JSON.stringify(slim));
     } catch {}
@@ -701,11 +726,14 @@ function App({ t, mode = "photos" }) {
     if (!st.baseFile) { setGenError(mkErr("Wgraj zdjęcie bazowe (sekcja 02).", "MISSING_BASE_IMAGE")); return; }
     const jobs = frameSet(st, bgObj, bgLocked).filter(f => !only || only.includes(f.id));
     const snap = st;
+    // Every render of one set shares an id, so "Pobierz zestaw" can zip them;
+    // a retry of failed frames joins the set it completes.
+    const setId = only && frameRun?.setId ? frameRun.setId : "set-" + Date.now();
     const failed = [];
     // A retry continues the previous run's count (6/7 → 7/7), not a new one.
     const total = only && frameRun ? frameRun.total : jobs.length;
     let done = total - jobs.length;
-    setFrameRun({ busy: true, done, total, failed: [] });
+    setFrameRun({ busy: true, done, total, failed: [], setId });
     const runOne = async (f) => {
       const stF = { ...snap, ...f.patch };
       const fd = toFormData(buildRequest(stF, { ...requestCtx, mode: "generate", prevRender: null,
@@ -723,7 +751,7 @@ function App({ t, mode = "photos" }) {
             product_name: snap.product.trim() || null,
             material: matObj?.id || null,
             catalog_profile: data.catalog_profile || null,
-            tag: fileSlug(f.name), cost: data.cost, ts: Date.now() },
+            tag: fileSlug(f.name), setId, cost: data.cost, ts: Date.now() },
           ...g,
         ]);
         setActiveGallery(0);
@@ -738,7 +766,33 @@ function App({ t, mode = "photos" }) {
     await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
       while (queue.length) await runOne(queue.shift());
     }));
-    setFrameRun({ busy: false, done, total, failed });
+    setFrameRun({ busy: false, done, total, failed, setId });
+  };
+
+  // One ZIP for every gallery render of a frame set (server packs the files
+  // it already serves under /api/outputs; names match the single download).
+  const [zipBusy, setZipBusy] = useState(false);
+  const downloadSet = async (setId) => {
+    const items = gallery.map((g, i) => ({ g, i })).filter(({ g }) => g.setId === setId && g.url);
+    if (!items.length) return;
+    setZipBusy(true);
+    try {
+      const fallback = { bg: bgObj?.id, color: colorObj?.id, material: matObj?.id };
+      const files = items.map(({ g, i }) => ({ url: g.url, filename: downloadNameFor(g, i, fallback).name }));
+      const first = items[0].g;
+      const zipName = `nano-sofa-zestaw-${fileSlug(first.product_name, first.fabric_code || first.color_id, first.material) || "render"}.zip`;
+      const r = await fetch("/api/outputs/zip", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files, zip_name: zipName }) });
+      if (!r.ok) throw new Error(`Nie udało się spakować zestawu (${r.status}).`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url; a.download = zipName; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      setGenError(mkErr(e.message || "Nie udało się pobrać zestawu.", "ZIP_FAILED"));
+    } finally {
+      setZipBusy(false);
+    }
   };
 
   // When the user switches sofa↔bed, snap st.size onto the new list. Skip the
@@ -1165,13 +1219,10 @@ function App({ t, mode = "photos" }) {
             let downloadName = "";
             let ext = "jpg";
             if (activeImg) {
-              const tag = activeImg.tag || ("v" + (activeGallery + 1));
-              const sceneId = activeImg.background || activeImg.catalog_profile || bgObj?.id;
-              const slug = fileSlug(activeImg.product_name, activeImg.fabric_code || activeImg.color_id || colorObj?.id,
-                activeImg.material || matObj?.id, sceneId);
-              ext = (activeImg.url.split(".").pop() || "jpg").split("?")[0];
-              downloadName = `nano-sofa-${tag}-${slug || "render"}.${ext}`;
+              ({ name: downloadName, ext } = downloadNameFor(activeImg, activeGallery,
+                { bg: bgObj?.id, color: colorObj?.id, material: matObj?.id }));
             }
+            const setCount = activeImg?.setId ? gallery.filter(g => g.setId === activeImg.setId && g.url).length : 0;
             return (
               <div className="stage-actions" style={{
                 position: "absolute", bottom: 24, zIndex: 4,
@@ -1185,19 +1236,19 @@ function App({ t, mode = "photos" }) {
                      href={activeImg.url}
                      download={downloadName}
                      title={"Pobierz " + ext.toUpperCase()}
-                     style={{
-                       display: "flex", alignItems: "center", gap: 8,
-                       padding: "11px 16px", fontSize: 13, fontFamily: "Geist",
-                       background: "rgba(255,255,255,.92)", color: "var(--ink)",
-                       borderRadius: 999, textDecoration: "none",
-                       border: "0.5px solid rgba(0,0,0,.12)",
-                       boxShadow: "var(--shadow-pop)",
-                       cursor: "pointer",
-                       letterSpacing: "-0.005em",
-                     }}>
+                     style={stagePill}>
                     <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
                     <span>Pobierz {ext.toUpperCase()}</span>
                   </a>
+                )}
+                {setCount > 1 && (
+                  <button type="button" className="stage-download" disabled={zipBusy}
+                     onClick={() => downloadSet(activeImg.setId)}
+                     title="Wszystkie kadry tego zestawu w jednym pliku ZIP"
+                     style={{ ...stagePill, opacity: zipBusy ? 0.6 : 1 }}>
+                    <span style={{display:"inline-flex", transform:"rotate(180deg)"}}>{Ic.upload}</span>
+                    <span>{zipBusy ? "Pakuję…" : `Pobierz zestaw · ${setCount} (ZIP)`}</span>
+                  </button>
                 )}
                 <button className="gen-fab" onClick={handleGenerate} style={{
                   position: "static", transform: "none", left: "auto", right: "auto",
@@ -2152,7 +2203,7 @@ function App({ t, mode = "photos" }) {
         </Section>
 
         <CameraSection st={st} set={set} bgObj={bgObj} bgLocked={bgLocked} lensObj={lensObj} baseCamLocked={baseCamLocked}
-          frameRun={frameRun} onGenerateSet={handleGenerateFrames} setCost={(cost * 7).toFixed(2)} />
+          frameRun={frameRun} onGenerateSet={handleGenerateFrames} onDownloadSet={downloadSet} zipBusy={zipBusy} setCost={(cost * 7).toFixed(2)} />
 
         <ReferencesSection st={st} set={set} bgLocked={bgLocked} modelObj={modelObj}
           refFileRef={refFileRef} refSlotRef={refSlotRef} onPickRef={onPickRef} clearRef={clearRef}
