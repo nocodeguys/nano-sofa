@@ -184,6 +184,14 @@ and Experiments treat every engine alike:
     cream on ivory defeats every matte threshold. A weak match (< 0.75),
     a scale beyond ±16 % or a resized canvas leaves the variant untouched
     (`tests/test_geometry_lock.py`).
+    Every render of a set also takes one reference's studio light field
+    (`normalize.match_background_tone`): the anchor in Warianty (any studio
+    backdrop, hero framings), the uploaded source in Seria and its per-tile
+    regenerate — a recolour repainted the wall with the upholstery (cream on
+    beige, silver on grey). Only confident empty-backdrop pixels move fully;
+    the product moves ≤ ±3. A border that does not follow a smooth field
+    (a room: residual 39–65 vs 1–3 on a sweep) leaves the render untouched
+    (`tests/test_backdrop_tone.py`).
 13. **The JSON preview is the request** (phase 5). `wizard/request.js`
     builds the multipart entries once; the JSON tab, the footer's reference
     budget and the three POSTs (Generuj, Warianty, Seria) all read those

@@ -184,6 +184,14 @@ def _background_surface(arr: np.ndarray) -> np.ndarray:
     diagonal light while deliberately ignoring local product/shadow detail.
     """
     h, w = arr.shape[:2]
+    return _eval_field(_fit_field(arr)[0], w, h)
+
+
+def _fit_field(arr: np.ndarray) -> tuple[np.ndarray, float]:
+    """Quadratic field coefficients (6 × RGB, in 0..1 frame coordinates) fitted
+    to the frame border, plus the 90th-percentile border residual of the
+    refit — small on a studio sweep, large on a room."""
+    h, w = arr.shape[:2]
     strip = max(8, int(min(h, w) * 0.04))
     step = max(1, max(h, w) // 512)
 
@@ -211,7 +219,12 @@ def _background_surface(arr: np.ndarray) -> np.ndarray:
     keep = residual <= np.quantile(residual, 0.85)
     if int(keep.sum()) >= 24:
         coeff, *_ = np.linalg.lstsq(design[keep], values[keep], rcond=None)
+    residual = np.max(np.abs(values - design @ coeff), axis=1)
+    return coeff, float(np.quantile(residual, 0.90))
 
+
+def _eval_field(coeff: np.ndarray, w: int, h: int) -> np.ndarray:
+    """The fitted field on a w × h canvas (same 0..1 coordinates, any size)."""
     x = np.linspace(0.0, 1.0, w, dtype=np.float32)[None, :, None]
     y = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None, None]
     c = coeff.astype(np.float32)
@@ -1034,4 +1047,73 @@ def match_anchor_geometry(master: Path, anchor: Path) -> tuple[Path, bool]:
         return master, True
     except Exception as exc:  # never let the geometry lock break a render
         logger.warning("Geometry lock skipped: %s", exc)
+        return master, False
+
+
+# ---------------------------------------------------------------------------
+# Set-level backdrop tone lock
+# ---------------------------------------------------------------------------
+# Colours of one set came back on different walls: a recolour (Seria) is only
+# asked to keep the source's backdrop and repaints it with the upholstery —
+# cream on a beige wall, silver on a grey one — and a Warianty set on an
+# unlocked studio backdrop (or one whose calibration declined) drifts the same
+# way. Every render of a set now takes the low-frequency studio field of one
+# reference: the anchor for Warianty, the uploaded source for Seria.
+TONE_MAX_BORDER_RESIDUAL = 8.0   # border p90 off a quadratic: a sweep is ~1-3, a room is far above
+TONE_NOOP = 1.5                  # mean field difference (RGB) already invisible
+
+
+def match_background_tone(master: Path, reference: Path) -> tuple[Path, bool]:
+    """Give `master`'s empty studio surface the light field of `reference`.
+
+    Both fields are the quadratic border fits _calibrate_field uses, compared
+    in 0..1 frame coordinates, so the reference may be any size (an uploaded
+    source photo). Confident backdrop pixels (smooth, on the fitted field,
+    frame-connected — _smooth_background_alpha) take the full correction and
+    keep their own fine residual; everything else — product, contact shadow,
+    edges — moves at most ±3 in luma and in chroma: the target here is the
+    wall, not the upholstery's white balance.
+
+    Returns (path, applied). Untouched when either image is not a studio
+    sweep (a room, a window, a busy floor: the border does not follow a smooth
+    field) or when the fields already agree.
+    """
+    try:
+        with Image.open(reference) as im:
+            ref_arr = np.asarray(im.convert("RGB")).astype(np.float32)
+        with Image.open(master) as im:
+            im.load()
+            src = im.convert("RGB")
+            png_text = dict(getattr(im, "text", {}) or {})
+        arr = np.asarray(src).astype(np.float32)
+
+        ref_coeff, ref_residual = _fit_field(ref_arr)
+        own_coeff, own_residual = _fit_field(arr)
+        if max(ref_residual, own_residual) > TONE_MAX_BORDER_RESIDUAL:
+            logger.info("Backdrop tone lock skipped: not a studio sweep (border residual %.1f / %.1f).",
+                        ref_residual, own_residual)
+            return master, False
+
+        w, h = src.size
+        target = _eval_field(ref_coeff, w, h)
+        source = _eval_field(own_coeff, w, h)
+        correction = np.clip(target - source, -72.0, 72.0)
+        if float(np.abs(correction).mean()) < TONE_NOOP:
+            return master, False
+
+        background_alpha = _smooth_background_alpha(src, arr, source)
+        luma = correction.mean(axis=2, keepdims=True)
+        protected = arr + np.clip(luma, -3.0, 3.0) + np.clip(correction - luma, -3.0, 3.0)
+        out_arr = (arr + correction) * background_alpha + protected * (1.0 - background_alpha)
+        out = Image.fromarray(np.clip(out_arr + 0.5, 0, 255).astype(np.uint8), "RGB")
+
+        from PIL import PngImagePlugin
+        info = PngImagePlugin.PngInfo()
+        for key, value in png_text.items():
+            info.add_text(key, value)
+        out.save(master, format="PNG", pnginfo=info)
+        logger.info("Backdrop tone locked to reference: mean shift %.1f RGB.", float(np.abs(correction).mean()))
+        return master, True
+    except Exception as exc:  # never let the tone lock break a render
+        logger.warning("Backdrop tone lock skipped: %s", exc)
         return master, False
