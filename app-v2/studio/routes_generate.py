@@ -25,7 +25,7 @@ from studio.media import (
     _resolve_anchor_path,
     _save_upload,
 )
-from studio.normalize import match_anchor_geometry, normalize_packshot
+from studio.normalize import match_anchor_geometry, match_background_tone, normalize_packshot
 from studio.external_engine import ExternalEngineError
 from studio.openai_images import OPENAI_MODELS, generate_openai, generate_product_openai
 from studio.openrouter import OPENROUTER_MODELS, generate_openrouter, generate_product_openrouter
@@ -564,10 +564,17 @@ async def api_generate_set(
         # empty plate), so only the prompt held its size — lock scale and
         # floor line onto the anchor's after the fact. Tight shots have no
         # full product to register.
-        geometry_locked = False
+        geometry_locked = tone_locked = False
         if catalog_mode and anchor_req.shot_type not in TIGHT_SHOTS:
             _p, geometry_locked = await asyncio.to_thread(
                 match_anchor_geometry, r.output_path, anchor_result.output_path
+            )
+        # Any studio backdrop: the variant's wall takes the anchor's light
+        # field (a locked one is usually already calibrated — then a no-op;
+        # an unlocked one, or a declined calibration, drifted with the colour).
+        if treat["kind"] == "backdrop" and not transparent_env and anchor_req.shot_type not in TIGHT_SHOTS:
+            _p, tone_locked = await asyncio.to_thread(
+                match_background_tone, r.output_path, anchor_result.output_path
             )
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, transparent_env)
         variants_payload.append({
@@ -577,6 +584,7 @@ async def api_generate_set(
             "generation_id": r.generation_id,
             "cost": r.actual_cost,
             "geometry_locked": geometry_locked,
+            "tone_locked": tone_locked,
         })
 
     await asyncio.to_thread(_prune_storage)
@@ -752,9 +760,14 @@ async def api_generate_variants(
             return s, _item_error({"color": pair["color"], "material": pair["material"]}, exc)
         if not r.success or r.output_path is None:
             return s, _item_error({"color": pair["color"], "material": pair["material"]}, r)
+        # A recolour is only *asked* to keep the source's backdrop and repaints
+        # it with the upholstery (cream → beige wall). Put the source's studio
+        # field back; a room or a crop as the source is left alone.
+        _p, tone_locked = await asyncio.to_thread(match_background_tone, r.output_path, Path(s["path"]))
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, False)
         return s, {"color": pair["color"], "material": pair["material"],
-                   "image_url": v_url, "generation_id": r.generation_id, "cost": r.actual_cost}
+                   "image_url": v_url, "generation_id": r.generation_id, "cost": r.actual_cost,
+                   "tone_locked": tone_locked}
 
     total = len(usable) * len(pairs)
 
@@ -860,11 +873,14 @@ async def api_regenerate_variant(
     result = await asyncio.to_thread(_render_product, req, openai_key, quality, openrouter_key)
     if not result.success or result.output_path is None:
         return _result_error(result)
+    # Same backdrop lock as the grid tile it replaces.
+    _p, tone_locked = await asyncio.to_thread(match_background_tone, result.output_path, src_path)
     qual = _parse_quality(output_quality)
     url, _f, _d = await _derived_url(result.output_path, output_format, qual, False)
     await asyncio.to_thread(_prune_storage)
     return {"success": True, "color": color, "material": material, "image_url": url,
-            "generation_id": result.generation_id, "cost": result.actual_cost}
+            "generation_id": result.generation_id, "cost": result.actual_cost,
+            "tone_locked": tone_locked}
 
 
 @router.post("/api/generate-free")

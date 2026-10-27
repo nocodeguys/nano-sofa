@@ -12,14 +12,14 @@ from PIL import Image, ImageDraw, ImageFilter
 W, H = 768, 960
 
 
-def _bed(colour, scale=1.0, dx=0, dy=0, size=(W, H)) -> Image.Image:
+def _bed(colour, scale=1.0, dx=0, dy=0, size=(W, H), wall=(244, 242, 238)) -> Image.Image:
     """A synthetic packshot: a warm cyclorama with a soft floor glow, a soft
     contact shadow and a bed (channelled headboard, base, white duvet) whose
     floor point is (384 + dx, 700 + dy), drawn at `scale`."""
     w, h = size
     y = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None, None]
     x = np.linspace(0.0, 1.0, w, dtype=np.float32)[None, :, None]
-    field = np.array([244, 242, 238], np.float32) + y * 6.0 + 4.0 * np.exp(-((x - 0.3) ** 2 + (y - 0.8) ** 2) / 0.02)
+    field = np.array(wall, np.float32) + y * 6.0 + 4.0 * np.exp(-((x - 0.3) ** 2 + (y - 0.8) ** 2) / 0.02)
     img = Image.fromarray(np.clip(field + np.zeros((h, w, 3), np.float32), 0, 255).astype(np.uint8))
     fx, fy = 384 + dx, 700 + dy
 
