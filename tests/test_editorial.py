@@ -132,29 +132,24 @@ def test_config_lists_lab_models(client):
     cfg = client.get("/api/config").json()
     lab = cfg.get("lab_models") or []
     ids = {m["id"]: m for m in lab}
-    assert set(ids) == {
-        "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
-        "openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2",
-        "google/gemini-nano-banana-2.1",
-    }
-    assert cfg["lab_default_model"] == "gpt-image-2.5-flare"
+    # The Lab runs on one OpenRouter key: no OpenAI-direct model is offered
+    # there (users kept pasting the wrong key), every active OpenRouter
+    # model is.
+    assert all(m["provider"] == "openrouter" for m in lab)
+    assert {"openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2",
+            "google/gemini-nano-banana-2.1"} <= set(ids)
+    assert "gpt-image-2.5-flare" not in ids and "gpt-image-2.5-sunburst" not in ids
+    assert cfg["lab_default_model"] == "openai/gpt-image-2.5-flare"
+    assert not any(m["deprecated"] for m in lab)
     # Nano Banana 2.1 via OpenRouter: Google's caps, 1K–4K, no quality tiers.
-    nb = ids.pop("google/gemini-nano-banana-2.1")
-    assert nb["provider"] == "openrouter"
+    nb = ids["google/gemini-nano-banana-2.1"]
     assert nb["max_refs"] == 14 and nb["resolutions"] == ["1K", "2K", "4K"]
     assert nb["qualities"] == [] and len(nb["aspects"]) == 8
-    for m in ids.values():
-        assert m["max_refs"] == 16 and m["moodboard_max"] == 6
-        assert len(m["aspects"]) == 8
-        assert m["deprecated"] is False
-        if m["provider"] == "openai":
-            assert m["resolutions"] == ["1K", "2K"]
-            assert {"xhigh", "max"} <= set(m["qualities"])
-            # On 2.5 `high` is the old `medium` budget; the working default is xhigh.
-            assert m["default_quality"] == "xhigh"
-        else:
-            # OpenRouter has no size parameter — provider default size.
-            assert m["provider"] == "openrouter" and m["resolutions"] == ["auto"]
+    for mid in ("openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2"):
+        m = ids[mid]
+        assert m["max_refs"] == 16 and m["moodboard_max"] == 6 and len(m["aspects"]) == 8
+        # OpenRouter has no size parameter for GPT Image — provider default size.
+        assert m["resolutions"] == ["auto"]
     assert {"xhigh", "max"} <= set(ids["openai/gpt-image-2.5-sunburst"]["qualities"])
     assert ids["openai/gpt-image-2.5-sunburst"]["default_quality"] == "xhigh"
     assert ids["openai/gpt-image-2"]["default_quality"] == "high"

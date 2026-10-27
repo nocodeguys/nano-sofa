@@ -106,7 +106,7 @@ export function referenceBudget(st, ctx) {
 /**
  * The request for the current state.
  *
- * ctx: { mode, isLab, apiKey, labKeyField ("openai_key" | "openrouter_key"), labKey, quality,
+ * ctx: { mode, isLab, apiKey, labKey (the OpenRouter key), quality,
  *        effectiveLegs, customColorText, baseCamLocked,
  *        bgObj, bgLocked, prevRender (File | "pending" | null),
  *        variantColors, variantMaterials, catalogRefs, colorObj, matObj,
@@ -114,7 +114,7 @@ export function referenceBudget(st, ctx) {
  */
 export function buildRequest(st, ctx) {
   const {
-    mode = "generate", isLab = false, apiKey = "", labKeyField = "openai_key", labKey = "", quality = "",
+    mode = "generate", isLab = false, apiKey = "", labKey = "", quality = "",
     baseCamLocked = false,
     effectiveLegs, customColorText = "", bgObj, bgLocked = false, prevRender = null,
     variantColors = [], variantMaterials = [], colorObj, matObj, sizeObj,
@@ -130,8 +130,8 @@ export function buildRequest(st, ctx) {
   };
 
   push("api_key", (apiKey || "").trim());
-  // The Lab posts the key of the selected model's provider.
-  if (isLab) { push(labKeyField, (labKey || "").trim()); if (quality) push("quality", quality); }
+  // The Lab runs every model through OpenRouter.
+  if (isLab) { push("openrouter_key", (labKey || "").trim()); if (quality) push("quality", quality); }
   push("kind", st.kind);
   push("product_name", (st.product || "").trim());   // identity only, never the prompt
 
@@ -184,7 +184,7 @@ export function buildRequest(st, ctx) {
   const fields = {};
   for (const [k, v] of entries) {
     if (v === PLACEHOLDER_FILE || v instanceof File) continue;
-    fields[k] = (k === "api_key" || k === "openai_key") ? (v ? "•••" : "") : v;
+    fields[k] = (k === "api_key" || k === "openai_key" || k === "openrouter_key") ? (v ? "•••" : "") : v;
   }
   const preview = {
     endpoint,

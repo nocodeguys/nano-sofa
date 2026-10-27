@@ -168,8 +168,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const API_KEY_STORAGE = "nano-sofa-v2-api-key";
-const OPENAI_KEY_STORAGE = "nano-sofa-v2-openai-key"; // Lab tab (GPT Image 2.5 direct), shared with /editorial
-const OPENROUTER_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // Lab tab via OpenRouter, shared with /editorial
+const OPENROUTER_KEY_STORAGE = "nano-sofa-v2-openrouter-key"; // Lab tab (its only key), shared with /editorial
 // lab.html mounts this same bundle with <body data-mode="lab">.
 const PAGE_MODE = (typeof document !== "undefined" && document.body && document.body.dataset && document.body.dataset.mode) || "photos";
 const PRESETS_STORAGE = "nano-sofa-v2-presets";
@@ -224,16 +223,10 @@ function CatalogMissing() {
 }
 
 function App({ t, mode = "photos" }) {
-  // Lab mode (/lab, <body data-mode="lab">): the very same wizard, but the
-  // engine is the OpenAI Images API (GPT Image 2.5) with the user's OpenAI
-  // key instead of Gemini. Beds are the default subject there.
+  // Lab mode (/lab, <body data-mode="lab">): the very same wizard, but every
+  // model runs through OpenRouter on the user's one OpenRouter key instead of
+  // Gemini. Beds are the default subject there.
   const isLab = mode === "lab";
-  const [oaKey, setOaKey] = useState(() => {
-    try { return localStorage.getItem(OPENAI_KEY_STORAGE) || ""; } catch { return ""; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(OPENAI_KEY_STORAGE, oaKey); } catch {}
-  }, [oaKey]);
   const [orKey, setOrKey] = useState(() => {
     try { return localStorage.getItem(OPENROUTER_KEY_STORAGE) || ""; } catch { return ""; }
   });
@@ -249,7 +242,7 @@ function App({ t, mode = "photos" }) {
   }, [apiKey]);
   // Open the key field automatically on first load when no key is set.
   const [showKeyEdit, setShowKeyEdit] = useState(() => {
-    try { return !(localStorage.getItem(isLab ? OPENAI_KEY_STORAGE : API_KEY_STORAGE) || ""); } catch { return true; }
+    try { return !(localStorage.getItem(isLab ? OPENROUTER_KEY_STORAGE : API_KEY_STORAGE) || ""); } catch { return true; }
   });
 
   // Server-driven config: models + per-model constraints (max_refs,
@@ -555,14 +548,12 @@ function App({ t, mode = "photos" }) {
     () => serverConfig.models.find(m => m.id === st.model) || serverConfig.models[0],
     [serverConfig, st.model],
   );
-  // The key the active engine needs — Gemini in the studio; in the Lab the
-  // selected model's provider: OpenAI direct or OpenRouter ("openai/…" slugs).
-  const labViaOpenRouter = isLab && (modelObj?.provider === "openrouter" || st.model.includes("/"));
-  const keyName = !isLab ? "Gemini" : labViaOpenRouter ? "OpenRouter" : "OpenAI";
-  const activeKey = !isLab ? apiKey : labViaOpenRouter ? orKey : oaKey;
-  const setActiveKey = !isLab ? setApiKey : labViaOpenRouter ? setOrKey : setOaKey;
+  // The key the active engine needs — Gemini in the studio, OpenRouter in the Lab.
+  const keyName = isLab ? "OpenRouter" : "Gemini";
+  const activeKey = isLab ? orKey : apiKey;
+  const setActiveKey = isLab ? setOrKey : setApiKey;
   const keyHint = `Wklej klucz ${keyName}${isLab ? "" : " API"} u góry sceny.`;
-  const keyCode = !isLab ? "MISSING_API_KEY" : labViaOpenRouter ? "MISSING_OPENROUTER_KEY" : "MISSING_OPENAI_KEY";
+  const keyCode = isLab ? "MISSING_OPENROUTER_KEY" : "MISSING_API_KEY";
   // Display name for any model id (history rows, chips) — from the registry,
   // never derived from the id string.
   const modelShort = (id) => (serverConfig.models.find(m => m.id === id) || {}).short || id || "—";
@@ -636,15 +627,15 @@ function App({ t, mode = "photos" }) {
   // ONE request builder for Generuj / Warianty / Seria and for the JSON tab:
   // the preview is derived from the very entries that go on the wire.
   const requestCtx = {
-    isLab, apiKey, oaKey, quality, effectiveLegs, customColorText: customColorText(),
-    labKeyField: labViaOpenRouter ? "openrouter_key" : "openai_key", labKey: activeKey, baseCamLocked,
+    isLab, apiKey, quality, effectiveLegs, customColorText: customColorText(),
+    labKey: activeKey, baseCamLocked,
     bgObj, bgLocked, prevRender: (!bgLocked && lockBackground && gallery[0]?.url) ? "pending" : null,
     variantColors, variantMaterials, catalogRefs, colorObj, matObj, sizeObj, modelObj,
     matchedPreset, bedLegsHidden,
   };
   const built = useMemo(() => buildRequest(st, { ...requestCtx, mode: "generate" }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [st, isLab, apiKey, oaKey, orKey, quality, effectiveLegs, baseCamLocked, bgObj, bgLocked, lockBackground, gallery,
+    [st, isLab, apiKey, orKey, quality, effectiveLegs, baseCamLocked, bgObj, bgLocked, lockBackground, gallery,
      variantColors, variantMaterials, catalogRefs, colorObj, matObj, sizeObj, modelObj, matchedPreset, bedLegsHidden]);
   const jsonPayload = built.preview;
   const budget = built.budget;
@@ -1051,7 +1042,7 @@ function App({ t, mode = "photos" }) {
   return (
     <div className="app-frame">
       <NanoTopbar active={isLab ? "lab" : "photos"} apiKey={activeKey} setApiKey={setActiveKey} showKeyEdit={showKeyEdit} setShowKeyEdit={setShowKeyEdit}
-        keyName={keyName} keyPlaceholder={!isLab ? "AIza… wklej klucz Gemini" : labViaOpenRouter ? "sk-or-… wklej klucz OpenRouter" : "sk-… wklej klucz OpenAI"} />
+        keyName={keyName} keyPlaceholder={isLab ? "sk-or-… wklej klucz OpenRouter" : "AIza… wklej klucz Gemini"} />
 
       {catalogStale && (
         <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 16px",
@@ -1834,10 +1825,11 @@ function App({ t, mode = "photos" }) {
       {/* ============= RIGHT — scrolling form ============= */}
       <section className="form-pane">
         {isLab ? (
-          <PageIntro eyebrow={<>Lab · generator OpenAI · eksperyment · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
-            Ten sam przebieg co w Zdjęciach: tło, produkt, wykończenie. Renderuje GPT Image 2.5 przez OpenAI Images API
-            albo przez OpenRouter (wybór w ustawieniach technicznych), a zdjęcie bazowe, komplet referencji tkaniny
-            i plamka koloru idą jako obrazy edycji. Warianty i fotosesja też; wyniki lądują w Porównywarce obok Gemini.
+          <PageIntro eyebrow={<>Lab · OpenRouter · eksperyment · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
+            Ten sam przebieg co w Zdjęciach: tło, produkt, wykończenie, ale każdy model idzie przez OpenRouter
+            na jednym kluczu — GPT Image, Nano Banana, MAI, FLUX, Seedream, Krea, Recraft (wybór w ustawieniach technicznych).
+            Zdjęcie bazowe, komplet referencji tkaniny i plamka koloru idą jako obrazy edycji. Wyniki lądują
+            w Porównywarce obok Gemini.
           </PageIntro>
         ) : (
           <PageIntro eyebrow={<>Zdjęcia · brand image studio · <a href="/help" target="_blank" rel="noopener">instrukcja ↗</a></>}>
@@ -1867,14 +1859,10 @@ function App({ t, mode = "photos" }) {
               <div className="api-banner-eyebrow">krok zerowy</div>
               <div className="api-banner-title serif">{`Wklej swój klucz ${keyName} API, żeby zacząć`}</div>
               <div className="api-banner-help">
-                {labViaOpenRouter ? (
+                {isLab ? (
                   <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
                   openrouter.ai przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
                   <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer">openrouter.ai/settings/keys</a>.</>
-                ) : isLab ? (
-                  <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage); serwer przekazuje go wyłącznie do
-                  api.openai.com przy każdym renderze i nie zapisuje. Pobierz klucz z {" "}
-                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>.</>
                 ) : (
                   <>Klucz przechowujemy tylko w Twojej przeglądarce (localStorage). Nie wysyłamy go nigdzie poza
                   wywołaniem do Google przy każdym renderze. Pobierz klucz z {" "}
@@ -1887,7 +1875,7 @@ function App({ t, mode = "photos" }) {
                 autoFocus
                 type="password"
                 className="input"
-                placeholder={!isLab ? "AIza..." : labViaOpenRouter ? "sk-or-..." : "sk-..."}
+                placeholder={isLab ? "sk-or-..." : "AIza..."}
                 onChange={e => setActiveKey(e.target.value)}
                 style={{flex:1, fontFamily:"Geist Mono", fontSize: 13}}
               />
@@ -1897,9 +1885,9 @@ function App({ t, mode = "photos" }) {
 
         {/* Technical output settings stay available, but no longer lead the workflow. */}
         <AdvancedSection title="Ustawienia techniczne"
-          summary={`${modelShort(st.model)}${labViaOpenRouter ? " · openrouter" : ""}${isLab && quality ? " · " + quality : ""} · ${st.aspect} · ${st.res.split(" ")[0]}`}
+          summary={`${modelShort(st.model)}${isLab && quality ? " · " + quality : ""} · ${st.aspect} · ${st.res.split(" ")[0]}`}
           help={isLab
-            ? "Model GPT Image, jakość, proporcje i rozdzielczość. Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji. Wersje „· OpenRouter” to te same modele płacone kluczem OpenRouter — GPT Image bez wyboru rozdzielczości (rozmiar domyślny dostawcy). Nano Banana 2.1 · OpenRouter to model Google'a z pełnym planem referencji i rozdzielczością 1K / 2K / 4K. Jakości xhigh / max są wyraźnie droższe — koszt liczony z tokenów po renderze."
+            ? "Model, jakość, proporcje i rozdzielczość — wszystko na kluczu OpenRouter. GPT Image 2.5 Flare: domyślny, szybszy; Sunburst: ściślejsza kontrola edycji (bez wyboru rozdzielczości, jakości xhigh / max wyraźnie droższe). Nano Banana 2.1: pełny plan referencji, 1K / 2K / 4K. MAI, FLUX, Seedream, Krea i Recraft to eksperyment — w teście z października gorzej trzymały geometrię produktu, więc oceniaj je wzrokowo; Recraft i Krea 2 biorą tylko zdjęcie bazowe, bez próbek tkaniny. Koszt liczony po renderze."
             : "Model, proporcje i rozdzielczość. Nano Banana 2.1 jest polecanym modelem do codziennej pracy (4K, 14 referencji); Pro wybierz dla najbardziej wymagającej zgodności marki. Modele oznaczone jako wycofywane zostają tylko dla starych presetów."}>
           <div className="out-grid">
             <div>

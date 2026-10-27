@@ -13,13 +13,13 @@ import logoUrl from "./logo.svg"; // "nano sofa" wordmark, 895×130, black on tr
 // short: the OpenAI generator (/lab), the comparator (/experiments) and the
 // editorial composer (/editorial).
 const LAB_PAGES = [
-  { id: "lab", href: "/lab", label: "Generator OpenAI", hint: "kreator produktowy na GPT Image 2.5" },
+  { id: "lab", href: "/lab", label: "Generator OpenRouter", hint: "kreator produktowy na modelach OpenRouter" },
   { id: "experiments", href: "/experiments", label: "Porównywarka", hint: "porównanie generacji A/B, trace, koszty" },
   { id: "editorial", href: "/editorial", label: "Editorial", hint: "kadr od zera, Gemini / OpenRouter / OpenAI" },
   { id: "meli", href: "/meli", label: "Meli", hint: "zmiana koloru drewna łóżek, modele OpenRouter" },
 ];
 const LAB_IDS = new Set(LAB_PAGES.map(p => p.id));
-const SUFFIX = { video: "wideo", editorial: "lab · editorial", meli: "lab · meli", lab: "lab · GPT Image", experiments: "lab · porównywarka", admin: "katalog" };
+const SUFFIX = { video: "wideo", editorial: "lab · editorial", meli: "lab · meli", lab: "lab · OpenRouter", experiments: "lab · porównywarka", admin: "katalog" };
 
 // Page intro shared by every tab: a small mono eyebrow and one short,
 // friendly paragraph — no display headings, one typographic voice.
