@@ -25,7 +25,7 @@ from studio.media import (
     _resolve_anchor_path,
     _save_upload,
 )
-from studio.normalize import normalize_packshot
+from studio.normalize import match_anchor_geometry, normalize_packshot
 from studio.external_engine import ExternalEngineError
 from studio.openai_images import OPENAI_MODELS, generate_openai, generate_product_openai
 from studio.openrouter import OPENROUTER_MODELS, generate_openrouter, generate_product_openrouter
@@ -560,6 +560,15 @@ async def api_generate_set(
             continue
         if treat["normalize_profile"] and anchor_req.shot_type not in TIGHT_SHOTS:
             await asyncio.to_thread(normalize_packshot, r.output_path, treat["normalize_profile"])
+        # On a locked backdrop the variant never saw the anchor (it got the
+        # empty plate), so only the prompt held its size — lock scale and
+        # floor line onto the anchor's after the fact. Tight shots have no
+        # full product to register.
+        geometry_locked = False
+        if catalog_mode and anchor_req.shot_type not in TIGHT_SHOTS:
+            _p, geometry_locked = await asyncio.to_thread(
+                match_anchor_geometry, r.output_path, anchor_result.output_path
+            )
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, transparent_env)
         variants_payload.append({
             "color": cid,
@@ -567,6 +576,7 @@ async def api_generate_set(
             "image_url": v_url,
             "generation_id": r.generation_id,
             "cost": r.actual_cost,
+            "geometry_locked": geometry_locked,
         })
 
     await asyncio.to_thread(_prune_storage)

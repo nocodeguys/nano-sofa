@@ -176,6 +176,14 @@ and Experiments treat every engine alike:
     Without the plate a close-up's SCENE must still name the backdrop's
     tone and hex and discard image 1's background (2026-10-21: "warm soft
     ivory" alone rendered the close-up of a frame set beige).
+    In a colour set (`/api/generate-set`) on a locked backdrop the variants
+    never see the anchor, so after normalization each hero variant is
+    registered onto the anchor (`normalize.match_anchor_geometry`: edge-map
+    correlation, one scale + shift) — the prompt contract alone let a real
+    set's bed width wander 0.90–0.94. Registration, not a product matte:
+    cream on ivory defeats every matte threshold. A weak match (< 0.75),
+    a scale beyond ±16 % or a resized canvas leaves the variant untouched
+    (`tests/test_geometry_lock.py`).
 13. **The JSON preview is the request** (phase 5). `wizard/request.js`
     builds the multipart entries once; the JSON tab, the footer's reference
     budget and the three POSTs (Generuj, Warianty, Seria) all read those

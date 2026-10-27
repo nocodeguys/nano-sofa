@@ -891,3 +891,147 @@ def normalize_packshot(
     except Exception as exc:  # never let normalization break a render
         logger.warning("Packshot normalization skipped: %s", exc)
         return master, False
+
+
+# ---------------------------------------------------------------------------
+# Variant geometry lock
+# ---------------------------------------------------------------------------
+# A colour set on a locked backdrop never shows the variants the anchor (they
+# get the empty plate, so the old colour cannot leak), and calibrate_only
+# profiles do not rescale. Scale and floor line were held only by the prompt's
+# 78-84 % contract, which a model lands anywhere inside — on a real GPT Image
+# set the bed width wandered 0.90-0.94 of the frame and the floor 0.775-0.793,
+# so adjacent colours read as different sizes. This pass makes the set agree.
+#
+# Measured, not segmented: a product box needs a clean matte, and cream on
+# ivory with a soft shadow and a floor glow defeats every threshold (the
+# compositing matte found a box in 2 of 40 real renders; an edge-enclosed
+# silhouette lost the smooth side panel of a taupe bed). Registration needs
+# none of that: the edge maps of two renders of the same bed — channels,
+# outline, seams — line up at one scale and shift, whatever the colour.
+GEOMETRY_MIN_MATCH = 0.75     # same bed in two colours: 0.89-0.93; other angle / room: <= 0.54
+GEOMETRY_MAX_SCALE_DELTA = 0.16
+GEOMETRY_MAX_SHIFT = 0.12     # of the frame side
+GEOMETRY_NOOP_SCALE = 0.008   # under ~1 % size and position: leave it alone
+GEOMETRY_NOOP_SHIFT = 0.004
+_GEOMETRY_WORK_PX = 384       # long side of the registration grid
+_GEOMETRY_SCALE_STEP = 0.005
+
+
+def _edge_map(src: Image.Image, size: tuple[int, int]) -> np.ndarray:
+    """Colour-blind structure map: gradient magnitude of luma, backdrop grain
+    zeroed, strong edges capped so texture and outline weigh alike, the frame
+    border blanked, softened a little so near-misses still overlap."""
+    a = np.asarray(src.convert("L").resize(size, Image.BOX).filter(ImageFilter.GaussianBlur(1.0))).astype(np.float32)
+    gx = np.zeros_like(a)
+    gy = np.zeros_like(a)
+    gx[:, 1:-1] = a[:, 2:] - a[:, :-2]
+    gy[1:-1, :] = a[2:, :] - a[:-2, :]
+    g = np.minimum(np.hypot(gx, gy), 40.0)
+    g[g < 4.0] = 0.0
+    h, w = g.shape
+    o = max(2, round(min(h, w) * 0.02))
+    g[:o] = 0.0
+    g[-o:] = 0.0
+    g[:, :o] = 0.0
+    g[:, -o:] = 0.0
+    soft = Image.fromarray((g * 6.0).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.5))
+    return np.asarray(soft, dtype=np.float32)
+
+
+def _register_scale_shift(anchor: Image.Image, variant: Image.Image) -> tuple[float, float, float, float]:
+    """(match, s, tx, ty) such that variant pixel (x, y) lands on the anchor at
+    (s·x + tx, s·y + ty), full-resolution pixels. `match` is the normalised
+    cross-correlation of the edge maps at that pose (1.0 = identical)."""
+    W, H = anchor.size
+    sc = _GEOMETRY_WORK_PX / max(W, H)
+    w, h = max(8, round(W * sc)), max(8, round(H * sc))
+    A, V = _edge_map(anchor, (w, h)), _edge_map(variant, (w, h))
+    pad = (2 * h, 2 * w)                      # no wrap-around in the correlation
+    fa = np.fft.rfft2(A, pad)
+    na = float(np.sqrt((A * A).sum()))
+    best = (-1.0, 1.0, 0, 0)
+    if na == 0.0:
+        return best
+    lo, hi = 1.0 - GEOMETRY_MAX_SCALE_DELTA, 1.0 + GEOMETRY_MAX_SCALE_DELTA
+    for s in np.arange(lo, hi + 1e-9, _GEOMETRY_SCALE_STEP):
+        vs = np.asarray(Image.fromarray(V).resize((max(1, round(w * s)), max(1, round(h * s))), Image.BILINEAR),
+                        dtype=np.float32)[: 2 * h, : 2 * w]
+        nv = float(np.sqrt((vs * vs).sum()))
+        if nv == 0.0:
+            continue
+        cc = np.fft.irfft2(fa * np.conj(np.fft.rfft2(vs, pad)), pad)
+        iy, ix = np.unravel_index(int(np.argmax(cc)), cc.shape)
+        score = float(cc[iy, ix]) / (na * nv)
+        if score > best[0]:
+            best = (score, float(s), ix - 2 * w if ix > w else ix, iy - 2 * h if iy > h else iy)
+    score, s, tx, ty = best
+    return score, s, tx / sc, ty / sc
+
+
+def match_anchor_geometry(master: Path, anchor: Path) -> tuple[Path, bool]:
+    """Scale and shift `master` (a colour variant) onto `anchor`'s geometry.
+
+    One uniform scale plus a shift, found by registering the two renders'
+    edge maps — so the bed's size and floor line match the anchor while it
+    keeps its own pixels, edges and contact shadow. Margins the moved frame
+    no longer covers get the variant's own fitted studio field, feathered in,
+    so the smooth cyclorama shows no seam.
+
+    Returns (path, applied). Any doubt — unequal canvas, a match below 0.75
+    (another pose, an interior, a crop), a scale beyond ±16 % or a shift
+    beyond 12 % of the frame — leaves the master untouched: this is a
+    refinement, never a reason to ship a mangled render.
+    """
+    try:
+        with Image.open(anchor) as im:
+            ref = im.convert("RGB")
+        with Image.open(master) as im:
+            im.load()
+            src = im.convert("RGB")
+            png_text = dict(getattr(im, "text", {}) or {})
+        if ref.size != src.size:
+            logger.info("Geometry lock skipped: anchor %s vs variant %s canvas.", ref.size, src.size)
+            return master, False
+
+        match, s, tx, ty = _register_scale_shift(ref, src)
+        w, h = src.size
+        if match < GEOMETRY_MIN_MATCH:
+            logger.info("Geometry lock skipped: variant does not match the anchor (%.2f).", match)
+            return master, False
+        if abs(tx) > w * GEOMETRY_MAX_SHIFT or abs(ty) > h * GEOMETRY_MAX_SHIFT:
+            logger.warning("Geometry lock skipped: implausible shift (%+.0f, %+.0f) px.", tx, ty)
+            return master, False
+        if abs(s - 1.0) < GEOMETRY_NOOP_SCALE and abs(tx) < w * GEOMETRY_NOOP_SHIFT and abs(ty) < h * GEOMETRY_NOOP_SHIFT:
+            return master, False
+
+        # Output (X, Y) samples the variant at ((X - tx) / s, (Y - ty) / s).
+        coeffs = (1.0 / s, 0.0, -tx / s, 0.0, 1.0 / s, -ty / s)
+        src_arr = np.asarray(src).astype(np.float32)
+        # Taps outside the source read the backdrop's own median tone, not
+        # black — a black fill left a dark rim along every frame edge.
+        edge_tone = tuple(int(v) for v in np.median(
+            np.concatenate([src_arr[0], src_arr[-1], src_arr[:, 0], src_arr[:, -1]]), axis=0))
+        moved = src.transform((w, h), Image.AFFINE, coeffs, resample=Image.BICUBIC, fillcolor=edge_tone)
+        cover = Image.new("L", (w, h), 255).transform(
+            (w, h), Image.AFFINE, coeffs, resample=Image.NEAREST, fillcolor=0)
+        # Erode twice the blur radius so the feather lies wholly inside the
+        # moved frame and its resampled border never shows.
+        k = max(2, round(max(w, h) * 0.006))
+        cover = cover.filter(ImageFilter.MinFilter(k * 4 + 1)).filter(ImageFilter.GaussianBlur(k))
+        m = np.asarray(cover).astype(np.float32)[:, :, None] / 255.0
+        field = _background_surface(src_arr)
+        out_arr = np.asarray(moved).astype(np.float32) * m + field * (1.0 - m)
+        out = Image.fromarray(np.clip(out_arr + 0.5, 0, 255).astype(np.uint8), "RGB")
+
+        from PIL import PngImagePlugin
+        info = PngImagePlugin.PngInfo()
+        for key, value in png_text.items():
+            info.add_text(key, value)
+        out.save(master, format="PNG", pnginfo=info)
+        logger.info("Variant geometry locked to anchor: match %.2f, scale %.3f, shift (%+.0f, %+.0f) px.",
+                    match, s, tx, ty)
+        return master, True
+    except Exception as exc:  # never let the geometry lock break a render
+        logger.warning("Geometry lock skipped: %s", exc)
+        return master, False
