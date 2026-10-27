@@ -179,6 +179,33 @@ def test_close_up_is_a_tight_shot(server, base_image):
     assert "must NOT be visible" in text
 
 
+@pytest.mark.parametrize("background, shot, wanted", [
+    ("ivory", "close_up", "#F7F5F1"),   # locked catalog backdrop
+    ("grey", "close_up", "#DCDCDC"),    # plain studio backdrop
+    ("ivory", "hero", None),            # the plate carries the tone
+    ("ivory", "detail_fabric", None),   # no backdrop in a macro
+    ("scandi", "close_up", None),       # a room has no single wall tone
+    ("transparent", "close_up", None),
+])
+def test_close_up_on_a_studio_backdrop_gets_the_backdrop_patch(server, base_image, background, shot, wanted):
+    """Prod close-ups of an ivory set came back on a cream wall (RGB 231, 222,
+    213) next to cream upholstery: the tight shot's only picture of the wall
+    tone is now a flat patch of the backdrop's catalogue hex."""
+    from app.core.generator import plan_reference_slots
+    req = _req(server, base_image, background=background, shot=shot)
+    slots = plan_reference_slots(req, 14)
+    patch = [s for s in slots if s.role == "backdrop_patch"]
+    text = _build_prompt_text(req)
+    if wanted is None:
+        assert not patch and "BACKDROP COLOUR AUTHORITY" not in text
+        return
+    assert len(patch) == 1 and patch[0].source == f"color-patch:{wanted}"
+    assert patch[0].image.getpixel((0, 0)) == tuple(int(wanted[i:i + 2], 16) for i in (1, 3, 5))
+    n = [s.role for s in slots].index("backdrop_patch") + 1
+    assert f"BACKDROP COLOUR AUTHORITY (image {n})" in text and wanted in text
+    assert "take nothing else from it" in text.split("BACKDROP COLOUR AUTHORITY")[1][:900]
+
+
 # --------------------------------------------------------------------------
 # Routes: the upload is accepted only where it means something
 # --------------------------------------------------------------------------

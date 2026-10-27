@@ -67,6 +67,7 @@ def product_spec(req: Any, slots: dict[str, int]) -> PromptSpec:
             keep_source_scene=bool(req.keep_source_scene),
             contains_product=bool(req.scene_contains_product),
             view_consistency=bool(req.view_consistency),
+            backdrop_hex=getattr(req, "backdrop_hex", "") or "",
         ),
         strict_in_place_recolor=bool(req.strict_in_place_recolor),
         lock_to_reference=bool(req.lock_to_reference),
