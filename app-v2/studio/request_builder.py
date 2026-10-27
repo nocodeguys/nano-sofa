@@ -204,6 +204,12 @@ def _build_generation_request(
         # studio plate (when the backdrop has one) replaces any caller scene.
         scene_image_path = _scene_reference_path(bg_id)
     catalog = locked
+    # A studio backdrop's own colour, for the close-up's backdrop patch (no
+    # plate reaches a tight shot). Rooms, custom photos and the alpha output
+    # have no single wall tone.
+    backdrop_hex = ""
+    if bg_kind == "backdrop" and not bg_entry.get("transparent"):
+        backdrop_hex = (bg_entry.get("hex") or "").strip().upper()
 
     is_custom_color = color == "custom" and bool(color_custom.strip())
     color_meta = _COLOR_META.get(color, {})
@@ -373,6 +379,7 @@ def _build_generation_request(
         upholstery_color=upholstery_color,
         upholstery_material=upholstery_material,
         upholstery_hex=upholstery_hex,
+        backdrop_hex=backdrop_hex,
         color_id=color_id,
         material_id=mat if mat in _MATERIAL_PL_TO_EN else "",
         material_structure=material_structure(mat),

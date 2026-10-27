@@ -2,20 +2,21 @@
 # engine: openai | model: gpt-image-2.5-flare | max_refs: 16
 # kind=bed mode=catalog shot=close_up shot_type=close_up catalog_profile=ivory
 # colour=#938A83 material_id=cremona aspect=4:3 res=1K
-# stats: chars=11204 camera_offset_pct=11 preserve_offset_pct=-1 scene_offset_pct=19 negative_offset_pct=90
+# stats: chars=11664 camera_offset_pct=11 preserve_offset_pct=-1 scene_offset_pct=18 negative_offset_pct=90
 
-REFERENCES (6):
+REFERENCES (7):
   1. base_product             <base-image>
   2. material_macro           cremona.jpg
   3. color_patch              color-patch:#938A83
-  4. material_left            cremona-left.jpg
-  5. material_right           cremona-right.jpg
-  6. material_behavior        cremona-behavior.jpg
+  4. backdrop_patch           color-patch:#F7F5F1
+  5. material_left            cremona-left.jpg
+  6. material_right           cremona-right.jpg
+  7. material_behavior        cremona-behavior.jpg
 
 SYSTEM INSTRUCTION:
 (no system field — the persona above is the first paragraph of the prompt)
 
-PROMPT (11204 chars):
+PROMPT (11664 chars):
 You are a product photography assistant producing clean e-commerce imagery of the exact product shown in image 1. Preserve its frame geometry, cushion count, stitching pattern, leg count and leg positions, seat depth, arm height and all visible joinery exactly. Camera angle, framing and crop follow the CAMERA paragraph of the prompt; when it says to keep image 1's camera, keep it exactly. Never add throw pillows, decorative objects or accessories that are neither in image 1 nor asked for in the prompt. Never change proportions to look more editorial. Never render text, brand names or price labels.
 
 Edit the bed in image 1 to produce a product photography variant with the specifications below. Image 1 is the geometry authority: the output shows this exact bed, changed only where this prompt says so.
@@ -32,6 +33,8 @@ SCENE (close-up crop): behind the cropped region only the backdrop is visible, r
 
 SOURCE BACKGROUND DISCARD — HARD REQUIREMENT: completely discard image 1's background, wall, floor, shadows and lighting gradient. Every out-of-focus pixel behind the bed is the backdrop tone above — never image 1's background, never warmer, darker or more yellow than that tone, and never a tint borrowed from the upholstery colour.
 
+BACKDROP COLOUR AUTHORITY (image 4): image 4 is a flat patch of the exact backdrop tone #F7F5F1. The out-of-focus wall and floor behind the cropped region match it in hue and lightness, softened only by the key light's gentle falloff; they stay this light even next to a pale upholstery and never take on the upholstery's colour. Image 4 carries no texture, geometry or lighting — take nothing else from it, and never apply it to the bed, bedding or pillows.
+
 UPHOLSTERY / FRAME FINISH: medium taupe blending grey and brown (hex #938A83) fine irregular short-pile chenille upholstery fabric.
 Texture detail: Cremona is a fine, irregular short-pile chenille upholstery fabric. Its primary physical read is a dense, small-scale woven ground made from uneven short raised chenille nubs and slender slubs, arranged organically rather than as a regular grid. Each raised element is only a few millimetres across and many dozens span a cushion. At normal furniture-photography distance the surface reads calm, continuous and finely tactile; it must not become plain linen, but the weave must also never enlarge into chunky basketweave. Preserve crisp high-frequency separation between raised yarn and recessed ground: nub edges are fibrous, slightly frayed and irregular, never smoothly rounded, melted together or sponge-like. Narrow inter-yarn gaps retain dark micro-occlusion and tiny contact shadows without becoming large holes. Thousands of loose microfibres create a delicate fuzzy halo and soft rim sheen at grazing viewing angles, especially along curves, folds, seams and silhouette edges. The short nap can be brushed or pressed in locally different directions. Under the same illumination this creates a subtle anisotropic response tied to surface normal, light direction and local fibre lay: fibres facing grazing light turn softly pearly and brighter, while neighbouring fibres laid away from it become gently darker. These luminance changes stay local, soft-edged and low-contrast within the single selected upholstery colour; they follow real curves, touch and folds and never form broad panel-scale clouds, stains, repeated blotches or crushed-velvet marbling. Roughness varies within each yarn: matte fibre bodies are punctuated by sparse, narrow satin micro-highlights, never plastic gloss. The fabric follows the product surface without stretching its physical weave scale around rounded edges or tufting. The four physical-sample photographs are the absolute authority for weave, pile, scale and optical response.
 
@@ -45,9 +48,9 @@ CRITICAL ROLE SEPARATION: image 1 is the PRODUCT GEOMETRY authority. Image 2 is 
 
 MATERIAL DOMAIN MASK — HARD REQUIREMENT: apply image 2's microstructure ONLY inside the upholstered product surfaces from image 1. Never apply it to bedding, mattress, pillows, floor, wall, cyclorama, background, shadow, or empty pixels. The backdrop must be uniformly smooth matte paint: absolutely no enlarged loops, weave, fabric relief, textile pattern, projected texture, or fabric-shaped shadow outside the product. Keep all reference roles independent; do not blend visual properties across their domains.
 
-FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 4 and 5): Images 4 and 5 show the same flat target fabric from opposing oblique viewpoints. Compare them to infer the stable three-dimensional yarn relief separately from angle-dependent brightness. Preserve the same fine nub and slub geometry in both bright and shaded orientations; do not average the two views into a smooth surface. Reproduce the short pile's reversible directional sheen: tiny fibres and raised yarn faces catch pearly grazing highlights while recessed crossings retain narrow micro-shadows. This evidence describes material optics only. Take nothing else: not the photographed colour, white background, crop, depth of field, camera angle or light direction. Keep the selected upholstery colour and image 1 geometry authoritative.
+FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 5 and 6): Images 5 and 6 show the same flat target fabric from opposing oblique viewpoints. Compare them to infer the stable three-dimensional yarn relief separately from angle-dependent brightness. Preserve the same fine nub and slub geometry in both bright and shaded orientations; do not average the two views into a smooth surface. Reproduce the short pile's reversible directional sheen: tiny fibres and raised yarn faces catch pearly grazing highlights while recessed crossings retain narrow micro-shadows. This evidence describes material optics only. Take nothing else: not the photographed colour, white background, crop, depth of field, camera angle or light direction. Keep the selected upholstery colour and image 1 geometry authoritative.
 
-FABRIC LIGHT-RESPONSE AUTHORITY (image 6): image 6 shows the same target fabric under grazing light and across a curved or touched surface. Copy ONLY its optical behaviour: the pile, nap or raised yarn changes local brightness according to fibre lay, surface normal and light direction. Brushed or raised fibres facing the light receive soft pearly highlights; fibres laid away from it become gently darker. These irregular luminance shifts must follow real curves, seams, folds and locally disturbed nap — they are not a printed colour pattern and must never form repeating bands. Keep the catalog lighting soft overall, but preserve a directional grazing component across the upholstery so raised fibres cast tiny self-shadows into the recessed weave. Render a delicate fuzzy rim at light-facing curves and sparse satin micro-glints on individual fibres. Do not flatten these into uniform roughness, and do not smooth the surface into generic linen, foam or sponge. The weave keeps the same fine physical scale around rounded edges and tufting without stretching. Take nothing else from image 6: not its photographed colour, crop, fold, camera angle, depth of field or scale. Keep the selected upholstery colour authoritative.
+FABRIC LIGHT-RESPONSE AUTHORITY (image 7): image 7 shows the same target fabric under grazing light and across a curved or touched surface. Copy ONLY its optical behaviour: the pile, nap or raised yarn changes local brightness according to fibre lay, surface normal and light direction. Brushed or raised fibres facing the light receive soft pearly highlights; fibres laid away from it become gently darker. These irregular luminance shifts must follow real curves, seams, folds and locally disturbed nap — they are not a printed colour pattern and must never form repeating bands. Keep the catalog lighting soft overall, but preserve a directional grazing component across the upholstery so raised fibres cast tiny self-shadows into the recessed weave. Render a delicate fuzzy rim at light-facing curves and sparse satin micro-glints on individual fibres. Do not flatten these into uniform roughness, and do not smooth the surface into generic linen, foam or sponge. The weave keeps the same fine physical scale around rounded edges and tufting without stretching. Take nothing else from image 7: not its photographed colour, crop, fold, camera angle, depth of field or scale. Keep the selected upholstery colour authoritative.
 
 OUTPUT STYLE: e-commerce hero photography, photorealistic, neutral color grading
 

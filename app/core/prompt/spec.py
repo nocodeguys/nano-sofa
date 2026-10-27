@@ -137,6 +137,7 @@ class SceneSpec:
     contains_product: bool = False
     view_consistency: bool = False
     setting_text: str = ""                 # freeform SETTING
+    backdrop_hex: str = ""                 # studio backdrop colour (close-up backdrop patch)
     light_text: str = ""                   # freeform LIGHT
 
 
