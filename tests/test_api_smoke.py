@@ -90,3 +90,30 @@ def test_html_pages_revalidate_after_deploy(client):
         r = client.get(path)
         assert r.status_code == 200, path
         assert r.headers.get("cache-control") == "no-cache", path
+
+
+def test_frame_set_zip_packs_outputs_under_download_names(server, monkeypatch, tmp_path):
+    """"Pobierz zestaw": one ZIP of the set's renders, named like the single
+    download, de-duplicated, and limited to files directly in the outputs dir."""
+    import io
+    import zipfile
+    from fastapi.testclient import TestClient
+    from studio import routes_pages
+    monkeypatch.setattr(routes_pages, "_OUTPUT_DIR", tmp_path.resolve())
+    (tmp_path / "a.jpg").write_bytes(b"AAA")
+    (tmp_path / "b.jpg").write_bytes(b"BBB")
+    client = TestClient(server.app)
+    r = client.post("/api/outputs/zip", json={"zip_name": "zestaw.zip", "files": [
+        {"url": "/api/outputs/a.jpg", "filename": "nano-sofa-front-x.jpg"},
+        {"url": "/api/outputs/b.jpg", "filename": "nano-sofa-front-x.jpg"},
+    ]})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert 'filename="zestaw.zip"' in r.headers["content-disposition"]
+    archive = zipfile.ZipFile(io.BytesIO(r.content))
+    assert archive.namelist() == ["nano-sofa-front-x.jpg", "nano-sofa-front-x-2.jpg"]
+    assert archive.read("nano-sofa-front-x-2.jpg") == b"BBB"
+    # Traversal and unknown files are refused, like /api/outputs/{name}.
+    (tmp_path.parent / "secret.jpg").write_bytes(b"S")
+    r = client.post("/api/outputs/zip", json={"files": [{"url": "/api/outputs/../secret.jpg"}]})
+    assert r.status_code == 404
+    assert client.post("/api/outputs/zip", json={"files": []}).status_code == 400

@@ -55,7 +55,9 @@ from studio.request_builder import (  # noqa: E402
 from app.core.model_registry import registry  # noqa: E402
 
 GEMINI_MODEL = registry.default_for("studio")   # the route default (models.json)
-OPENAI_MODEL = registry.default_for("lab")
+# The OpenAI-direct engine (the Lab itself now runs on OpenRouter): first
+# active entry in models.json, i.e. GPT Image 2.5 Flare.
+OPENAI_MODEL = registry.by_engine("openai", include_deprecated=False)[0].id
 
 ENGINES = {
     "gemini": GEMINI_MODEL,

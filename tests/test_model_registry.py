@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _ID_PATTERN = re.compile(
     r"gemini-[0-9a-z.\-]*(?:image|banana)[0-9a-z.\-]*"
     r"|gpt-image-[0-9a-z.\-]+"
-    r"|(?:bytedance-seed|black-forest-labs|krea)/[0-9a-z.\-]+"
+    r"|(?:bytedance-seed|black-forest-labs|krea|recraft|microsoft)/[0-9a-z.\-]+"
 )
 _SOURCE_DIRS = (
     REPO_ROOT / "app",
@@ -90,7 +90,7 @@ def test_engine_views_match_registry():
 
 def test_engine_of_and_resolve():
     assert registry.engine_of(registry.default_for("studio")) == "gemini"
-    assert registry.engine_of(registry.default_for("lab")) == "openai"
+    assert registry.engine_of(registry.default_for("lab")) == "openrouter"   # one key in the Lab
     assert registry.engine_of("openai/gpt-image-2") == "openrouter"
     assert registry.engine_of("made-up-model") == "gemini"
     assert registry.resolve("", "studio") == registry.default_for("studio")

@@ -46,6 +46,10 @@ from studio.paths import logger
 #  - flux.2-pro has no resolution parameter at all.
 #  - krea-2-* supports a REDUCED aspect vocabulary (no 3:4, no 21:9) and only
 #    ONE input reference; its pricing is not published in the endpoints API.
+#  - Recraft V4.1 (raster, utility, pro) takes ONE input reference and only
+#    1:1 / 3:4 / 4:3 / 9:16 / 16:9; in the Lab that slot is the base photo, so
+#    no swatch or colour patch reaches it. Vector and Styles variants are not
+#    offered (SVG output / a mandatory style reference).
 # `aspects` lists what the provider accepts from the page's vocabulary; the
 # frontend disables the rest and _clamp_aspect is the server-side backstop.
 # `qualities` (when present) is forwarded as the Images API `quality` field.

@@ -79,7 +79,7 @@ function FrameGlyph({ id }) {
 /* 08 — camera and framing. Picking a frame is the whole job; the raw
    controls stay available under "Ustawienia zaawansowane". A locked
    backdrop only greys out the light selects (the server locks tod / shadow). */
-export function CameraSection({ st, set, bgObj, bgLocked, lensObj, baseCamLocked, frameRun, onGenerateSet, setCost }) {
+export function CameraSection({ st, set, bgObj, bgLocked, lensObj, baseCamLocked, frameRun, onGenerateSet, onDownloadSet, zipBusy, setCost }) {
   const frames = framesFor(st.kind);
   const current = baseCamLocked ? "base" : matchFrame(st);
   const curFrame = frames.find(f => f.id === current);
@@ -128,6 +128,10 @@ export function CameraSection({ st, set, bgObj, bgLocked, lensObj, baseCamLocked
         {frameRun.failed.length > 0 && (
           <button type="button" className="chip" style={{marginLeft:8}}
             onClick={() => onGenerateSet(frameRun.failed.map(f => f.id))}>Ponów nieudane</button>
+        )}
+        {frameRun.done - frameRun.failed.length > 1 && (
+          <button type="button" className="chip on" style={{marginLeft:8}} disabled={zipBusy}
+            onClick={() => onDownloadSet(frameRun.setId)}>{zipBusy ? "Pakuję…" : "Pobierz zestaw (ZIP)"}</button>
         )}
       </span>
     )}

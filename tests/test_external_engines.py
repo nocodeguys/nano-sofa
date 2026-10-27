@@ -402,8 +402,9 @@ def test_lab_config_lists_openrouter_product_models(server):
     from fastapi.testclient import TestClient
     cfg = TestClient(server.app).get("/api/config").json()
     lab = {m["id"]: m for m in cfg["lab_models"]}
-    assert lab["gpt-image-2.5-flare"]["provider"] == "openai"
+    assert "gpt-image-2.5-flare" not in lab   # OpenAI direct stays in Editorial only
     assert lab["openai/gpt-image-2.5-flare"]["provider"] == "openrouter"
     assert lab["openai/gpt-image-2.5-sunburst"]["qualities"][-1] == "max"
-    # FLUX / Seedream stay editorial-only — they don't preserve product geometry.
-    assert not any("flux" in mid or "seedream" in mid for mid in lab)
+    # Every Lab model can run the product pipeline on OpenRouter.
+    from studio.openrouter import PRODUCT_MODELS
+    assert set(lab) <= set(PRODUCT_MODELS)
