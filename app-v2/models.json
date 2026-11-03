@@ -11,7 +11,7 @@
     "Sources: docs/research/nano-banana-state.md and docs/research/gpt-image-state.md",
     "        (2026-10-20). Prices USD per image unless stated.",
     "product: true on an OpenRouter model = it may run the Lab product wizard (base photo + full reference plan) — surfaces then include \"lab\". Since 2026-10-21 every active OpenRouter model is offered in the Lab as an experiment; FLUX / Seedream / Krea failed the 2026-10 bake-off on product geometry, so Lab results from them need a visual check.",
-    "surface \"meli\": the /meli wood-recolor lab lists every OpenRouter model; its default is defaults.meli."
+    "surface \"meli\": the /meli wood-recolor lab lists every OpenRouter model plus the direct Gemini models tagged \"meli\" (user's own Google key); its default is defaults.meli."
   ],
   "defaults": {
     "studio": "gemini-nano-banana-2.1",
@@ -80,7 +80,8 @@
       "status": "active",
       "surfaces": [
         "studio",
-        "editorial"
+        "editorial",
+        "meli"
       ],
       "max_refs": 14,
       "resolutions": [
@@ -138,7 +139,8 @@
       "status": "active",
       "surfaces": [
         "studio",
-        "editorial"
+        "editorial",
+        "meli"
       ],
       "max_refs": 14,
       "resolutions": [

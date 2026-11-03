@@ -59,8 +59,14 @@ def test_meli_page_and_config(client, meli_data):
     assert cfg["palette"][3]["finish"] == "stain"  # unknown finish falls back
     # Every OpenRouter image model is offered; Nano Banana 2.1 is the default.
     from studio.openrouter import OPENROUTER_MODELS
-    assert {m["id"] for m in cfg["models"]} == set(OPENROUTER_MODELS)
+    by_engine = {}
+    for m in cfg["models"]:
+        by_engine.setdefault(m["engine"], set()).add(m["id"])
+    assert by_engine["openrouter"] == set(OPENROUTER_MODELS)
     assert cfg["default_model"] == "google/gemini-nano-banana-2.1"
+    # Plus Nano Banana direct on the user's own Google key (active models only).
+    assert by_engine["gemini"] == {"gemini-nano-banana-2.1", "gemini-3-pro-image"}
+    assert cfg["default_gemini_model"] == "gemini-nano-banana-2.1"
     assert client.get(oak["references"][0]).status_code == 200
     assert client.get("/api/meli/ref/..%2Fpalette.json").status_code == 404
 
@@ -162,6 +168,9 @@ def test_recolor_custom_opaque_colour_with_uploaded_sample(client, meli_data, mo
     ({"openrouter_key": "k", "model": "nope/model", "color": "dab-miodowy"}, "UNKNOWN_MODEL"),
     ({"openrouter_key": "k", "model": "google/gemini-nano-banana-2.1", "color": "nope"}, "UNKNOWN_COLOR"),
     ({"openrouter_key": "k", "model": "google/gemini-nano-banana-2.1"}, "MISSING_COLOR"),
+    # Google engine needs the Google key — an OpenRouter key does not count.
+    ({"openrouter_key": "k", "model": "gemini-nano-banana-2.1", "color": "dab-miodowy"}, "MISSING_API_KEY"),
+    ({"api_key": "AIza-x", "model": "gemini-2.5-flash-image", "color": "dab-miodowy"}, "UNKNOWN_MODEL"),
 ])
 def test_recolor_validation(client, meli_data, data, code):
     r = client.post("/api/meli/recolor", data=data, files={"base": ("bed.png", _png(), "image/png")})
@@ -198,3 +207,66 @@ def test_explicit_opacity_overrides_the_samples(client, meli_data, monkeypatch, 
     assert captured["png_meta"]["nano_sofa_wood_opacity"] == str(expected)
     # Painted wood with no grain: low coverage must invent plausible grain.
     assert ("render a plausible, fine natural grain" in prompt) == (expected <= 55)
+
+
+def test_recolor_on_google_key_runs_gemini_directly(client, meli_data, monkeypatch):
+    from app.core.generator import GenerationResult
+    captured = {}
+
+    def fake_generate(req):
+        captured["req"] = req
+        return GenerationResult(
+            success=True, generation_id="g2", output_path=req.extra_reference_images[0],
+            output_image=None, next_history=[], actual_cost=0.05, attempts=1,
+            error_message=None, model_id=req.model_id, resolution=req.resolution, elapsed_ms=900)
+
+    def no_openrouter(**_kw):
+        raise AssertionError("Google engine must not call OpenRouter")
+
+    async def fake_derived(*_a):
+        return "/api/outputs/x.jpg", "jpg", False
+
+    monkeypatch.setattr(meli_data, "generate", fake_generate)
+    monkeypatch.setattr(meli_data, "generate_openrouter", no_openrouter)
+    monkeypatch.setattr(meli_data, "_derived_url", fake_derived)
+    r = client.post("/api/meli/recolor", data={
+        "api_key": " AIza-test ", "model": "gemini-nano-banana-2.1",
+        "color": "dab-miodowy", "product_name": "Meli 160", "res": "2K",
+    }, files={"base": ("bed.png", _png(), "image/png")})
+    data = r.json()
+    assert data["success"] and data["engine"] == "gemini" and data["model"] == "gemini-nano-banana-2.1"
+    assert data["references_sent"] == 5 and data["cost"] == 0.05
+    req = captured["req"]
+    assert req.api_key == "AIza-test" and req.base_product_image is None
+    assert req.resolution == "2K" and req.aspect_ratio == "4:3"
+    # Base photo, three finish photos, colour patch — in that order, as files,
+    # and no second patch from upholstery_hex.
+    assert len(req.extra_reference_images) == 5 and not req.upholstery_hex
+    assert req.extra_reference_images[-1].endswith(".png")
+    assert "WOOD FINISH AUTHORITY (images 2, 3, 4)" in req.freeform_prompt
+    assert "COLOUR AUTHORITY (image 5)" in req.freeform_prompt
+    assert "in-place colour edit" in req.system_instruction
+    assert req.product_name == "Meli 160" and req.color_id == "dab-miodowy"
+
+    from app.core.generator import plan_freeform_reference_slots
+    roles = [slot.role for slot in plan_freeform_reference_slots(req)]
+    assert roles == [f"extra_reference_{i}" for i in range(1, 6)]
+
+
+def test_recolor_google_error_is_passed_through(client, meli_data, monkeypatch):
+    from app.core.generator import GenerationResult
+
+    def failing_generate(req):
+        return GenerationResult(
+            success=False, generation_id="g3", output_path=None, output_image=None,
+            next_history=[], actual_cost=0.0, attempts=1, error_message="Klucz API jest nieprawidłowy.",
+            model_id=req.model_id, resolution=req.resolution, error_code="INVALID_API_KEY",
+            error_detail="API key not valid", http_status=401)
+
+    monkeypatch.setattr(meli_data, "generate", failing_generate)
+    r = client.post("/api/meli/recolor", data={
+        "api_key": "AIza-bad", "model": "gemini-3-pro-image", "color": "bialy",
+    }, files={"base": ("bed.png", _png(), "image/png")})
+    assert r.status_code == 401
+    body = r.json()
+    assert body["error_code"] == "INVALID_API_KEY" and body["error_detail"] == "API key not valid"

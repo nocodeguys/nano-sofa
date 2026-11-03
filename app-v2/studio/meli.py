@@ -3,7 +3,9 @@
 A deliberately narrow edit: the uploaded photo of a wooden bed comes back
 with ONLY the colour / finish of the bed's wood changed — no upholstery, no
 scene, no camera. Runs on every OpenRouter image model with the user's
-OpenRouter key (same key model as /editorial and /lab).
+OpenRouter key (same key model as /editorial and /lab), or directly on Google's
+Nano Banana models (registry surface "meli", engine "gemini") with the user's
+own Google AI Studio key — the same key the studio page keeps.
 
 The palette lives in ``app-v2/meli/palette.json`` and the finish photographs
 in ``app-v2/meli/references/`` (``<id>.jpg``, ``<id>-2.jpg`` …). Both are read
@@ -33,8 +35,9 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image
 
+from app.core.generator import GenerationRequest, generate
 from app.core.model_registry import registry
-from studio.errors import _validation_error
+from studio.errors import _result_error, _validation_error
 from studio.external_engine import ALL_ASPECTS, ExternalEngineError
 from studio.media import _derived_url, _parse_quality, _prune_storage, _save_upload
 from studio.openrouter import OPENROUTER_MODELS, generate_openrouter
@@ -82,6 +85,31 @@ _DEFAULT_MODEL = registry.default_for("meli")   # app-v2/models.json
 # the base photo and drops the finish photos from the end.
 _MAX_FINISH_REFS = 4
 _SEND_MAX_EDGE = 2048
+# Direct Gemini path: the studio's default persona describes sofa photography
+# (cushions, stitching, arms) and would pull the edit towards a re-shoot.
+_GEMINI_SYSTEM_INSTRUCTION = (
+    "You are a photo retoucher doing a precise, in-place colour edit of an existing "
+    "product photograph of a solid-wood bed. Image 1 is the photograph to edit; the "
+    "output is that same photograph with only the bed's wood recoloured. Never "
+    "recompose, re-light, restyle or redraw the scene. Never render text, logos or labels."
+)
+
+
+def _gemini_models() -> dict[str, dict]:
+    """Direct Google models offered on /meli (models.json surface "meli")."""
+    return {
+        m.id: {
+            "label": m.label,
+            "max_refs": m.max_refs,
+            "price_hint": " / ".join(
+                f"{r} ${m.price_per_image(r):.3f}" for r in m.resolution_choices() if r != "auto"
+            ),
+            "aspects": list(m.aspects) or list(ALL_ASPECTS),
+            "resolutions": m.resolution_choices(),
+        }
+        for m in registry.for_surface("meli", include_deprecated=False)
+        if m.engine == "gemini"
+    }
 
 
 def _load_palette() -> list[dict]:
@@ -126,9 +154,10 @@ def _reference_files(color_id: str) -> list[Path]:
     return [path for _n, path in sorted(found)]
 
 
-def _model_entry(slug: str, cfg: dict) -> dict:
+def _model_entry(slug: str, cfg: dict, engine: str = "openrouter") -> dict:
     return {
         "id": slug,
+        "engine": engine,
         "label": cfg["label"],
         "max_refs": cfg["max_refs"],
         "price_hint": cfg.get("price_hint", ""),
@@ -145,13 +174,17 @@ def meli_config():
         {**color, "references": [f"/api/meli/ref/{p.name}" for p in _reference_files(color["id"])]}
         for color in _load_palette()
     ]
-    models = [_model_entry(slug, cfg) for slug, cfg in OPENROUTER_MODELS.items()]
+    models = [_model_entry(slug, cfg, "gemini") for slug, cfg in _gemini_models().items()]
+    models += [_model_entry(slug, cfg) for slug, cfg in OPENROUTER_MODELS.items()]
     return {
         "palette": palette,
         "opacity_levels": [{"value": v, "name": n} for v, (n, _clause) in OPACITY_LEVELS.items()],
         "models": models,
         "default_model": _DEFAULT_MODEL if _DEFAULT_MODEL in OPENROUTER_MODELS
         else (models[0]["id"] if models else None),
+        # Default when the user picks the Google engine (own Gemini key).
+        "default_gemini_model": next(
+            (m["id"] for m in models if m["engine"] == "gemini"), None),
     }
 
 
@@ -266,6 +299,7 @@ def build_meli_prompt(*, name: str, description: str, hex_value: str, opacity: O
 @router.post("/api/meli/recolor")
 async def meli_recolor(
     openrouter_key: str = Form(""),
+    api_key: str = Form(""),          # Google AI Studio key — direct Gemini models
     model: str = Form(_DEFAULT_MODEL),
     color: str = Form(""),
     custom_name: str = Form(""),
@@ -280,11 +314,17 @@ async def meli_recolor(
     base: Optional[UploadFile] = File(None),
     references: list[UploadFile] = File(default_factory=list),
 ):
-    if not openrouter_key.strip():
-        return _validation_error("Wklej klucz OpenRouter (sk-or-…).", "MISSING_OPENROUTER_KEY")
-    cfg = OPENROUTER_MODELS.get(model)
-    if cfg is None:
-        return _validation_error("Nieznany model OpenRouter.", "UNKNOWN_MODEL")
+    gemini_cfg = _gemini_models().get(model)
+    if gemini_cfg is not None:
+        cfg = gemini_cfg
+        if not api_key.strip():
+            return _validation_error("Wklej klucz Google (AIza…) w sekcji Model.", "MISSING_API_KEY")
+    else:
+        cfg = OPENROUTER_MODELS.get(model)
+        if cfg is None:
+            return _validation_error("Nieznany model.", "UNKNOWN_MODEL")
+        if not openrouter_key.strip():
+            return _validation_error("Wklej klucz OpenRouter (sk-or-…).", "MISSING_OPENROUTER_KEY")
     if base is None:
         return _validation_error("Wgraj zdjęcie łóżka.", "MISSING_BASE_IMAGE")
 
@@ -368,19 +408,28 @@ async def meli_recolor(
     }
     logger.info("Meli recolor: model=%s colour=%s opacity=%s refs=%d aspect=%s",
                 model, color or "custom", "sample" if level is None else level, len(plan), aspect)
-    try:
-        out = await asyncio.to_thread(
-            generate_openrouter,
-            api_key=openrouter_key.strip(), model=model, prompt=prompt, aspect=aspect,
-            references=plan, quality=quality, resolution=res, png_meta=png_meta,
-            prompt_summary=f"Meli · {product or 'łóżko'} · {name}",
+    if gemini_cfg is not None:
+        out = await _recolor_gemini(
+            api_key=api_key.strip(), model=model, cfg=gemini_cfg, prompt=prompt, plan=plan,
+            base_path=base_path, aspect=aspect, res=res, name=name,
+            color_id=color or "custom", product=product,
         )
-    except ExternalEngineError as exc:
-        return JSONResponse(
-            {"error": exc.message_pl, "error_code": exc.code, "error_detail": exc.detail,
-             "retryable": exc.retryable},
-            status_code=exc.http_status,
-        )
+        if isinstance(out, JSONResponse):
+            return out
+    else:
+        try:
+            out = await asyncio.to_thread(
+                generate_openrouter,
+                api_key=openrouter_key.strip(), model=model, prompt=prompt, aspect=aspect,
+                references=plan, quality=quality, resolution=res, png_meta=png_meta,
+                prompt_summary=f"Meli · {product or 'łóżko'} · {name}",
+            )
+        except ExternalEngineError as exc:
+            return JSONResponse(
+                {"error": exc.message_pl, "error_code": exc.code, "error_detail": exc.detail,
+                 "retryable": exc.retryable},
+                status_code=exc.http_status,
+            )
 
     image_url, fmt_used, _downgraded = await _derived_url(
         out["output_path"], output_format, _parse_quality(output_quality), False,
@@ -402,4 +451,56 @@ async def meli_recolor(
         "opacity": "sample" if level is None else level,
         "opacity_label": "wg próbki" if level is None else OPACITY_LEVELS[level][0],
         "references_sent": len(plan),
+        "engine": "gemini" if gemini_cfg is not None else "openrouter",
+    }
+
+
+async def _recolor_gemini(*, api_key: str, model: str, cfg: dict, prompt: str, plan: list,
+                          base_path: Path, aspect: str, res: str, name: str,
+                          color_id: str, product: str):
+    """Run the Meli edit on Google directly (generator.generate, freeform mode).
+
+    The whole Meli plan rides as ordered extra references with no named slots,
+    so slot N in the prompt is exactly plan[N-1]. Returns the same dict shape
+    as generate_openrouter, or a JSONResponse with the classified error.
+    """
+    sources = []
+    for index, (role, path, image) in enumerate(plan):
+        if path is None:   # the flat colour patch — give the trace a real file
+            path = base_path.with_name(f"{base_path.stem}_patch{index}.png")
+            image.save(path, format="PNG")
+        sources.append(str(path))
+    resolutions = cfg.get("resolutions") or ["1K"]
+    resolution = res if res in resolutions else ("2K" if "2K" in resolutions else resolutions[0])
+    req = GenerationRequest(
+        model_id=model,
+        base_product_image=None,
+        freeform_prompt=prompt,
+        extra_reference_images=sources,
+        system_instruction=_GEMINI_SYSTEM_INSTRUCTION,
+        aspect_ratio=aspect,
+        resolution=resolution,
+        api_key=api_key,
+        product_type="bed",
+        upholstery_color=name,
+        upholstery_material="wood finish",
+        # upholstery_hex stays empty: the colour patch is already in the plan,
+        # and setting it would make the freeform planner add a second one first.
+        color_id=color_id,
+        product_name=product,
+    )
+    result = await asyncio.to_thread(generate, req)
+    if not result.success or result.output_path is None:
+        response = _result_error(result, "Nie udało się zmienić koloru drewna.")
+        body = json.loads(response.body)
+        body["error_detail"] = body.get("detail_en")
+        return JSONResponse(body, status_code=response.status_code)
+    return {
+        "generation_id": result.generation_id,
+        "output_path": Path(result.output_path),
+        "cost": result.actual_cost,
+        "elapsed_ms": result.elapsed_ms or 0,
+        "model_id": result.model_id,
+        "resolution": result.resolution,
+        "quality": "",
     }
