@@ -90,6 +90,10 @@ export function referenceBudget(st, ctx) {
   }
   if (refs.macro) want.push({ role: "material_macro", label: "makro tkaniny", source: st.mat });
   if (hex) want.push({ role: "color_patch", label: "plamka koloru", source: hex.toUpperCase() });
+  // A close-up gets no plate, so the backdrop's colour rides along as a patch.
+  if (st.shot === "close_up" && bgObj?.kind === "backdrop" && bgObj.hex) {
+    want.push({ role: "backdrop_patch", label: "plamka tła", source: bgObj.hex.toUpperCase() });
+  }
   if (refs.left) want.push({ role: "material_left", label: "tkanina pod kątem (L)", source: st.mat });
   if (refs.right) want.push({ role: "material_right", label: "tkanina pod kątem (P)", source: st.mat });
   if (refs.behavior) want.push({ role: "material_behavior", label: "tkanina w świetle", source: st.mat });

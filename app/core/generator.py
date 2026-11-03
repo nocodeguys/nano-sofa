@@ -116,6 +116,11 @@ class GenerationRequest:
     # attached as its own reference slot (COLOUR AUTHORITY) and deep shades
     # get a dedicated exposure clause — text alone drifts on dark colours.
     upholstery_hex: str = ""
+    # The studio backdrop's catalogue colour (#RRGGBB). A close-up gets no
+    # plate (it would pull the crop back to a hero), so this flat patch is
+    # its only picture of the wall's tone — without it the out-of-focus
+    # backdrop drifted towards a cream upholstery (prod, 2026-10-27).
+    backdrop_hex: str = ""
     # Engine-specific quality tier (OpenAI Images API `quality`: low … max).
     # Ignored by the Gemini path.
     engine_quality: str = ""
@@ -514,7 +519,7 @@ def plan_reference_slots(
     This is the ONE place that enforces the model's reference cap. Priority
     after the base product (always slot 1): leg, scene, then — when the caller
     locked the look to a moodboard — that moodboard; the material macro; the
-    exact colour patch; the oblique / behaviour / application material views;
+    exact colour patch; on a close-up, the backdrop's colour patch; the oblique / behaviour / application material views;
     the remaining moodboards. Anything past the cap is dropped here, with a
     warning, so the prompt and the trace only ever describe attached images.
     `max_refs` overrides the schema cap for engines the schema does not know
@@ -538,6 +543,11 @@ def plan_reference_slots(
     if patch is not None:
         wanted.append(
             ReferenceSlot("color_patch", f"color-patch:{req.upholstery_hex.strip().upper()}", patch)
+        )
+    backdrop = _color_patch_image(req.backdrop_hex) if req.backdrop_hex and req.shot_type == "close_up" else None
+    if backdrop is not None:
+        wanted.append(
+            ReferenceSlot("backdrop_patch", f"color-patch:{req.backdrop_hex.strip().upper()}", backdrop)
         )
     for role, source in (
         ("material_left", req.material_left_reference_image),

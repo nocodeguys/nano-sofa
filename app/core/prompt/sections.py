@@ -324,6 +324,17 @@ def _scene_block(s: PromptSpec) -> str:
             # with only "warm soft ivory" the model kept the base photo's wall
             # or drifted to beige next to a greige upholstery.
             tone = _backdrop_tone(scene_desc)
+            backdrop_slot = s.slots.get("backdrop_patch")
+            backdrop_patch_clause = "" if not backdrop_slot else (
+                f"\n\nBACKDROP COLOUR AUTHORITY (image {backdrop_slot}): image {backdrop_slot} "
+                f"is a flat patch of the exact backdrop tone {sc.backdrop_hex}. The "
+                f"out-of-focus wall and floor behind the cropped region match it in hue "
+                f"and lightness, softened only by the key light's gentle falloff; they "
+                f"stay this light even next to a pale upholstery and never take on the "
+                f"upholstery's colour. Image {backdrop_slot} carries no texture, geometry "
+                f"or lighting — take nothing else from it, and never apply it to the "
+                f"{noun}, bedding or pillows."
+            )
             return (
                 f"\nSCENE (close-up crop): behind the cropped region only the backdrop is "
                 f"visible, rendered softly out of focus. The backdrop is {tone} "
@@ -337,6 +348,7 @@ def _scene_block(s: PromptSpec) -> str:
                 f"Every out-of-focus pixel behind the {noun} is the backdrop tone above — "
                 f"never image 1's background, never warmer, darker or more yellow than "
                 f"that tone, and never a tint borrowed from the upholstery colour."
+                f"{backdrop_patch_clause}"
             )
         if s.camera.is_detail:
             return (

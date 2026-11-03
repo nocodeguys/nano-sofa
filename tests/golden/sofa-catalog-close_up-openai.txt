@@ -2,20 +2,21 @@
 # engine: openai | model: gpt-image-2.5-flare | max_refs: 16
 # kind=sofa mode=catalog shot=close_up shot_type=close_up catalog_profile=ivory
 # colour=#C3BEB6 material_id=boucle aspect=4:3 res=1K
-# stats: chars=9370 camera_offset_pct=13 preserve_offset_pct=-1 scene_offset_pct=22 negative_offset_pct=93
+# stats: chars=9831 camera_offset_pct=12 preserve_offset_pct=-1 scene_offset_pct=21 negative_offset_pct=94
 
-REFERENCES (6):
+REFERENCES (7):
   1. base_product             <base-image>
   2. material_macro           boucle.jpg
   3. color_patch              color-patch:#C3BEB6
-  4. material_left            boucle-left.jpg
-  5. material_right           boucle-right.jpg
-  6. material_behavior        boucle-behavior.jpg
+  4. backdrop_patch           color-patch:#F7F5F1
+  5. material_left            boucle-left.jpg
+  6. material_right           boucle-right.jpg
+  7. material_behavior        boucle-behavior.jpg
 
 SYSTEM INSTRUCTION:
 (no system field — the persona above is the first paragraph of the prompt)
 
-PROMPT (9370 chars):
+PROMPT (9831 chars):
 You are a product photography assistant producing clean e-commerce imagery of the exact product shown in image 1. Preserve its frame geometry, cushion count, stitching pattern, leg count and leg positions, seat depth, arm height and all visible joinery exactly. Camera angle, framing and crop follow the CAMERA paragraph of the prompt; when it says to keep image 1's camera, keep it exactly. Never add throw pillows, decorative objects or accessories that are neither in image 1 nor asked for in the prompt. Never change proportions to look more editorial. Never render text, brand names or price labels.
 
 Edit the sofa in image 1 to produce a product photography variant with the specifications below. Image 1 is the geometry authority: the output shows this exact sofa, changed only where this prompt says so.
@@ -32,6 +33,8 @@ SCENE (close-up crop): behind the cropped region only the backdrop is visible, r
 
 SOURCE BACKGROUND DISCARD — HARD REQUIREMENT: completely discard image 1's background, wall, floor, shadows and lighting gradient. Every out-of-focus pixel behind the sofa is the backdrop tone above — never image 1's background, never warmer, darker or more yellow than that tone, and never a tint borrowed from the upholstery colour.
 
+BACKDROP COLOUR AUTHORITY (image 4): image 4 is a flat patch of the exact backdrop tone #F7F5F1. The out-of-focus wall and floor behind the cropped region match it in hue and lightness, softened only by the key light's gentle falloff; they stay this light even next to a pale upholstery and never take on the upholstery's colour. Image 4 carries no texture, geometry or lighting — take nothing else from it, and never apply it to the sofa, bedding or pillows.
+
 UPHOLSTERY: neutral greige grey-beige, like light natural stone (hex #C3BEB6) bouclé fabric.
 Texture detail: Authentic heavy upholstery bouclé made from looped yarns. The surface is built from irregular open and closed yarn loops gathered into small uneven clusters, with tiny darker cavities between the loops. Loop size, density and softness match the physical sample photographs exactly: at normal furniture-photography distance the bouclé reads as a fine, dense, soft nubbly surface with gentle three-dimensional relief, neither enlarged into coarse curls nor flattened into smooth felt, foam or plaster. The relief is soft and low in contrast: loops and gaps differ by only a few tones of the same colour, like soft cotton-wool, never crisp, crinkled, flaky or glittering, with no dark flecks, grey speckle or multi-tone tweed effect. The large-scale shading of the form (curves, edges, the roll of the base) stays stronger than the texture contrast, so the texture follows the shape instead of lying on it like noise. Soft wool-and-cotton character, dense and substantial, completely matte; tonal variation between individual yarns stays within the selected colour and never warms or cools it. The distribution is organic and non-repeating, never a perfectly even pebble texture. Drape: a thick, springy, fairly stiff textile upholstered taut over firm foam. Flat panels stay smooth and tensioned, edges and seams are softly rounded by the fabric's own thickness, and it bends only in broad soft radii, with no wrinkles, puckering, gathering, ripples or loose slipcover folds.
 
@@ -43,9 +46,9 @@ CRITICAL ROLE SEPARATION: image 1 is the PRODUCT GEOMETRY authority. Image 2 is 
 
 MATERIAL DOMAIN MASK — HARD REQUIREMENT: apply image 2's microstructure ONLY inside the upholstered product surfaces from image 1. Never apply it to bedding, mattress, pillows, floor, wall, cyclorama, background, shadow, or empty pixels. The backdrop must be uniformly smooth matte paint: absolutely no enlarged loops, weave, fabric relief, textile pattern, projected texture, or fabric-shaped shadow outside the product. Keep all reference roles independent; do not blend visual properties across their domains.
 
-FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 4 and 5): Images 4 and 5 show the same flat target fabric from opposing oblique viewpoints. Compare them to infer the stable three-dimensional yarn relief separately from angle-dependent brightness. Preserve the same individual loops and loop clusters in both bright and shaded orientations; do not average the two views into a smooth or fine-grained surface. The looped surface is matte: loop tops catch soft diffuse highlights, the gaps between loops stay visibly darker, and the relief reads the same from either side, with no pile sheen, no pearly glints and no directional nap. Keep the relief exactly as soft and low-contrast as these photographs and the loops exactly as small; never coarser or crisper. This evidence describes material optics only. Take nothing else: not the photographed colour, white background, crop, depth of field, camera angle or light direction. Keep the selected upholstery colour and image 1 geometry authoritative.
+FABRIC MULTI-ANGLE OPTICAL AUTHORITY (images 5 and 6): Images 5 and 6 show the same flat target fabric from opposing oblique viewpoints. Compare them to infer the stable three-dimensional yarn relief separately from angle-dependent brightness. Preserve the same individual loops and loop clusters in both bright and shaded orientations; do not average the two views into a smooth or fine-grained surface. The looped surface is matte: loop tops catch soft diffuse highlights, the gaps between loops stay visibly darker, and the relief reads the same from either side, with no pile sheen, no pearly glints and no directional nap. Keep the relief exactly as soft and low-contrast as these photographs and the loops exactly as small; never coarser or crisper. This evidence describes material optics only. Take nothing else: not the photographed colour, white background, crop, depth of field, camera angle or light direction. Keep the selected upholstery colour and image 1 geometry authoritative.
 
-FABRIC LIGHT-RESPONSE AUTHORITY (image 6): image 6 shows the same target fabric bent over a fold or curved edge. Copy ONLY how the looped surface behaves there: on convex edges the loops open slightly and their tops catch the light, in concave bends and seams they press into denser, darker clusters, and the fabric's thickness rounds every edge softly. Loop size stays the same on flat panels, curves and edges, never stretched, shrunk or smoothed. It is a thick, springy textile upholstered taut over foam: it bends in broad soft radii and never forms thin sharp creases, crumples, ripples or gathered wrinkles on flat panels. Take nothing else from image 6: not its photographed colour, crop, fold, camera angle or depth of field. Keep the selected upholstery colour authoritative.
+FABRIC LIGHT-RESPONSE AUTHORITY (image 7): image 7 shows the same target fabric bent over a fold or curved edge. Copy ONLY how the looped surface behaves there: on convex edges the loops open slightly and their tops catch the light, in concave bends and seams they press into denser, darker clusters, and the fabric's thickness rounds every edge softly. Loop size stays the same on flat panels, curves and edges, never stretched, shrunk or smoothed. It is a thick, springy textile upholstered taut over foam: it bends in broad soft radii and never forms thin sharp creases, crumples, ripples or gathered wrinkles on flat panels. Take nothing else from image 7: not its photographed colour, crop, fold, camera angle or depth of field. Keep the selected upholstery colour authoritative.
 
 OUTPUT STYLE: e-commerce hero photography, photorealistic, neutral color grading
 
