@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -131,15 +132,52 @@ class OpenRouterError(ExternalEngineError):
 def _classify(status: int, body: str) -> OpenRouterError:
     if status in (401, 403):
         return OpenRouterError("Klucz OpenRouter jest nieprawidłowy lub wygasł.",
-                               "INVALID_OPENROUTER_KEY", body, False, 401)
+                               "INVALID_OPENROUTER_KEY", body[:300], False, 401)
     if status == 402:
-        return OpenRouterError("Brak środków na koncie OpenRouter — doładuj kredyty.",
-                               "OPENROUTER_NO_CREDITS", body, False, 402)
+        return _classify_402(body)
     if status == 429:
         return OpenRouterError("Limit zapytań OpenRouter — spróbuj za chwilę.",
-                               "RATE_LIMITED", body, True, 429)
+                               "RATE_LIMITED", body[:300], True, 429)
     return OpenRouterError("Generowanie przez OpenRouter nie powiodło się.",
-                           "OPENROUTER_ERROR", body, status >= 500, 502)
+                           "OPENROUTER_ERROR", body[:300], status >= 500, 502)
+
+
+def _classify_402(body: str) -> OpenRouterError:
+    """OpenRouter answers 402 for several different limits (docs/limits):
+    the key's own credit limit, a transient in-flight budget, and a single
+    request whose up-front token estimate exceeds the in-flight budget — a
+    fraction of the balance, so it fires on a funded but low-balance account
+    when the request carries a long prompt and several large references."""
+    try:
+        meta = (json.loads(body).get("error") or {}).get("metadata") or {}
+    except (ValueError, AttributeError):
+        meta = {}
+    source, reason = meta.get("limit_source", ""), meta.get("reason", "")
+    detail = body[:300]
+    if source == "openrouter_key_limit":
+        return OpenRouterError(
+            "Klucz OpenRouter wyczerpał swój własny limit kredytów — podnieś limit klucza "
+            "(openrouter.ai/settings/keys) albo użyj innego klucza.",
+            "OPENROUTER_KEY_LIMIT", detail, False, 402)
+    if source == "openrouter_in_flight_budget" or reason == "in_flight_budget_exhausted":
+        return OpenRouterError(
+            "OpenRouter wstrzymał zapytanie, bo inne generacje jeszcze się rozliczają — "
+            "spróbuj ponownie za chwilę.",
+            "OPENROUTER_IN_FLIGHT", detail, True, 429)
+    if reason == "weight_exceeds_budget":
+        return OpenRouterError(
+            "OpenRouter odrzucił pojedyncze zapytanie jako zbyt drogie względem salda konta "
+            "(rezerwuje z góry szacowany koszt). Doładuj konto albo zmniejsz zapytanie: "
+            "mniej zdjęć referencyjnych, mniejsze zdjęcie bazowe, niższa jakość.",
+            "OPENROUTER_REQUEST_TOO_BIG", detail, False, 402)
+    # openrouter_credits: the account balance (what was topped up minus what
+    # was spent) is too low — independent of the key's own limit, which may
+    # still show plenty left.
+    return OpenRouterError(
+        "Za niskie saldo konta OpenRouter — doładuj kredyty (openrouter.ai/settings/credits). "
+        "Uwaga: limit klucza to osobna rzecz; saldo konta może się skończyć, zanim klucz "
+        "dojdzie do swojego limitu.",
+        "OPENROUTER_NO_CREDITS", detail, False, 402)
 
 
 def generate_openrouter(
@@ -193,7 +231,7 @@ def generate_openrouter(
 
     if r.status_code >= 400:
         logger.warning("OpenRouter %s failed: HTTP %s %s", model, r.status_code, r.text[:600])
-        raise _classify(r.status_code, r.text[:300])
+        raise _classify(r.status_code, r.text[:2000])
 
     try:
         data = r.json()

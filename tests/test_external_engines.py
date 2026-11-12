@@ -408,3 +408,26 @@ def test_lab_config_lists_openrouter_product_models(server):
     # Every Lab model can run the product pipeline on OpenRouter.
     from studio.openrouter import PRODUCT_MODELS
     assert set(lab) <= set(PRODUCT_MODELS)
+
+
+def test_openrouter_402_variants():
+    import json as _json
+    from studio.openrouter import _classify
+
+    user_body = _json.dumps({"error": {
+        "message": "Insufficient credits. Add more using https://openrouter.ai/settings/credits",
+        "code": 402,
+        "metadata": {"limit_source": "openrouter_credits",
+                     "remedy_hint": "Add credits at https://openrouter.ai/settings/credits, or lower "
+                                    "max_tokens / prompt size to fit your remaining balance."}}})
+    assert _classify(402, user_body).code == "OPENROUTER_NO_CREDITS"
+    too_big = _json.dumps({"error": {"metadata": {"limit_source": "openrouter_credits",
+                                                  "reason": "weight_exceeds_budget"}}})
+    assert _classify(402, too_big).code == "OPENROUTER_REQUEST_TOO_BIG"
+    key_limit = _json.dumps({"error": {"metadata": {"limit_source": "openrouter_key_limit"}}})
+    assert _classify(402, key_limit).code == "OPENROUTER_KEY_LIMIT"
+    in_flight = _json.dumps({"error": {"metadata": {"limit_source": "openrouter_in_flight_budget",
+                                                    "reason": "in_flight_budget_exhausted"}}})
+    err = _classify(402, in_flight)
+    assert err.code == "OPENROUTER_IN_FLIGHT" and err.retryable
+    assert _classify(402, "not json").code == "OPENROUTER_NO_CREDITS"
