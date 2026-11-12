@@ -108,3 +108,51 @@
   background: repeating-linear-gradient(90deg, #d9c2a0 0 6px, #c9ae88 6px 9px);
 }
 .meli-opacity span { display: block; height: 100%; background: var(--ink, #1c1a17); transition: width .15s; }
+
+/* ---- Meli Batch (grid of recoloured photos) ---- */
+.stage-canvas.mb-stage { overflow-y: auto; padding: 22px 22px 28px; background: var(--bg-2); }
+.stage-canvas.mb-stage::before { display: none; }
+.mb-empty { height: 100%; display: grid; place-content: center; color: var(--ink-3, #8a857a); }
+.mb-bar {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px;
+  font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--ink-3, #8a857a);
+}
+.mb-bar .mb-count { flex: 1; min-width: 120px; }
+.mb-btn {
+  font-family: inherit; font-size: 11px; cursor: pointer; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line-2, #d8d3c8); background: var(--paper, #F4F1EA); color: var(--ink-2, #4a463f);
+}
+.mb-zip { border: 0; cursor: pointer; }
+.mb-zip:disabled { opacity: .6; cursor: wait; }
+.mb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.mb-tile { margin: 0; min-width: 0; }
+.mb-img {
+  position: relative; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden;
+  background: #101112; border: 1.5px solid transparent;
+}
+.mb-tile.done .mb-img { border-color: var(--accent, #5f7a56); }
+.mb-tile.error .mb-img { border-color: rgba(181,102,58,.7); }
+.mb-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mb-veil {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px;
+  padding: 10px; text-align: center; line-height: 1.45;
+  background: rgba(16,17,18,.62); color: rgba(244,241,234,.9);
+  font-family: 'Geist Mono', monospace; font-size: 10.5px;
+}
+.mb-veil .ed-spinner { width: 24px; height: 24px; margin-bottom: 8px; }
+.mb-veil.err { background: rgba(122,69,38,.86); }
+.mb-x {
+  position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%;
+  border: 0; cursor: pointer; background: rgba(16,17,18,.7); color: #F4F1EA; font-size: 14px; line-height: 1;
+  opacity: 0; transition: opacity .12s;
+}
+.mb-tile:hover .mb-x, .mb-x:focus-visible { opacity: 1; }
+.mb-tile figcaption {
+  display: flex; gap: 8px; align-items: center; margin-top: 5px;
+  font-family: 'Geist Mono', monospace; font-size: 10.5px; color: var(--ink-3, #8a857a);
+}
+.mb-tile figcaption .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-tile figcaption a, .mb-tile figcaption button {
+  font: inherit; font-size: 13px; color: var(--ink-2, #4a463f); text-decoration: none;
+  background: none; border: 0; padding: 0 2px; cursor: pointer;
+}

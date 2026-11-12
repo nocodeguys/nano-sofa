@@ -67,6 +67,12 @@ def meli_page():
     return page_response("meli.html")
 
 
+@router.get("/meli-batch")
+def meli_batch_page():
+    """Lab: the Meli wood recolor over a whole batch of bed photos at once."""
+    return page_response("meli-batch.html")
+
+
 @router.get("/experiments")
 def experiments_page():
     return page_response("experiments.html")

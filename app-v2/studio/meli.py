@@ -41,6 +41,7 @@ from studio.errors import _result_error, _validation_error
 from studio.external_engine import ALL_ASPECTS, ExternalEngineError
 from studio.media import _derived_url, _parse_quality, _prune_storage, _save_upload
 from studio.openrouter import OPENROUTER_MODELS, generate_openrouter
+from studio.source_match import fit_to_source, match_source_output
 from studio.paths import _THIS, logger
 
 router = APIRouter()
@@ -311,6 +312,9 @@ async def meli_recolor(
     quality: str = Form(""),
     output_format: str = Form("jpg"),
     output_quality: str = Form("90"),
+    # "1" → the result comes back at the photo's own pixel size (Meli Batch):
+    # the resolution tier follows the photo and the master is snapped to it.
+    match_source: str = Form(""),
     base: Optional[UploadFile] = File(None),
     references: list[UploadFile] = File(default_factory=list),
 ):
@@ -370,6 +374,9 @@ async def meli_recolor(
     width, height = base_image.size
     send_base = await asyncio.to_thread(_send_copy, base_path, "_send")
     aspect = nearest_aspect(width, height, list(cfg.get("aspects") or ALL_ASPECTS))
+    src_size = None
+    if match_source.strip().lower() in ("1", "true", "on", "yes"):
+        _aspect, res, src_size = match_source_output(model, base_path, aspect, res)
 
     # Reference plan within the model's cap: base first, then finish photos,
     # then the colour patch (only with a known hex and room left).
@@ -431,6 +438,7 @@ async def meli_recolor(
                 status_code=exc.http_status,
             )
 
+    await asyncio.to_thread(fit_to_source, Path(out["output_path"]), src_size)
     image_url, fmt_used, _downgraded = await _derived_url(
         out["output_path"], output_format, _parse_quality(output_quality), False,
     )

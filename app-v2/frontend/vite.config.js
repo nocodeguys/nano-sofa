@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 //   /admin  → admin.html   (local catalogue administration)
 //   /lab    → lab.html     (editorial composer on the OpenAI Images API)
 //   /meli   → meli.html    (wood-colour recolor of solid-wood beds)
+//   /meli-batch → meli-batch.html (the same recolor over many photos at once)
 // In dev, API + /catalog.js are proxied to the FastAPI server — start it
 // first (./app-v2/run.sh), then `npm run dev` here.
 export default defineConfig({
@@ -24,6 +25,7 @@ export default defineConfig({
         lab: resolve(import.meta.dirname, "lab.html"),
         experiments: resolve(import.meta.dirname, "experiments.html"),
         meli: resolve(import.meta.dirname, "meli.html"),
+        "meli-batch": resolve(import.meta.dirname, "meli-batch.html"),
         admin: resolve(import.meta.dirname, "admin.html"),
       },
     },

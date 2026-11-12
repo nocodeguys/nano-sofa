@@ -270,3 +270,41 @@ def test_recolor_google_error_is_passed_through(client, meli_data, monkeypatch):
     assert r.status_code == 401
     body = r.json()
     assert body["error_code"] == "INVALID_API_KEY" and body["error_detail"] == "API key not valid"
+
+
+def test_batch_page_is_served(client):
+    assert client.get("/meli-batch").status_code == 200
+
+
+def test_match_source_returns_the_photo_at_its_own_size(client, meli_data, monkeypatch, tmp_path):
+    """Meli Batch: the tier follows the photo and the master is snapped back
+    to the photo's pixel size; without the flag the model's size is kept."""
+    captured = {}
+
+    def fake_generate(**kw):
+        captured.update(kw)
+        out = tmp_path / f"render-{len(list(tmp_path.glob('render-*')))}.png"
+        Image.new("RGB", (2048, 1536), (90, 60, 40)).save(out)   # the model's own size
+        captured["out"] = out
+        return {"generation_id": "g", "output_path": out, "cost": 0.05,
+                "elapsed_ms": 900, "model_id": kw["model"], "resolution": kw["resolution"], "quality": ""}
+
+    async def fake_derived(master, fmt, quality, transparent):
+        return "/api/outputs/x.jpg", "jpg", False
+
+    monkeypatch.setattr(meli_data, "generate_openrouter", fake_generate)
+    monkeypatch.setattr(meli_data, "_derived_url", fake_derived)
+    form = {"openrouter_key": "sk-or-x", "model": "google/gemini-nano-banana-2.1",
+            "color": "dab-miodowy", "res": "4K"}
+
+    r = client.post("/api/meli/recolor", data={**form, "match_source": "1"},
+                    files={"base": ("bed.png", _png(1200, 900), "image/png")})
+    assert r.json()["success"]
+    assert captured["resolution"] != "4K"          # 1200×900 does not need the 4K tier
+    assert Image.open(captured["out"]).size == (1200, 900)
+
+    r = client.post("/api/meli/recolor", data=form,
+                    files={"base": ("bed.png", _png(1200, 900), "image/png")})
+    assert r.json()["success"]
+    assert captured["resolution"] == "4K"
+    assert Image.open(captured["out"]).size == (2048, 1536)
