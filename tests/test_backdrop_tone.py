@@ -148,3 +148,27 @@ def test_seria_tiles_and_regenerate_take_the_sources_tone(server, base_image, ro
                     files={"source_image": ("src.png", base_image.read_bytes(), "image/png")})
     assert r.status_code == 200, r.text
     assert r.json()["tone_locked"] and len(routes["tone"]) == 3
+
+
+def test_seria_snaps_each_tile_over_its_own_source(server, base_image, routes, monkeypatch):
+    """The size snap gets the source photo, so a render whose canvas is a hair
+    off the photo's ratio is laid back over it instead of cropped and zoomed
+    (studio.source_match._undo_cover) — grid tiles and 'regeneruj' alike."""
+    import studio.routes_generate as rg
+
+    snaps = []
+    monkeypatch.setattr(rg, "fit_to_source",
+                        lambda out, size, source=None: snaps.append((Path(out), source)))
+    client = _client(server)
+    r = client.post("/api/generate-variants",
+                    data={"api_key": "AIza-test", "kind": "bed", "upload_sids_csv": "s1",
+                          "pairs_json": json.dumps([{"color": "cream", "material": "boucle"}])},
+                    files=[("sources", ("src.png", base_image.read_bytes(), "image/png"))])
+    assert r.status_code == 200, r.text
+    r = client.post("/api/regenerate-variant",
+                    data={"api_key": "AIza-test", "kind": "bed", "color": "graphite", "material": "boucle"},
+                    files={"source_image": ("src.png", base_image.read_bytes(), "image/png")})
+    assert r.status_code == 200, r.text
+    assert len(snaps) == 2
+    assert all(source is not None and Path(source).is_file() and Path(source) != out
+               for out, source in snaps)

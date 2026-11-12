@@ -625,7 +625,7 @@ def _render_recolor_tile(src_path, *, model, aspect, res, openai_key, quality,
     )
     if not result.success or result.output_path is None:
         return result, False
-    fit_to_source(Path(result.output_path), src_size)
+    fit_to_source(Path(result.output_path), src_size, Path(src_path))
     _p, tone_locked = match_background_tone(result.output_path, Path(src_path))
     return result, tone_locked
 
