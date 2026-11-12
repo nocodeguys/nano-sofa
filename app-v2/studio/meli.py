@@ -438,7 +438,7 @@ async def meli_recolor(
                 status_code=exc.http_status,
             )
 
-    await asyncio.to_thread(fit_to_source, Path(out["output_path"]), src_size)
+    await asyncio.to_thread(fit_to_source, Path(out["output_path"]), src_size, base_path)
     image_url, fmt_used, _downgraded = await _derived_url(
         out["output_path"], output_format, _parse_quality(output_quality), False,
     )

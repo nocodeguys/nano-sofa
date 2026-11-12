@@ -32,6 +32,10 @@ _TIER_PIXELS = {"1K": 1024 * 1024, "2K": 2048 * 2048, "4K": 4096 * 4096}
 # than upscaled — a model capped under the source's size can't add detail.
 _MAX_UPSCALE = 1.15
 
+# How far (log ratio, ≈ 3 %) a model's canvas may be from the photo's ratio
+# for the difference to be read as "the model covered its canvas".
+_COVER_TOLERANCE = 0.03
+
 
 def _nearest_aspect(width: int, height: int, allowed: list[str]) -> str:
     target = math.log(width / height)
@@ -77,9 +81,46 @@ def match_source_output(
     return matched_aspect, matched_res, (width, height)
 
 
-def fit_to_source(output_path: Path, size: tuple[int, int] | None) -> None:
-    """Centre-crop the master PNG to the source's exact ratio, then resize it
-    to the source's pixel size (never upscaling past _MAX_UPSCALE). Keeps the
+def _undo_cover(out: Image.Image, source_path: Path, src_w: int, src_h: int) -> Image.Image | None:
+    """Put a render back over the photo it was made from, at the photo's scale.
+
+    A model's canvas is never exactly the photo's ratio (a 1600×1068 photo is
+    1.498, the "3:2" canvas 2528×1696 is 1.491), and the model fills its canvas
+    by covering it: the photo's short side fits, a sliver of the long side is
+    cut off. Cropping the render to the photo's ratio then cuts a second sliver
+    off the other side and the resize blows the rest up — every edit came back
+    ~0.5 % zoomed in. Instead the render is scaled so the side the model kept
+    whole matches the photo and is pasted centred over the photo; the sliver the
+    model never returned stays the photo's own pixels. None when the two ratios
+    are too far apart for "cover" to be the safe reading, or the photo is gone.
+    """
+    w, h = out.size
+    if abs(math.log((w / h) / (src_w / src_h))) > _COVER_TOLERANCE:
+        return None
+    if w / h < src_w / src_h:      # narrower canvas: full height kept, sides cut
+        new_w, new_h = round(src_h * w / h), src_h
+    else:                          # wider canvas: full width kept, top/bottom cut
+        new_w, new_h = src_w, round(src_w * h / w)
+    if max(w, h) * _MAX_UPSCALE < max(new_w, new_h):
+        return None
+    try:
+        with Image.open(source_path) as src:
+            canvas = src.convert(out.mode)
+    except Exception:
+        return None
+    if canvas.size != (src_w, src_h):
+        return None
+    canvas.paste(out.resize((new_w, new_h), Image.LANCZOS),
+                 ((src_w - new_w) // 2, (src_h - new_h) // 2))
+    return canvas
+
+
+def fit_to_source(output_path: Path, size: tuple[int, int] | None,
+                  source_path: Path | None = None) -> None:
+    """Snap the master PNG to the source's pixel size. With `source_path` and
+    a near-identical ratio the render is laid back over the source at 1:1
+    scale (_undo_cover); otherwise it is centre-cropped to the source's exact
+    ratio and resized (never upscaling past _MAX_UPSCALE). Keeps the
     nano_sofa_* tEXt identity chunks. Never raises — a failed snap leaves the
     render as the model returned it."""
     if size is None:
@@ -95,7 +136,10 @@ def fit_to_source(output_path: Path, size: tuple[int, int] | None) -> None:
 
         w, h = out.size
         target_ratio = src_w / src_h
-        if abs(math.log((w / h) / target_ratio)) > 0.002:
+        placed = _undo_cover(out, source_path, src_w, src_h) if source_path else None
+        if placed is not None:
+            out = placed
+        elif abs(math.log((w / h) / target_ratio)) > 0.002:
             if w / h > target_ratio:
                 new_w = round(h * target_ratio)
                 left = (w - new_w) // 2
@@ -105,7 +149,7 @@ def fit_to_source(output_path: Path, size: tuple[int, int] | None) -> None:
                 top = (h - new_h) // 2
                 out = out.crop((0, top, w, top + new_h))
 
-        if out.width * _MAX_UPSCALE >= src_w:
+        if out.size != (src_w, src_h) and out.width * _MAX_UPSCALE >= src_w:
             out = out.resize((src_w, src_h), Image.LANCZOS)
 
         info = PngImagePlugin.PngInfo()

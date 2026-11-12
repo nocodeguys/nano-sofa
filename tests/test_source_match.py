@@ -52,3 +52,44 @@ def test_fit_to_source_does_not_upscale_a_capped_render(server, tmp_path):
     with Image.open(out) as im:
         assert im.size[0] <= 1200
         assert abs(im.size[0] / im.size[1] - 4000 / 3000) < 0.01
+
+
+def test_fit_lays_a_covering_render_back_over_the_photo(tmp_path):
+    """A model canvas is never exactly the photo's ratio; it covers the canvas
+    and cuts a sliver off the long side. The snap must not zoom to hide that:
+    every pixel comes back where it was, the sliver stays the photo's own."""
+    import numpy as np
+    from PIL import Image
+    from studio.source_match import fit_to_source
+
+    rng = np.random.default_rng(7)
+    # Smooth structure (blown-up coarse noise): resampling barely changes it,
+    # a half-percent zoom does.
+    photo = Image.fromarray(rng.integers(0, 255, (89, 133, 3), dtype=np.uint8)).resize(
+        (1600, 1068), Image.BICUBIC)
+    src = tmp_path / "photo.png"
+    photo.save(src)
+    # What the model returns: 2528×1696 (1.4906) covering a 1.498 photo —
+    # full height, ~4 px cut from each side, and "recoloured" (inverted).
+    keep_w = round(1068 * 2528 / 1696)
+    left = (1600 - keep_w) // 2
+    render = Image.eval(photo.crop((left, 0, left + keep_w, 1068)), lambda v: 255 - v).resize(
+        (2528, 1696), Image.LANCZOS)
+    out = tmp_path / "render.png"
+    render.save(out)
+
+    fit_to_source(out, (1600, 1068), src)
+    result = np.asarray(Image.open(out), dtype=np.int16)
+    original = np.asarray(photo, dtype=np.int16)
+    assert result.shape == original.shape
+    # The slivers the model never returned are the photo itself …
+    assert (result[:, :left] == original[:, :left]).all()
+    # … and the rest is the render, unscaled: inverted photo, pixel for pixel.
+    inner = slice(left + 2, left + keep_w - 2)
+    assert np.abs(result[:, inner] - (255 - original[:, inner])).mean() < 1.5
+
+    # Without the photo the old crop-and-resize applies — and zooms.
+    render.save(out)
+    fit_to_source(out, (1600, 1068))
+    zoomed = np.asarray(Image.open(out), dtype=np.int16)
+    assert np.abs(zoomed[:, inner] - (255 - original[:, inner])).mean() > 3
