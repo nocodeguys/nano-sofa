@@ -49,8 +49,8 @@ def _request(server, base_image, **over):
         legs="keep",
         cam="studio",
         lens="35mm_wide", tod="golden_hour", shadow="hard_studio_5",
-        env="cyclorama_warm", env_note="", env_mode="",
-        model="gemini-2.5-flash-image", aspect="4:3", res="1K", seed="",
+        env="cyclorama_warm", env_note="",
+        model="gemini-2.5-flash-image", aspect="4:3", res="1K",
         base_image_path=base_image,
         scene_image_path=None,
     )
@@ -112,7 +112,7 @@ def test_catalog_uses_its_canonical_empty_studio_reference(
 ):
     req = _request(
         server, base_image, catalog=True, catalog_profile=profile,
-        env="loft", env_note="yellow sunset", env_mode="background",
+        env="loft", env_note="yellow sunset",
         scene_image_path=base_image, preserve_camera_from_base=True,
     )
     assert Path(req.scene_reference_image).name == filename
@@ -355,7 +355,7 @@ def test_variant_scene_that_contains_the_product_is_never_called_empty(
     # its curated plate, so the "previous render as backdrop" case cannot
     # arise there.
     req = _request(
-        server, base_image, env="grey", env_mode="",
+        server, base_image, env="grey",
         scene_image_path=base_image,
     )
     honest = replace(req, scene_contains_product=True)

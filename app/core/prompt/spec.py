@@ -1,13 +1,13 @@
 """PromptSpec — the engine-agnostic description of one render.
 
 Everything the prompt text can say comes from here; nothing in the sections
-reads a GenerationRequest or a picker id. The spec is plain dataclasses so
-it can be dumped into the trace (`to_dict`) and diffed between two runs.
+reads a GenerationRequest or a picker id. The spec is plain dataclasses, so
+two runs can be compared field by field.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Optional
 
 
 # --------------------------------------------------------------------------
@@ -189,6 +189,3 @@ class PromptSpec:
 
     def slot(self, role: str) -> Optional[int]:
         return self.slots.get(role)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)

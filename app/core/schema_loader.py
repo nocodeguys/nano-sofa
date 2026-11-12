@@ -36,7 +36,7 @@ class SofaSchema:
         props = raw["properties"]
 
         # Gemini ids, mirrored from the registry for the callers that still
-        # ask the schema (healthz, validate_request).
+        # ask the schema (healthz).
         self.model_ids: list[str] = [m.id for m in _registry().by_engine("gemini")]
 
         # The persona Gemini gets as system instruction and the other engines

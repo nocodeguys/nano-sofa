@@ -53,9 +53,3 @@ def compile_prompt(spec: PromptSpec) -> str:
     for section in order:
         lines.extend(section(spec))
     return "\n".join(lines)
-
-
-def section_names(spec: PromptSpec) -> list[str]:
-    """Which sections contribute text for this spec — handy in traces."""
-    order = FREEFORM_ORDER if spec.mode == "freeform" else PRODUCT_ORDER
-    return [fn.__name__ for fn in order if fn(spec)]

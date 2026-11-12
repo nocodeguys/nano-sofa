@@ -31,8 +31,8 @@ def _req(server, base_image, **over):
     kwargs = dict(
         api_key="k", kind="bed", color="taupe", color_custom="", mat="cremona", mat_notes="",
         size="160", legs="keep", cam="studio", lens="35mm_wide", tod="golden_hour",
-        shadow="hard_studio_5", env="", env_note="", env_mode="",
-        model="gemini-nano-banana-2.1", aspect="4:3", res="1K", seed="",
+        shadow="hard_studio_5", env="", env_note="",
+        model="gemini-nano-banana-2.1", aspect="4:3", res="1K",
         base_image_path=base_image, scene_image_path=None,
     )
     kwargs.update(over)

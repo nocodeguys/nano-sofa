@@ -19,7 +19,7 @@ import { buildRequest, toFormData } from "./wizard/request.js";
 
 const { COLORS, COLOR_GROUPS, COLLECTIONS, MATERIALS, CATALOG_MISSING, colorById,
         SIZES_SOFA, SIZES_BED, CAMERAS, LEGS, BACKGROUNDS, canonicalBackgroundId,
-        LENSES, TIMES_OF_DAY, SHADOWS,
+        LENSES, TIMES_OF_DAY,
         SHOT_TYPES, DETAIL_REGIONS_FABRIC, DETAIL_REGIONS_CORNER,
         // Missing since the Vite build (772d16c): picking "Close-up" threw
         // ReferenceError, so the close-up shot was unreachable from the UI.
@@ -67,6 +67,24 @@ function fileSlug(...parts) {
   return parts.filter(Boolean).join("-").toLowerCase().replace(/ł/g, "l")
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// One shape for every gallery render, whichever tab produced it — the
+// download name and the stored history read the same fields everywhere.
+function galleryItem({ url, generation_id, colorId, customHex, material, product,
+                       background, catalog_profile, tag, setId, cost }) {
+  const c = colorId && colorId !== "custom" ? COLORS.find(x => x.id === colorId) : null;
+  return {
+    url, generation_id: generation_id || null,
+    color: colorId === "custom" ? (customHex || null) : (c?.hex || null),
+    color_id: colorId || null,
+    fabric_code: c?.fabricCode || null,
+    product_name: (product || "").trim() || null,
+    material: material || null,
+    background: background || null,
+    catalog_profile: catalog_profile || null,
+    tag, setId: setId || null, cost, ts: Date.now(),
+  };
 }
 
 // The file name a gallery render downloads under — the stage button and the
@@ -482,7 +500,8 @@ function App({ t, mode = "photos" }) {
         url: g.url, generation_id: g.generation_id || null,
         color: g.color || null, color_id: g.color_id || null, fabric_code: g.fabric_code || null,
         product_name: g.product_name || null,
-        material: g.material || null, catalog_profile: g.catalog_profile || null,
+        material: g.material || null, background: g.background || null,
+        catalog_profile: g.catalog_profile || null,
         tag: g.tag || null, setId: g.setId || null, cost: g.cost ?? null, ts: g.ts || null,
       }));
       localStorage.setItem(GALLERY_STORAGE, JSON.stringify(slim));
@@ -556,7 +575,6 @@ function App({ t, mode = "photos" }) {
   };
   const lensObj   = useMemo(() => LENSES.find(l => l.id === st.lens),         [st.lens]);
   const todObj    = useMemo(() => TIMES_OF_DAY.find(t => t.id === st.tod),    [st.tod]);
-  const shadowObj = useMemo(() => SHADOWS.find(s => s.id === st.shadow),      [st.shadow]);
 
   // The `color_custom` string the server injects verbatim into the prompt when
   // color === "custom". Merges the free-text description with the optional HEX
@@ -696,14 +714,10 @@ function App({ t, mode = "photos" }) {
         setGenError(errorFromResponse(r, data));
       } else {
         setGallery(g => [
-          { url: data.image_url, generation_id: data.generation_id || null,
-            color: st.color === "custom" ? (st.colorCustomHex || null) : (colorObj?.hex || null),
-            color_id: st.color === "custom" ? "custom" : (colorObj?.id || null),
-            fabric_code: colorObj?.fabricCode || null,
-            product_name: st.product.trim() || null,
-            material: matObj?.id || null,
-            catalog_profile: data.catalog_profile || null,
-            tag: "v" + (g.length + 1), cost: data.cost, ts: Date.now() },
+          galleryItem({ url: data.image_url, generation_id: data.generation_id,
+            colorId: st.color, customHex: st.colorCustomHex, material: matObj?.id, product: st.product,
+            background: data.background, catalog_profile: data.catalog_profile,
+            tag: "v" + (g.length + 1), cost: data.cost }),
           ...g,
         ]);
         setActiveGallery(0);
@@ -744,14 +758,10 @@ function App({ t, mode = "photos" }) {
         try { data = await r.json(); } catch { /* non-JSON body (proxy error page) */ }
         if (!r.ok || !data || data.error) { failed.push({ id: f.id, name: f.name, error: errorFromResponse(r, data) }); return; }
         setGallery(g => [
-          { url: data.image_url, generation_id: data.generation_id || null,
-            color: snap.color === "custom" ? (snap.colorCustomHex || null) : (colorObj?.hex || null),
-            color_id: snap.color === "custom" ? "custom" : (colorObj?.id || null),
-            fabric_code: colorObj?.fabricCode || null,
-            product_name: snap.product.trim() || null,
-            material: matObj?.id || null,
-            catalog_profile: data.catalog_profile || null,
-            tag: fileSlug(f.name), setId, cost: data.cost, ts: Date.now() },
+          galleryItem({ url: data.image_url, generation_id: data.generation_id,
+            colorId: snap.color, customHex: snap.colorCustomHex, material: matObj?.id, product: snap.product,
+            background: data.background, catalog_profile: data.catalog_profile,
+            tag: fileSlug(f.name), setId, cost: data.cost }),
           ...g,
         ]);
         setActiveGallery(0);
@@ -969,9 +979,9 @@ function App({ t, mode = "photos" }) {
       });
       setShootProgress(p => p ? ({ ...p, done: p.done + 1 }) : p);
       if (msg.image_url && msg.generation_id) {
-        setGallery(g => [{ url: msg.image_url, generation_id: msg.generation_id,
-          color: COLORS.find(c => c.id === msg.color)?.hex || null, material: msg.material || null,
-          tag: "fs", cost: msg.cost, ts: Date.now() }, ...g]);
+        setGallery(g => [galleryItem({ url: msg.image_url, generation_id: msg.generation_id,
+          colorId: msg.color, material: msg.material, product: st.product,
+          tag: "fs", cost: msg.cost }), ...g]);
       }
     };
     const onDone = (msg) => {
@@ -1043,8 +1053,8 @@ function App({ t, mode = "photos" }) {
           });
           return { ...prev, sources };
         });
-        if (data.generation_id) setGallery(g => [{ url: data.image_url, generation_id: data.generation_id,
-          color: COLORS.find(c => c.id === color)?.hex || null, material: material || null, tag: "fs", cost: data.cost, ts: Date.now() }, ...g]);
+        if (data.generation_id) setGallery(g => [galleryItem({ url: data.image_url, generation_id: data.generation_id,
+          colorId: color, material, product: st.product, tag: "fs", cost: data.cost }), ...g]);
       } else {
         setShootError(errorFromResponse(resp, data));
       }
@@ -1078,12 +1088,10 @@ function App({ t, mode = "photos" }) {
         // renders can later be picked as a Fotosesja anchor.
         const fresh = [data.anchor, ...(data.variants || [])]
           .filter(v => v && v.image_url && v.generation_id)
-          .map(v => ({ url: v.image_url, generation_id: v.generation_id,
-                       color: COLORS.find(c => c.id === v.color)?.hex || null,
-                       material: v.material || null,
-                       product_name: st.product.trim() || null,
-                       catalog_profile: data.catalog_profile || null,
-                       tag: "set", cost: v.cost, ts: Date.now() }));
+          .map(v => galleryItem({ url: v.image_url, generation_id: v.generation_id,
+                       colorId: v.color, customHex: st.colorCustomHex, material: v.material,
+                       product: st.product, background: data.background,
+                       catalog_profile: data.catalog_profile, tag: "set", cost: v.cost }));
         if (fresh.length) setGallery(g => [...fresh, ...g]);
       }
     } catch (e) {

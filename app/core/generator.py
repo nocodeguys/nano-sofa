@@ -31,7 +31,6 @@ from app.core.cost_tracker import (
 from app.core.generation_trace import build_generation_trace, write_generation_trace
 from app.core.schema_loader import schema
 from app.core.prompt import compile_prompt, product_spec
-from app.core.prompt import sections as _sections
 from app.core.prompt.spec import hex_to_rgb, is_dark_hex, relative_luminance  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -481,22 +480,10 @@ class ReferenceSlot:
 
 
 _COLOR_PATCH_SIZE = 512
-# Relative luminance below which a shade is treated as deep/near-black and
-# gets the DEEP-SHADE EXPOSURE clause. Forest green (#2E3B2C), chocolate
-# (#4E3E2F) and black qualify; graphite (#656F70) and olive (#6A7763) do not.
-_DARK_LUMINANCE = 0.06
 
 
 # Colour helpers live in app.core.prompt.spec; re-exported for old callers.
 _hex_to_rgb = hex_to_rgb
-
-
-def prompt_engine(model_id: str) -> str:
-    """Which prompt dialect a model gets: "gpt" for the GPT Image family (OpenAI
-    direct ids and OpenRouter "openai/gpt-image-*" slugs), else "gemini".
-    GPT Image follows texture wording literally and exaggerates it (bigger,
-    crisper, higher-contrast loops); Gemini leans on the reference photos."""
-    return "gpt" if "gpt-image" in (model_id or "") else "gemini"
 
 
 def _color_patch_image(hex_value: str) -> Optional[Image.Image]:
@@ -638,12 +625,6 @@ def slot_numbers(plan: list[ReferenceSlot]) -> dict[str, int]:
     return {slot.role: index for index, slot in enumerate(plan, start=1)}
 
 
-def _count_active_refs(req: GenerationRequest) -> int:
-    if req.freeform_prompt and req.base_product_image is None:
-        return len(plan_freeform_reference_slots(req))
-    return len(plan_reference_slots(req))
-
-
 def _load_reference_plan(
     req: GenerationRequest, base_img: Image.Image, max_refs: Optional[int] = None
 ) -> list[tuple[ReferenceSlot, Image.Image]]:
@@ -663,16 +644,6 @@ def _load_reference_plan(
             continue
         loaded.append((slot, image))
     return loaded
-
-
-def _build_scene_block(
-    req: GenerationRequest, product_noun: str, slots: Optional[dict[str, int]] = None
-) -> str:
-    """SCENE section only — kept for callers that want just that paragraph.
-    The wording lives in app/core/prompt/sections.py."""
-    if slots is None:
-        slots = slot_numbers(plan_reference_slots(req))
-    return _sections._scene_block(product_spec(req, slots))
 
 
 def _build_prompt_text(
@@ -1074,64 +1045,3 @@ def _build_prompt_summary(req: GenerationRequest) -> str:
         req.resolution,
     ]
     return " | ".join(parts)
-
-
-def validate_request(req: GenerationRequest) -> list[str]:
-    """
-    Return a list of validation error strings. Empty list = valid.
-    Called before submission to surface errors in the UI without making an API call.
-    """
-    errors: list[str] = []
-
-    # Model must be in the schema enum
-    if req.model_id not in schema.model_ids:
-        errors.append(f"Unknown model ID: {req.model_id!r}. Must be one of: {schema.model_ids}")
-
-    # Resolution ceiling per model
-    allowed_resolutions = schema.resolution_choices_for_model(req.model_id)
-    if req.resolution not in allowed_resolutions:
-        errors.append(
-            f"Resolution {req.resolution!r} is not available on {req.model_id}. "
-            f"Allowed: {allowed_resolutions}"
-        )
-
-    # Reference slot ceiling
-    num_refs = _count_active_refs(req)
-    max_refs = schema.max_refs_for_model(req.model_id)
-    if num_refs > max_refs:
-        errors.append(
-            f"Too many reference images: {num_refs} slots filled but {req.model_id} "
-            f"allows a maximum of {max_refs}. Drop a reference or pick a model with a higher cap."
-        )
-
-    # Shadow direction required when legs or scene are swapped
-    has_leg_swap = req.leg_id is not None
-    has_scene = req.scene_reference_image is not None
-    if (has_leg_swap or has_scene) and not req.shadow_direction:
-        errors.append(
-            "Shadow direction is required when a leg or scene reference is active. "
-            "Fill the shadow direction field (e.g. '4 o-clock')."
-        )
-
-    # On Flash (3-ref cap), the swatch slot is reachable only when the total
-    # active refs are still <= 3. The total-refs check above handles this; no
-    # separate "preview only" rule is needed (the schema's slot_3_scene_or_swatch
-    # explicitly allows swatch in slot 3 on Flash when scene is absent).
-
-    # Preserve list must not be empty; base image is required. Neither rule
-    # applies to freeform/editorial requests, which are pure text-to-image.
-    if not req.freeform_prompt:
-        if not req.preserve_list:
-            errors.append("Preserve list must contain at least one item.")
-        if req.base_product_image is None:
-            errors.append("A base product image is required (slot 1).")
-
-    # Multi-turn chain-reset warning (not an error, but surfaces as warning)
-    if req.turn_number > 3:
-        errors.append(
-            f"WARNING: Turn {req.turn_number} exceeds the recommended chain length of 3. "
-            "Identity drift (stitching, leg joinery) is expected at this turn depth. "
-            "Save the current output and start a new chain with it as the base reference."
-        )
-
-    return errors

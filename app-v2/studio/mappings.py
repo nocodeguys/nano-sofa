@@ -32,20 +32,6 @@ _LEG_TO_ID = {
     "swivel": "swivel-base",
 }
 
-# Backdrop prompt paragraphs live in catalog.json (`backdrops[].prompt_en`);
-# this view keeps the old name for callers. Keyed by canonical id AND by
-# every alias (old env ids) so stale presets keep resolving.
-def _backdrop_prompts() -> dict[str, str]:
-    out: dict[str, str] = {}
-    for b in BACKDROPS.values():
-        out[b["id"]] = b["prompt_en"]
-        for alias in b.get("aliases", []) or []:
-            out[alias] = b["prompt_en"]
-    return out
-
-
-_CYCLORAMA_PROFILES = _backdrop_prompts()
-
 # ---------------------------------------------------------------------------
 # Catalog profile — the "one shoot" contract.
 #
@@ -87,7 +73,6 @@ _CATALOG_CAMERA_DEFAULTS = {
 # with a `locks` block pins lens / aperture / light / camera height so every
 # product of a range is shot in the same studio. `_CATALOG_LOCKS` is the
 # fallback set when an entry omits a key.
-_CATALOG_PROFILE_DEFAULT = DEFAULT_BACKDROP_ID
 
 
 def _catalog_profile_locks(profile: str) -> dict:

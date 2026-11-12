@@ -32,8 +32,8 @@ def _request(server, base_image, *, mat: str, mat_notes: str = ""):
         legs="keep",
         cam="studio",
         lens="50mm_natural", tod="noon_neutral", shadow="soft_diffuse",
-        env="cyclorama_neutral", env_note="", env_mode="",
-        model="gemini-2.5-flash-image", aspect="4:3", res="1K", seed="",
+        env="cyclorama_neutral", env_note="",
+        model="gemini-2.5-flash-image", aspect="4:3", res="1K",
         base_image_path=base_image,
         scene_image_path=None,
     )
@@ -131,8 +131,8 @@ def test_catalog_light_source_is_explicitly_outside_the_frame(server, base_image
         color="greige", color_custom="", mat="boucle", mat_notes="",
         size="160", legs="keep", cam="studio",
         lens="50mm_natural", tod="noon_neutral", shadow="soft_diffuse",
-        env="cyclorama_warm", env_note="", env_mode="",
-        model="gemini-3.1-flash-image", aspect="4:3", res="2K", seed="",
+        env="cyclorama_warm", env_note="",
+        model="gemini-3.1-flash-image", aspect="4:3", res="2K",
         base_image_path=base_image, scene_image_path=None,
         catalog=True, catalog_profile="ivory",
     )

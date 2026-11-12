@@ -161,8 +161,8 @@ def build_request(case: Case, base_image: Optional[Path]) -> GenerationRequest:
         size=size, legs="keep",
         cam="studio", lens="50mm_natural", tod="noon_neutral", shadow="soft_diffuse",
         shot=case.shot, yaw="34_left", height="", dof="", detail_region="",
-        env="", env_note="", env_mode="",
-        model=case.model, aspect="4:3", res="1K", seed="",
+        env="", env_note="",
+        model=case.model, aspect="4:3", res="1K",
         base_image_path=base_image, scene_image_path=None,
         extra_reference_paths=[], lock_to_reference=False,
         preserve_camera_from_base=False,
@@ -177,7 +177,7 @@ def build_request(case: Case, base_image: Optional[Path]) -> GenerationRequest:
         kwargs.update(background="ivory", lens="85mm_product", dof="deep", height="eye")
     else:
         # Lifestyle: the wizard posts every camera field plus its scene.
-        kwargs.update(background="scandi", env="scandi", env_mode="reference",
+        kwargs.update(background="scandi", env="scandi",
                       height="eye", dof="standard")
     kwargs.update(case.extra)
     return _build_generation_request(**kwargs)

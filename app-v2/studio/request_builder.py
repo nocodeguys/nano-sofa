@@ -135,8 +135,8 @@ def _build_generation_request(
     legs: str,
     cam: str,
     lens: str, tod: str, shadow: str,
-    env: str, env_note: str, env_mode: str,
-    model: str, aspect: str, res: str, seed: str,
+    env: str, env_note: str,
+    model: str, aspect: str, res: str,
     base_image_path: Path,
     scene_image_path: Optional[Path],
     preserve_camera_from_base: bool = False,
@@ -407,7 +407,7 @@ def _build_generation_request(
 
 def _recolor_request(
     *, api_key, kind, color, color_custom, mat, mat_notes, size, legs, cam, lens,
-    tod, shadow, shot, yaw, height, dof, detail_region, model, aspect, res, seed,
+    tod, shadow, shot, yaw, height, dof, detail_region, model, aspect, res,
     bedding_desc, source_path, product_name="",
 ):
     """One in-place recolor of `source_path`: keep its EXACT angle + background,
@@ -422,8 +422,8 @@ def _recolor_request(
         size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow,
         shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
-        env="", env_note="", env_mode="",
-        model=model, aspect=aspect, res=res, seed=seed,
+        env="", env_note="",
+        model=model, aspect=aspect, res=res,
         base_image_path=source_path,
         scene_image_path=None,                  # NO scene ref → model can't copy the old colour
         preserve_camera_from_base=True,

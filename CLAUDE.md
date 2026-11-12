@@ -18,7 +18,8 @@ Python 3.12, FastAPI + uvicorn, google-genai, Pillow, numpy, httpx · React 18 +
 - `app-v2/server.py` + `app-v2/studio/` — FastAPI routes, mappings, catalogue, external engines
 - `app-v2/frontend/src/` — one `.jsx` per page (`/`, `/video`, `/editorial`, `/lab`, `/admin`, `/meli`, `/help`)
 - `app-v2/catalog.json` + `app-v2/material-references/` — materials/colours, single source of truth; editable from `/admin`
-- `prompts/schemas/sofa.json` — model list + constraints; drives `/api/config` and the UI picker
+- `app-v2/models.json` — the one model registry (ids, caps, prices, defaults; read via `app/core/model_registry.py`); drives `/api/config` and the UI picker
+- `prompts/schemas/sofa.json` — request schema: enums and constraints, no models
 - `tests/` — prompt-invariant + API smoke tests; `.claude/agents/` — per-concern subagent briefs
 
 ## Gotchas
@@ -27,7 +28,7 @@ Python 3.12, FastAPI + uvicorn, google-genai, Pillow, numpy, httpx · React 18 +
 - Deploy is push-to-`main` only: CI runs tests, builds the image, Watchtower on user machines pulls it within ~5 min. Tags `v*.*.*` also produce a Release zip. Nothing is deployed any other way.
 - When `OUTPUTS_DIR` is set (Docker), the catalogue lives in `outputs/catalog/` and is reseeded from the image when `NANO_SOFA_BUILD_SHA` changes unless `pending-push.json` exists. Locally the checked-in files are edited directly — commit them.
 - Do not edit `app-v2/frontend/dist/` (gitignored build output). Vite hashes assets; `/catalog.js` is served `no-store` — keep it that way.
-- Adding a fabric *type* is a code change in three places: schema enum, `catalog.json`, `.mat-tex.<tex>` CSS in `styles-v2.css`. Adding a model is a schema edit only.
+- Adding a fabric *type* is a code change in three places: schema enum, `catalog.json`, `.mat-tex.<tex>` CSS in `styles-v2.css`. Adding a model is an `app-v2/models.json` edit only.
 - Respect the invariants in `ARCHITECTURE.md` (material noun must match texture spec; no `person_generation` unless set; no swatch ref in variants/fotosesja). Each was learned by a regression.
 - `NANO_SOFA_LOG_PROMPT=1` dumps the full outgoing prompt. Other tunables: `BATCH_CONCURRENCY`, `GEMINI_TIMEOUT_MS`, `MAX_OUTPUT_FILES`.
 - `app-v2/` has a dash, so tests import `server.py` by path (`tests/conftest.py`); `studio.*` imports resolve from `app-v2/`.

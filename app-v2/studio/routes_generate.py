@@ -249,8 +249,8 @@ async def api_generate(
         size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow,
         shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
-        env=env, env_note=env_note, env_mode=env_mode,
-        model=model, aspect=aspect, res=res, seed=seed,
+        env=env, env_note=env_note,
+        model=model, aspect=aspect, res=res,
         base_image_path=upload_path,
         scene_image_path=scene_upload_path,
         extra_reference_paths=extra_ref_paths,
@@ -462,8 +462,8 @@ async def api_generate_set(
         size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow,
         shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
-        env=env, env_note=env_note, env_mode=env_mode,
-        model=model, aspect=aspect, res=res, seed=seed,
+        env=env, env_note=env_note,
+        model=model, aspect=aspect, res=res,
         base_image_path=base_path,
         scene_image_path=scene_path,
         bedding_description=bedding_desc,
@@ -521,8 +521,8 @@ async def api_generate_set(
             size=size, legs=legs, cam=cam,
             lens=lens, tod=tod, shadow=shadow,
             shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
-            env=env, env_note=env_note, env_mode=env_mode,
-            model=model, aspect=aspect, res=res, seed=seed,
+            env=env, env_note=env_note,
+            model=model, aspect=aspect, res=res,
             base_image_path=base_path,
             scene_image_path=anchor_result.output_path,  # anchor PNG locks the scene
             bedding_description=bedding_desc,
@@ -603,6 +603,31 @@ async def api_generate_set(
         "catalog_profile": treat["id"] if catalog_mode else None,
         "background": treat["id"],
     }
+
+
+def _render_recolor_tile(src_path, *, model, aspect, res, openai_key, quality,
+                         openrouter_key, **recolor):
+    """One keep-scene recolour of `src_path`, post-processed the way every
+    Seria tile is — the grid and the per-tile 'regeneruj' both come through
+    here. Returns ``(result, tone_locked)``. Blocking: call it in a thread.
+
+    A recolour is the same photograph, so its aspect and size come from the
+    source, not from the page's pickers (see studio.source_match). It is only
+    *asked* to keep the source's backdrop and repaints it with the upholstery
+    (cream → beige wall), so the source's studio field is put back afterwards;
+    a room or a crop as the source is left alone.
+    """
+    src_aspect, src_res, src_size = match_source_output(model, src_path, aspect, res)
+    result = _render_product(
+        _recolor_request(model=model, aspect=src_aspect, res=src_res,
+                         source_path=src_path, **recolor),
+        openai_key, quality, openrouter_key,
+    )
+    if not result.success or result.output_path is None:
+        return result, False
+    fit_to_source(Path(result.output_path), src_size)
+    _p, tone_locked = match_background_tone(result.output_path, Path(src_path))
+    return result, tone_locked
 
 
 # Fotosesja v2 grid limits (single-user localhost tool; bound cost + fan-out).
@@ -743,34 +768,25 @@ async def api_generate_variants(
     # The client fills the grid live and drives a real X/N progress bar so the
     # user sees first results immediately instead of waiting for the whole batch.
     def _render(src_path, pair):
-        # A recolor is the same photograph: its aspect and size come from the
-        # source, not from the page's pickers (see studio.source_match).
-        src_aspect, src_res, src_size = match_source_output(model, src_path, aspect, res)
-        r = _render_product(_recolor_request(
+        return _render_recolor_tile(
+            src_path, model=model, aspect=aspect, res=res,
+            openai_key=openai_key, quality=quality, openrouter_key=openrouter_key,
             api_key=api_key, kind=kind, product_name=product_name,
             color=pair["color"], color_custom=color_custom,
             mat=pair["material"], mat_notes=mat_notes,
             size=size, legs=legs, cam=cam, lens=lens, tod=tod, shadow=shadow,
             shot=shot, yaw=yaw, height=height, dof=dof, detail_region=detail_region,
-            model=model, aspect=src_aspect, res=src_res, seed=seed,
-            bedding_desc=bedding_desc, source_path=src_path,
-        ), openai_key, quality, openrouter_key)
-        if r.success and r.output_path is not None:
-            fit_to_source(Path(r.output_path), src_size)
-        return r
+            bedding_desc=bedding_desc,
+        )
 
     async def _job(s, pair):
         # Never raises — failures become an error tile so the stream stays intact.
         try:
-            r = await _capped(_render, s["path"], pair)
+            r, tone_locked = await _capped(_render, s["path"], pair)
         except Exception as exc:
             return s, _item_error({"color": pair["color"], "material": pair["material"]}, exc)
         if not r.success or r.output_path is None:
             return s, _item_error({"color": pair["color"], "material": pair["material"]}, r)
-        # A recolour is only *asked* to keep the source's backdrop and repaints
-        # it with the upholstery (cream → beige wall). Put the source's studio
-        # field back; a room or a crop as the source is left alone.
-        _p, tone_locked = await asyncio.to_thread(match_background_tone, r.output_path, Path(s["path"]))
         v_url, _vf, _vd = await _derived_url(r.output_path, output_format, qual, False)
         return s, {"color": pair["color"], "material": pair["material"],
                    "image_url": v_url, "generation_id": r.generation_id, "cost": r.actual_cost,
@@ -870,22 +886,16 @@ async def api_regenerate_variant(
             bedding=bedding, bedding_custom=bedding_custom, throw=throw,
             tidy=tidy, density=density, accents_csv=accents, bed_note=bed_note,
         )
-    src_aspect, src_res, src_size = await asyncio.to_thread(
-        match_source_output, model, src_path, aspect, res
-    )
-    req = _recolor_request(
+    result, tone_locked = await asyncio.to_thread(
+        _render_recolor_tile, src_path, model=model, aspect=aspect, res=res,
+        openai_key=openai_key, quality=quality, openrouter_key=openrouter_key,
         api_key=api_key, kind=kind, product_name=product_name, color=color, color_custom=color_custom,
         mat=material, mat_notes=mat_notes, size=size, legs=legs, cam=cam,
         lens=lens, tod=tod, shadow=shadow, shot=shot, yaw=yaw, height=height,
-        dof=dof, detail_region=detail_region, model=model, aspect=src_aspect, res=src_res,
-        seed=seed, bedding_desc=bedding_desc, source_path=src_path,
+        dof=dof, detail_region=detail_region, bedding_desc=bedding_desc,
     )
-    result = await asyncio.to_thread(_render_product, req, openai_key, quality, openrouter_key)
     if not result.success or result.output_path is None:
         return _result_error(result)
-    await asyncio.to_thread(fit_to_source, Path(result.output_path), src_size)
-    # Same backdrop lock as the grid tile it replaces.
-    _p, tone_locked = await asyncio.to_thread(match_background_tone, result.output_path, src_path)
     qual = _parse_quality(output_quality)
     url, _f, _d = await _derived_url(result.output_path, output_format, qual, False)
     await asyncio.to_thread(_prune_storage)

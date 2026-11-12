@@ -242,8 +242,8 @@ def _bed_request(server, base_image, **overrides):
         api_key="", kind="bed", color="velutto-27", color_custom="",
         mat="cremona", mat_notes="", size="160", legs="keep", cam="studio",
         lens="50mm_natural", tod="noon_neutral", shadow="soft_diffuse",
-        env="", env_note="", env_mode="", model="gpt-image-2.5-sunburst",
-        aspect="4:3", res="2K", seed="", base_image_path=base_image,
+        env="", env_note="", model="gpt-image-2.5-sunburst",
+        aspect="4:3", res="2K", base_image_path=base_image,
         scene_image_path=None,
     )
     values.update(overrides)

@@ -8,10 +8,9 @@ engine receives.
     product_spec / freeform_spec (from_request.py)
                                  GenerationRequest / picker ids → PromptSpec
 
-Phase 2a (2026-10): the compiler reproduces the previous wording byte for
-byte (tests/test_prompt_compiler_parity.py proves it against a frozen copy
-of the old builders). Phase 2b changes the wording and the order here, in
-one place, with the goldens showing the diff.
+Phase 2a (2026-10) reproduced the previous wording byte for byte; phase 2b
+changed the wording and the order here, in one place. The frozen prompts in
+tests/golden/ (tests/test_golden_prompts.py) show every later diff.
 """
 from app.core.prompt.compile import compile_prompt
 from app.core.prompt.from_request import freeform_spec, product_spec

@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.generator import _build_prompt_text, validate_request
+from app.core.generator import _build_prompt_text
 
 BRIEF = "Przytulna sypialnia o świcie, łóżko z baldachimem, poranna mgła."
 
@@ -43,12 +43,6 @@ def test_freeform_pickers_are_optional(server):
     assert "ART DIRECTION" not in prompt
     assert "SETTING" not in prompt
     assert "OUTPUT STYLE" in prompt
-
-
-def test_freeform_passes_validation_without_base_image(server):
-    req = _freeform(server)
-    errors = validate_request(req)
-    assert not any("base product image" in e for e in errors), errors
 
 
 @pytest.fixture(scope="module")
